@@ -176,7 +176,14 @@ The Windows evidence captured at that baseline remains valid functional/native r
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE / NOT YET STARTED.** The PR #242 merge prerequisite is satisfied, but a separate explicit activation is still required. When activated: freeze a fresh exact candidate, run release qualification/installer evidence, perform supported-platform release-path native acceptance, and make a new publication decision.
+**INACTIVE / NOT YET STARTED — QUALIFICATION PREPARED.** The W6-09 merge prerequisite is satisfied, but a separate explicit activation is still required.
+
+Prepared qualification authority:
+
+- [W6-10 Release Re-entry Qualification Matrix](../tasks/W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md)
+- [W6-10 Release Re-entry Preflight](../tasks/W6-10-RELEASE-REENTRY-PREFLIGHT.md)
+
+The prepared sequencing is W6-10A RC Freeze -> Windows/macOS release qualification -> safety/recovery + release-path qualification -> final GO/NO-GO. Real supported macOS GUI / Quick Look evidence is a release gate, not a broad optional deferral. Merging the preparation package does **not** activate W6-10, create a release candidate, create a tag or authorize publication.
 
 ## Validation policy
 
