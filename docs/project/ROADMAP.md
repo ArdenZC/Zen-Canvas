@@ -89,7 +89,7 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 NATIVE REGRESSION IN PROGRESS**.
+Status: **ACTIVE — W6-09 OWNER VISUAL REMEDIATION 02 READY; WINDOWS EXACT-HEAD NATIVE VISUAL REVIEW COMPLETE**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
@@ -109,7 +109,7 @@ Before presentation work, verify:
 python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 ```
 
-Prepared activation: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10 remains inactive.
+Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10 remains inactive.
 
 
 Status: **ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
@@ -185,11 +185,13 @@ native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED — Issue #241 / PR #242.**
+**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; OWNER VISUAL REMEDIATION 02 READY — Issue #241 / PR #242.**
 
 Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. First-entry Browse, admitted ephemeral-session truth, Quick Preview PDF/Markdown/image/pinned behavior and relevant authority boundaries are accepted. Fresh hosted production-head CI 35608830144 is **SUCCESS**.
 
-Current Windows native captures are accepted functional/native regression evidence. They are **not** the final visual target because the owner superseded Liquid Glass with the checksum-bound **Solid / Calm Demo V2** authority after capture. Final visual acceptance requires presentation-only migration and fresh exact-head native recapture. Real macOS GUI, Windows Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
+Production source for the presentation migration is `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7`; fresh hosted CI 35685110417 is **SUCCESS**.
+
+Current Windows native captures are accepted functional/native regression evidence, and the exact-head Solid / Calm visual recapture for Remediation 02 is complete. The evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with ZIP `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`. Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path acceptance remain **UNVERIFIED**.
 
 W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 

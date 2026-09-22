@@ -1,11 +1,11 @@
 # W6-09 Solid / Calm V2 Presentation Migration — Activation
 
-Status: **COMMITTED IN PR #242 / OWNER REVIEW IN PROGRESS**
+Status: **OWNER VISUAL REMEDIATION 02 READY IN PR #242**
 
 Track: Issue #241 / PR #242
 Branch: `codex/w6-09-native-regression`
 
-Current candidate: `ef3ecf46d9c8a8dc2e60ea45acd5d9cbbf996aa3` / tree `83be954094c95818182b3e6f85887473d6475dea`; fresh hosted CI `35639678948` — **SUCCESS**.
+Current production source: `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7`; fresh hosted CI `35685110417` — **SUCCESS**.
 
 This is the next authorized implementation checkpoint after the Solid / Calm Demo V2 freeze. It is **presentation/material migration only**.
 
@@ -139,6 +139,16 @@ After migration is stable, rebuild the exact Windows Tauri candidate and capture
 Prioritize: whole-product Solid / Calm shell; Settings; >1 MiB PDF first page + continuous pages 2/3 + a late page; rendered Markdown; pinned Preview with background Files interaction and frozen source; Details closed/open; Image; Loading/Failed; Dark/Compact; titlebar controls; Forced Colors/DPI where feasible.
 
 Real macOS GUI remains UNVERIFIED unless a real host is available.
+
+## Owner Visual Remediation 02 completion record
+
+- Production source: `8fd246476e025636d4606a44d23688865ab89cc2`; tree `475a8d0e0295abbe37b3afa115738fa3602785e7`.
+- Frozen Solid / Calm verifier: exact `2/2 PASS`; expected Windows Demo V2 and Quick Preview Demo V2 hashes remain unchanged.
+- Exact-head Windows native visual recapture covers Settings gear, Markdown, image, loading, failed, Details closed/open, pinned background-different and compact Files-list states.
+- External evidence directory: `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\`.
+- External evidence package: `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`.
+- Scope remained presentation/material migration only. The accepted functional baseline, Preview/Browse/Read Gate/PDF/pinned authorities and release/publication boundaries were not reopened.
+- Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path acceptance remain **UNVERIFIED**.
 
 ## Stop condition
 

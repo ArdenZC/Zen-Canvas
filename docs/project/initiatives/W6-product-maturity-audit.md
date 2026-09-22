@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation committed in PR #242 / OWNER REVIEW IN PROGRESS; W6-09 FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION COMMITTED IN PR #242**
+Status: **ACTIVE — W6-09 OWNER VISUAL REMEDIATION 02 READY IN PR #242; WINDOWS EXACT-HEAD NATIVE VISUAL REVIEW COMPLETE; FUNCTIONAL/NATIVE BASELINE ACCEPTED**
 
 Owner: Zen Canvas
 
@@ -159,17 +159,17 @@ The Windows evidence captured at that baseline remains valid functional/native r
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION COMMITTED IN PR #242 — OWNER REVIEW IN PROGRESS.**
+**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; OWNER VISUAL REMEDIATION 02 READY IN PR #242.**
 
 - Issue #241 / PR #242 remain the active track/implementation authority.
 - Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - First-entry Browse admission/session truth and accepted Quick Preview functional architecture are frozen against presentation-only migration.
 - Windows native functional evidence was captured from the legal product route and is accepted for functionality.
 - Production-head hosted CI 35608830144 is **SUCCESS**.
-- Presentation candidate `ef3ecf46d9c8a8dc2e60ea45acd5d9cbbf996aa3` / tree `83be954094c95818182b3e6f85887473d6475dea` is pushed to PR #242; fresh hosted CI 35639678948 is **SUCCESS**.
+- Presentation production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` is pushed to PR #242; fresh hosted CI 35685110417 is **SUCCESS**.
 - Visual authority is now Solid / Calm Demo V2; Liquid Glass material is revoked.
-- Final visual parity is **NOT YET REVIEWED**; native evidence must be exact-head for each new candidate.
-- Real macOS GUI, Windows Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
+- Exact-head Windows Solid / Calm visual recapture is complete for Owner Visual Remediation 02 and retained at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\`; native evidence remains bound to the production source above.
+- Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path acceptance remain **UNVERIFIED**.
 - W6-10 remains **INACTIVE** and publication remains deferred.
 
 ### W6-10 — Release Re-entry
