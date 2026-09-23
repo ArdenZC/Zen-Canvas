@@ -73,6 +73,73 @@ STOP.
 
 Do not infer macOS PASS from CI.
 
+## Clean-host execution rule
+
+This macOS qualification host is intentionally a **clean user machine**, not a
+development workstation.
+
+At task start it is expected to have:
+
+- no Zen Canvas repository clone;
+- no project worktree;
+- no Node/npm environment installed for this task;
+- no Rust/Cargo toolchain installed for this task;
+- no Homebrew/dev-tool bootstrap performed for this task;
+- no local Zen Canvas build output.
+
+Therefore:
+
+- do **not** clone the Zen Canvas repository onto the Mac;
+- do **not** install Git/Node/npm/Rust/Cargo/Homebrew merely to run acceptance;
+- do **not** build Zen Canvas locally;
+- do **not** run repository tests on the Mac;
+- use only the frozen RC1 DMG plus built-in macOS tools and native GUI control;
+- collect evidence outside any repository;
+- export/copy the final evidence package off the Mac before cleanup;
+- repository result/current-truth docs and PR #256 follow-up commits must be
+  produced later from an existing development machine or GitHub-capable
+  environment, using the Mac evidence package as source authority.
+
+The clean-host state is a feature of the qualification: it approximates a
+first-time user's Mac rather than a developer machine.
+
+## Mandatory post-qualification cleanup
+
+After evidence has been safely exported off the Mac, restore the Mac to its
+pre-test user state and remove **all Zen Canvas/test artifacts created by this
+task**.
+
+Required cleanup includes, where created:
+
+- `/Applications/Zen Canvas.app`;
+- mounted Zen Canvas DMG volume;
+- downloaded RC1 DMG and duplicate/equivalent-quarantine copies;
+- temporary test fixtures and disposable folders;
+- Zen Canvas user app-data created by RC1 during qualification;
+- Zen Canvas caches/preferences/logs created by RC1 where they are clearly
+  app-owned and task-created;
+- temporary quarantine/backup directories created solely for this task;
+- native Quick Look staged artifacts owned by Zen Canvas when identifiable;
+- temporary screenshots/log extracts/manifests remaining on the Mac after the
+  evidence package has been transferred;
+- the local evidence root itself after successful transfer and verification.
+
+Do **not** install cleanup utilities. Do **not** delete or rewrite unrelated
+browser history, Finder recents, macOS unified logs, security/audit records, or
+other OS-managed history merely to hide that testing occurred. Do not delete
+any pre-existing user data.
+
+Before deleting the local evidence root, verify the exported copy by size/hash
+(or archive SHA-256 when zipped). Record cleanup/restoration results in the
+exported evidence package.
+
+Final host disposition must state one of:
+
+- **CLEAN HOST RESTORED — PASS**
+- **CLEAN HOST RESTORATION INCOMPLETE — BLOCKING**
+
+An incomplete restoration prevents final macOS PASS until resolved.
+
 ## Pre-release profile rule
 
 Before the release path counts:
