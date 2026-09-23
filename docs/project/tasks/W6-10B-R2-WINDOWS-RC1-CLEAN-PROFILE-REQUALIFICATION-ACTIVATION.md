@@ -78,6 +78,19 @@ Before the broader Windows matrix may count:
 Any FAIL or UNVERIFIED item above blocks RC1 and returns to Owner for RC2
 disposition.
 
+## Qualification authority
+
+The authoritative release contract for this task is:
+
+- [W6-10 Release Re-entry Qualification Matrix](W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md)
+
+This R2 activation may add stricter sequencing, but it must not weaken or replace
+that matrix. Every applicable Windows row must preserve the matrix disposition
+vocabulary (PASS / FAIL / UNVERIFIED / explicitly Owner-accepted residual), and
+the final result/evidence manifest must bind the RC1 candidate identity, Windows
+host/build/settings state, exact evidence paths, and each executed row. Any
+matrix hard blocker left FAIL or UNVERIFIED prevents a Windows GO.
+
 ## Full Windows release matrix
 
 Only after the self-state gates pass, complete the remaining Windows release
