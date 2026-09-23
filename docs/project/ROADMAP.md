@@ -89,13 +89,13 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED FOR CLEAN-PROFILE REQUALIFICATION; W6-10B HISTORICAL RC1 RESULT FAIL / BLOCKED; R1 CLEAN-PROFILE STARTUP PASS; RC2 NOT AUTHORIZED; W6-10C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**.
+Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B-R2 SELF-STATE GATES PASS; WINDOWS RC1 RELEASE QUALIFICATION FAIL / BLOCKED ON B02/B03 UNVERIFIED; OWNER REVIEW REQUIRED; RC2 NOT AUTHORIZED; W6-10C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Latest completed Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
 
-**Sequencing state: W6-10A — COMPLETE / CLOSED / MERGED; RC1 — retained for clean-profile requalification; W6-10B historical RC1 result — FAIL / BLOCKED; R1 diagnosis — clean-profile startup PASS; RC2 — NOT AUTHORIZED; next gate — RC1 clean-profile Windows requalification; W6-10C — ELIGIBLE / NOT ACTIVE**
+**Sequencing state: W6-10A — COMPLETE / CLOSED / MERGED; RC1 — retained and immutable; W6-10B-R2 self-state gates — PASS; Windows RC1 release qualification — FAIL / BLOCKED because B02 SmartScreen and B03 Unknown Publisher/UAC are UNVERIFIED; next gate — Owner review/disposition; RC2 — NOT AUTHORIZED; W6-10C — ELIGIBLE / NOT ACTIVE**
 
 #### Visual authority amendment — Solid / Calm Demo V2
 
@@ -109,10 +109,10 @@ Before presentation work, verify:
 python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 ```
 
-Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10A is complete with RC1 frozen. W6-10B historical qualification is FAIL / BLOCKED; the subsequent [`W6-10B-R1-WINDOWS-RELEASE-STARTUP-REMEDIATION-RESULT.md`](tasks/W6-10B-R1-WINDOWS-RELEASE-STARTUP-REMEDIATION-RESULT.md) proves RC1 clean-profile startup PASS. Owner disposition retains RC1 and does not authorize RC2. W6-10C remains eligible but not active.
+Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10A is complete with RC1 frozen. W6-10B historical qualification is FAIL / BLOCKED. R1 proved clean-profile startup PASS; R2 passed its self-state gates but stopped with blocking B02/B03 UNVERIFIED. See [`W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md`](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md). Owner review/disposition is required; RC1 remains immutable and RC2 is not authorized. W6-10C remains eligible but not active.
 
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B-R2 RESULT FAIL / BLOCKED, AWAITING OWNER REVIEW. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
@@ -139,7 +139,8 @@ The frozen implementation sequence is:
 
 W6-07 Phases 1–7, W6-08 and W6-09 are complete on the merged baseline. W6-10A
 is complete with RC1 frozen; W6-10B Windows Release Qualification is BLOCKED /
-FAIL; W6-10C remains eligible but not active.
+FAIL (R2 B02/B03 UNVERIFIED); Owner review is required; W6-10C remains eligible
+but not active.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 
@@ -198,7 +199,7 @@ W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tr
 
 ### W6-10 — Release Re-entry
 
-**ACTIVE — W6-10B-R2 WINDOWS RC1 CLEAN-PROFILE REQUALIFICATION.** Historical RC1 qualification is **FAIL / BLOCKED**, but R1 diagnosis demonstrated **clean-profile startup PASS**. Owner retained RC1 and did not authorize RC2. Current task: [Issue #253](https://github.com/ArdenZC/Zen-Canvas/issues/253); activation: [`W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-ACTIVATION.md`](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-ACTIVATION.md). RC1 must prove self-generated-state close/relaunch and uninstall/reinstall before the remaining Windows release matrix can count. W6-10C remains **ELIGIBLE / NOT ACTIVE**.
+**W6-10B-R2 RESULT READY FOR OWNER REVIEW — WINDOWS RC1 QUALIFICATION FAIL / BLOCKED.** R2 self-state gates passed, but blocking B02 SmartScreen and B03 Unknown Publisher/UAC are **UNVERIFIED**; the remaining Windows release matrix was stopped. Current task: [Issue #253](https://github.com/ArdenZC/Zen-Canvas/issues/253); activation: [`W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-ACTIVATION.md`](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-ACTIVATION.md); [result](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md). RC1 remains immutable; RC2 is not authorized. W6-10C remains **ELIGIBLE / NOT ACTIVE**; publication remains deferred.
 
 ## Publication disposition
 
