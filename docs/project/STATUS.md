@@ -4,10 +4,10 @@ Last verified: 2026-09-23
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@65c8a969de2e5f2cda1215fafd161fdd43475bb3`; tree `20ebbfcae1137cf01e70ee460d62363ebea47535` (W6-10B-R2 activation baseline). Merge-after hosted CI `35757703921` is **SUCCESS**.
-- Current initiative / sequencing state: **W6 — Product Maturity Audit remains ACTIVE — implementation; W6-10A is COMPLETE / CLOSED / MERGED; RC1 remains the release candidate; W6-10B-R2 clean-profile self-state gates PASS, but Windows RC1 release qualification is FAIL / BLOCKED because B02 SmartScreen and B03 Unknown Publisher/UAC are UNVERIFIED; Owner review/disposition is required; RC2 is not authorized; W6-10C remains ELIGIBLE / NOT ACTIVE; publication remains DEFERRED**.
+- Latest merged production baseline: `master@7df0841bfb8dab1cd62d96650659f103355f0211`; tree `a4531ef6a519f670bcfbc365b1cb8ae060b8f48e` (W6-10B-R2 blocked-result merge). Merge-after hosted CI `35837244510` is **SUCCESS**.
+- Current initiative / sequencing state: **W6 — Product Maturity Audit remains ACTIVE — implementation; W6-10A is COMPLETE / CLOSED / MERGED; RC1 remains immutable; W6-10B is BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED on B02/B03; RC2 is not authorized; W6-10C macOS Release Qualification is ACTIVE through Issue #255; publication remains DEFERRED**.
 - W6-08 Cross-Platform Quick Preview: **COMPLETE through PR #240**.
-- Current W6-10 task authority: [Issue #253 — W6-10B-R2 Windows RC1 Clean-Profile Requalification](https://github.com/ArdenZC/Zen-Canvas/issues/253); [R2 result](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md) is ready for Owner review. Issue #251 is closed after proving RC1 clean-profile startup PASS and recording the Owner decision not to create RC2.
+- Current W6-10 task authority: [Issue #255 — W6-10C macOS Release Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/255). Windows Issue #253 is CLOSED with W6-10B blocked only on missing valid SmartScreen/UAC evidence host.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
 - Functional / authority disposition: **ACCEPTED**. First-entry Browse, admitted ephemeral-session truth, Preview Core/Read Gate, PDF range/lazy/continuous rendering, Markdown, image transport, provider ordering, pinned-source semantics, Details and cancellation behavior are frozen against presentation-only migration.
@@ -17,7 +17,7 @@ Last verified: 2026-09-23
 - Production-head hosted CI: [35608830144](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35608830144) — **SUCCESS**. Evidence/docs-head CI: [35611907483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35611907483) — **SUCCESS**.
 - Solid / Calm presentation migration is **IMPLEMENTED / MERGED through PR #242**; accepted presentation production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. Owner Windows exact-head native product and Solid / Calm visual acceptance are **PASS**; W6-09 is **COMPLETE / CLOSED / MERGED**.
 - Full supported-platform native PASS is **NOT CLAIMED**. Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, accessibility qualification and remaining lifecycle/mutation residuals are explicitly accepted for W6-10; see the [W6-09 closeout result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
-- W6 parent remains **ACTIVE — implementation**. W6-10A is **COMPLETE / CLOSED / MERGED**. W6-10B historical qualification and R2 clean-profile release qualification are **FAIL / BLOCKED**; R2 self-state gates passed, but blocking B02 SmartScreen and B03 Unknown Publisher/UAC remain **UNVERIFIED**. See [R2 result](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md). Owner review/disposition is required. RC1 remains retained and immutable; **do not create RC2**. W6-10C is **ELIGIBLE / NOT ACTIVE**; publication remains deferred.
+- W6 parent remains **ACTIVE — implementation**. W6-10A is **COMPLETE / CLOSED / MERGED**. W6-10B remains **BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED** because B02 SmartScreen and B03 Unknown Publisher/UAC are UNVERIFIED on available Windows hosts; this is not an RC1 product defect and RC2 is not authorized. W6-10C macOS Release Qualification is now **ACTIVE**. Publication remains deferred.
 
 ## Current visual authority
 
@@ -30,13 +30,13 @@ Last verified: 2026-09-23
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B-R2 SELF-STATE GATES PASS; WINDOWS RC1 RELEASE QUALIFICATION FAIL / BLOCKED ON B02/B03 UNVERIFIED; OWNER REVIEW REQUIRED; RC2 NOT AUTHORIZED; W6-10C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**
+Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED; RC2 NOT AUTHORIZED; W6-10C MACOS RELEASE QUALIFICATION ACTIVE; PUBLICATION DEFERRED**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Latest completed track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
 
-Current task awaiting Owner review: [Issue #253 — W6-10B-R2 Windows RC1 Clean-Profile Requalification](https://github.com/ArdenZC/Zen-Canvas/issues/253). Activation: [W6-10B-R2 Windows RC1 Clean-Profile Requalification](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-ACTIVATION.md). [Result](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md): **FAIL / BLOCKED** on B02/B03 UNVERIFIED. RC1 remains immutable; RC2 is not authorized.
+Current implementation task: [Issue #255 — W6-10C macOS Release Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/255). Activation: [W6-10C macOS Release Qualification](tasks/W6-10C-MACOS-RELEASE-QUALIFICATION-ACTIVATION.md). Windows [R2 result](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md) remains **BLOCKED** on B02/B03 pending a valid evidence host.
 
 ## Release, schema and platform truth
 
@@ -112,7 +112,7 @@ Current task awaiting Owner review: [Issue #253 — W6-10B-R2 Windows RC1 Clean-
 - Production-head hosted CI 35608830144 is **SUCCESS**; evidence/docs-head CI 35611907483 is **SUCCESS**; presentation source CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) is **SUCCESS**.
 - Production source is `8fd246476e025636d4606a44d23688865ab89cc2`; tree `475a8d0e0295abbe37b3afa115738fa3602785e7`. Owner Windows exact-head native product and Solid / Calm visual acceptance are **PASS**. Full supported-platform native PASS is **NOT CLAIMED**; Windows DPI/scaling, Forced Colors, real macOS GUI/Retina and release-path/release-binary acceptance are accepted residuals for W6-10. Final authority: [W6-09 Whole-Product Native Regression — Closeout Result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS** on `master@164608f90b8233303fefcf9660822daea0ecb857`.
-- W6-10 Release Re-entry is **ACTIVE in W6-10B-R2 Windows RC1 clean-profile requalification**. The exact RC1 passes a true clean-profile startup; RC2 is not authorized. RC1 must now prove normal close/relaunch and uninstall/reinstall using state generated by RC1 itself, then complete the remaining Windows release matrix. W6-10C remains **ELIGIBLE / NOT ACTIVE**; publication remains deferred.
+- W6-10 Release Re-entry is **ACTIVE in W6-10C macOS Release Qualification**. Windows W6-10B is independently blocked on missing valid SmartScreen/UAC evidence host after RC1 self-state gates passed. RC1 remains immutable and RC2 is not authorized. Publication remains deferred.
 
 ## Review policy
 

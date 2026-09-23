@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B-R2 SELF-STATE GATES PASS; WINDOWS RC1 RELEASE QUALIFICATION FAIL / BLOCKED ON B02/B03 UNVERIFIED; OWNER REVIEW REQUIRED; RC2 NOT AUTHORIZED; W6-10C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**
+Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED; RC2 NOT AUTHORIZED; W6-10C MACOS RELEASE QUALIFICATION ACTIVE; PUBLICATION DEFERRED**
 
 Owner: Zen Canvas
 
@@ -172,11 +172,11 @@ The Windows evidence captured at that baseline remains valid functional/native r
 - Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](../tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. Full supported-platform native PASS is **NOT CLAIMED**.
 - Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS** on `master@164608f90b8233303fefcf9660822daea0ecb857`.
-- W6-10A is **COMPLETE / CLOSED / MERGED**. Historical RC1 Windows qualification is **FAIL / BLOCKED**. Closed Issue #251 proved the exact RC1 reaches a stable usable Shell from a true clean profile and reproduced the failure only with retained pre-release/dev state. R2 passed all RC1 self-state gates, but blocking B02 SmartScreen and B03 Unknown Publisher/UAC remain **UNVERIFIED**, so the Windows release qualification is **FAIL / BLOCKED** and awaits Owner review. See [R2 result](../tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md). Owner retained RC1 and did not authorize RC2. W6-10C remains **ELIGIBLE / NOT ACTIVE**; publication remains deferred.
+- W6-10A is **COMPLETE / CLOSED / MERGED**. Windows R2 passed all RC1 self-state gates, but W6-10B remains **BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED** because B02 SmartScreen and B03 Unknown Publisher/UAC are UNVERIFIED on available hosts. This is an evidence-host gap, not an RC1 product defect; RC1 remains immutable and RC2 is not authorized. Current task: [Issue #255 — W6-10C macOS Release Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/255). Publication remains deferred.
 
 ### W6-10 — Release Re-entry
 
-**W6-10B-R2 RESULT READY FOR OWNER REVIEW — qualification FAIL / BLOCKED on B02/B03 UNVERIFIED; RC1 retained; RC2 not authorized; W6-10A remains COMPLETE / CLOSED.**
+**ACTIVE — implementation in W6-10C macOS Release Qualification; Windows W6-10B blocked on external SmartScreen/UAC evidence host; RC1 retained; RC2 not authorized; W6-10A remains COMPLETE / CLOSED.**
 
 Qualification authority:
 
