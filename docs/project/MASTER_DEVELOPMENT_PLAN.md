@@ -45,10 +45,14 @@ The owner direction now refines that north star further:
 
 The five product-level rules are:
 
-> **Search everything lightly.**  
-> **Understand only what is needed.**  
-> **Run AI only when asked or explicitly scheduled.**  
-> **Consume resources only when useful.**  
+> **Search everything lightly.**
+>
+> **Understand only what is needed.**
+>
+> **Run AI only when asked or explicitly scheduled.**
+>
+> **Consume resources only when useful.**
+>
 > **Touch files only after approval.**
 
 The architectural consequence is intentional separation:
