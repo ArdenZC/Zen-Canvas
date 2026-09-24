@@ -148,7 +148,15 @@ The full frontend suite first encountered generated Rust fixture files under `.t
 
 ## Hosted CI
 
-Pending Draft PR creation and Hosted CI dispatch. The PR must remain Draft. Hosted Windows/macOS integration is still required; no native UI measurement is inferred from local builds/tests.
+Draft PR [#264](https://github.com/ArdenZC/Zen-Canvas/pull/264) is open and remains Draft. Hosted CI run [36049624697](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36049624697) passed all required jobs against PR source HEAD `e93ffc7f5d34e55115f7eedf28a2b3f9390cbaa4`:
+
+- Windows and macOS Rust quality, release compile, and quality aggregates: PASS.
+- Frontend tests/build/browser quality and dependency audit: PASS.
+- Routed Search and Workspace Foundation performance lanes: PASS.
+- Native Apple Silicon macOS performance: PASS.
+- Source checkout/evidence, change-scope/routing, validation plan, and package metadata: PASS.
+
+The Result update below is a documentation-only successor to that exact CI-validated source tree; no production code or tests changed after the hosted run. CI compilation/performance does not exercise the installed candidate's Main/Search create/close lifecycle, so the native UI process/latency measurements above remain unmeasured.
 
 ## Local task hygiene / closeout blocker
 
