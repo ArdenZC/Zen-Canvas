@@ -35,6 +35,38 @@ Zen Canvas is **not** intended to become:
 
 The product should add value around the user's existing filesystem rather than demand that users migrate all habits into Zen.
 
+### 1.1 2026 product-direction refinement
+
+The owner direction now refines that north star further:
+
+> **Zen Canvas is an AI-native safe file workspace that stays nearly invisible when idle.**
+
+“AI-native” means AI is the preferred semantic reasoning layer where human-like judgment is actually needed. It does **not** mean an always-on Agent, default whole-machine content ingestion, autonomous filesystem mutation, or a requirement that ordinary search/browse/filter/tag workflows invoke AI.
+
+The five product-level rules are:
+
+> **Search everything lightly.**  
+> **Understand only what is needed.**  
+> **Run AI only when asked or explicitly scheduled.**  
+> **Consume resources only when useful.**  
+> **Touch files only after approval.**
+
+The architectural consequence is intentional separation:
+
+```text
+fast local metadata search
+        ≠
+managed File Library
+        ≠
+authorized content understanding
+        ≠
+AI semantic reasoning
+        ≠
+filesystem mutation authority
+```
+
+AI may propose meaning and plans. Existing deterministic safety, policy, preview, journal, Safe Trash, Restore and identity authorities decide whether and how a proposal may become a filesystem change.
+
 ## 2. File Library 2.0 product model
 
 File Library 2.0 is one product surface with two first-class working modes that share the same higher-level workspace shell.
@@ -449,23 +481,26 @@ Offline, materialization-required, unsupported, stale, corrupt, permission-denie
 
 Unless a new reviewed initiative changes the plan, do not silently pull in:
 
-- OCR as a general product module;
-- RAG/vector database;
-- AI Preview / automatic content understanding;
-- generic Agent runtime;
+- OCR as a general always-on or whole-machine product module;
+- whole-disk semantic/vector indexing or a RAG database over all personal files;
+- automatic background AI content understanding merely because files exist or change;
+- a generic always-on Agent runtime;
 - shell/MCP/tool execution;
 - third-party Preview plugin SDK;
-- arbitrary unmanaged recursive/global filesystem search;
+- generic full-volume recursive crawling when a supported native metadata provider is unavailable;
 - Query V3;
-- managed watcher rewrite;
-- second content-read/materialization engine;
-- second filesystem mutation/recovery system;
+- a second watcher truth source or speculative managed-watcher rewrite;
+- a second content-read/materialization engine;
+- a second filesystem mutation/recovery system;
 - automatic cloud hydration;
+- automatic crash/usage telemetry that runs or uploads without explicit product review and consent;
 - Intel macOS support;
 - Linux support;
 - new schema merely to make a local Track easier to implement.
 
-These ideas may be evaluated in future initiatives, but they are not part of the current File Library 2.0 / Preview development authorization.
+Default **native metadata-only global search** is no longer considered an unmanaged-crawler feature. It remains separate from managed File Library admission, Content Understanding and AI scope, and must use platform-native metadata providers plus bounded explicit fallback rather than a hidden whole-machine recursive scan.
+
+These ideas may be evaluated in future initiatives, but they are not silently authorized by a local implementation Track.
 
 ## 12. Development governance
 
@@ -546,3 +581,278 @@ Routine progress updates belong in `STATUS.md` / `ROADMAP.md` / initiative close
 - `docs/project/specs/file-library-preview/06-W1-IMPLEMENTATION-PLAN.md` — W1 dependency/Track plan.
 
 This Master Plan explains **why the whole program is shaped this way**. The research evidence preserves **how those conclusions were reconstructed and re-verified**; the supporting specifications define **what the currently frozen contracts mean**; initiatives/tasks define **what is authorized to change now**.
+
+## 15. Six-layer product architecture
+
+Long-horizon product work should preserve six conceptual layers. These are responsibility layers, not a demand for six processes or six databases.
+
+```text
+EXPERIENCE
+Overview · Files · Organize · Cleanup · History · Settings
+
+INTELLIGENCE
+AI Planner · AI Cleanup reasoning · Preference Memory · Automation intent
+
+CONTENT
+bounded extraction · current/stale artifacts · summary · keywords · content identity
+
+FILE PLATFORM
+Global Search · File Library · Browse · Preview · Tags · Saved Views
+
+SAFETY
+Policy · Operation Preview · identity revalidation · journal · Safe Trash · Restore
+
+ZERO-BURDEN RUNTIME
+Resident Core · WorkScheduler · ResourceGovernor · native events · power/QoS · lifecycle
+```
+
+The lower layers constrain the upper layers:
+
+- Intelligence must not bypass Safety.
+- Experience must not become a durable fact source.
+- Content must not become a prerequisite for metadata-only Global Search.
+- Zero-Burden runtime policy may change **when/how much** work runs, not **what is true**.
+- Safety/recovery correctness outranks power/performance optimization.
+
+## 16. Three-level file access model
+
+Zen must distinguish searchable, managed and AI-readable state.
+
+### Level 1 — Searchable
+
+Default local metadata search may include supported internal/local volumes through native platform metadata providers.
+
+Allowed facts include bounded metadata such as name, path, kind, extension, size, timestamps and native identity.
+
+Searchable does **not** imply:
+
+- File Library membership;
+- content extraction;
+- hashing;
+- thumbnail generation;
+- duplicate analysis;
+- AI access;
+- cloud upload;
+- mutation permission.
+
+### Level 2 — Managed
+
+A file enters managed File Library semantics only through the existing managed authorities and user/product admission paths.
+
+Managed state enables durable Library workflows such as tags, saved views, history context and reviewed organization/cleanup workflows.
+
+### Level 3 — AI-readable
+
+Content understanding and AI access require their own scope/policy/consent boundary.
+
+A file can therefore validly be:
+
+```text
+Searchable = YES
+Managed = NO
+AI-readable = NO
+```
+
+No implementation may collapse these levels into one “Zen has access” flag.
+
+## 17. Zero-Burden runtime direction
+
+Zen should behave like a native utility when idle and a richer workspace only when invoked.
+
+The detailed runtime/lifecycle contract is frozen separately in:
+
+- `docs/project/tasks/ZB-00-RUNTIME-RESOURCE-LIFECYCLE-FREEZE.md`
+
+The long-horizon shape is:
+
+```text
+DORMANT_RESIDENT
+≈ native utility
+
+SEARCH_ACTIVE
+≈ lightweight launcher
+
+MAIN_FOREGROUND
+≈ interactive file workspace
+
+USER_TASK_ACTIVE
+≈ bounded compute/IO service
+
+CONSTRAINED
+≈ interactive + safety-essential work only
+```
+
+Binding direction:
+
+- no expensive work merely because the app exists;
+- resident state is allowed, periodic idle work is not automatically allowed;
+- Search and Main WebViews should be demand-owned rather than permanently hidden full-app surfaces;
+- expensive work participates in the existing `WorkScheduler`;
+- a transient RuntimeResourceGovernor may adapt admission/concurrency/QoS but must not become a second scheduler or durable job authority;
+- Windows and Apple Silicon may use different native search, power and lifecycle mechanisms to deliver the same product contract;
+- completed work should release resources and converge back toward the resident baseline.
+
+## 18. Native-first default Global Search direction
+
+Global Search should ultimately answer “where is it?” without requiring the user to first import, scan or manage the file.
+
+That product contract is achieved through lightweight metadata, not universal deep indexing.
+
+### Windows
+
+Preferred supported-volume route:
+
+```text
+NTFS metadata
+→ MFT initial collection
+→ USN incremental changes
+→ Global Index
+```
+
+The existing privileged Global Index Windows service remains a metadata sensor/provider. It must not absorb general settings, AI, mutation, Preview, File Library, cleanup or restore authority.
+
+A native-provider failure on a full fixed/local volume must fail/degrade truthfully rather than silently becoming an expensive recursive whole-volume crawler.
+
+### macOS
+
+Preferred route:
+
+```text
+Spotlight / NSMetadataQuery
++ native metadata update notifications
++ bounded FSEvents reconciliation where required
+→ Zen Global Search
+```
+
+Zen should consume the system metadata authority instead of rebuilding a second full-machine crawler.
+
+### External and network storage
+
+Internal/local fixed storage may participate by default when the supported native contract is available.
+
+Removable/external and network/NAS sources should remain explicit/configurable and may use scheduled/manual refresh rather than permanent realtime observation when that is the lighter truthful behavior.
+
+## 19. AI semantic authority direction
+
+Future semantic Organize/Cleanup work should converge on:
+
+> **AI decides meaning. Deterministic systems provide facts, policy, validation and safe execution.**
+
+This does not move current durable authorities merely by being recorded here.
+
+### Organize
+
+Preferred future flow:
+
+```text
+user scope + intent
++ metadata/content facts
++ relationships
++ preference memory
++ policy context
+→ AI Planner
+→ structured proposal with reason/evidence/confidence
+→ deterministic validation
+→ existing durable Organization Plan / Operation Preview
+→ user review
+→ existing safe executor
+```
+
+The existing Organization Plan/journal/preview chain should be extended, not replaced.
+
+### Cleanup
+
+Preferred future split:
+
+```text
+deterministic detector
+→ fact/signal/evidence
+
+AI semantic reasoner
+→ what those facts likely mean for this user
+
+policy + review
+→ Safe Trash / Restore authority
+```
+
+A detector may prove “same hash”, “large”, “old”, “similar” or “temporary pattern”; that does not automatically mean “delete this”.
+
+### Rules and learning
+
+The long-horizon Rules role should move away from semantic destination/deletion authority and toward:
+
+- Policy;
+- Trigger;
+- Signal;
+- Smart View.
+
+User corrections should preferentially become **Preference Memory** supplied as advisory AI context rather than invisible auto-executing semantic rules.
+
+No old persisted setting/rule is silently reinterpreted into broader permission. Compatibility/migration must be explicit.
+
+### AI availability
+
+AI unavailability must not silently hand semantic authority back to legacy rules.
+
+Ordinary Search, Files, Browse, Preview, tags, filters and other deterministic workflows remain usable without AI.
+
+## 20. Long-horizon program phases
+
+These names are conceptual dependency phases, not current initiative activation. `STATUS.md` and `ROADMAP.md` remain the only project-level sequencing/authorization truth.
+
+### Phase A — Foundation
+
+- Zero-Burden resident/runtime lifecycle;
+- native-first default Global Search;
+- resource/power/QoS governance;
+- background-work admission and long-run performance.
+
+Goal: Zen becomes an extremely light desktop foundation before intelligence breadth increases.
+
+### Phase B — Intelligence
+
+- Content pipeline integration;
+- AI semantic authority separation;
+- AI Planner;
+- AI Organize;
+- AI Cleanup;
+- Preference Memory;
+- Rules-to-Policy/Trigger/Signal/View migration;
+- plan-generating Automation.
+
+Goal: AI performs the semantic work that deterministic rules cannot do well, while existing safety authorities remain deterministic.
+
+### Phase C — Experience
+
+- first-run/onboarding contract;
+- Overview reframed around attention/recent/next action rather than technical runtime status;
+- Settings simplification/progressive disclosure;
+- unified failure/recovery UX;
+- product workflow polish.
+
+Goal: ordinary users understand tasks and outcomes rather than Zen internals.
+
+### Phase D — Qualification
+
+- resident/long-run resource qualification;
+- battery/thermal/power behavior;
+- native platform lifecycle;
+- accessibility;
+- migration/upgrade compatibility;
+- installation/release evidence;
+- security and recovery regression.
+
+Goal: prove Zen can remain installed and resident on a real user's computer without becoming a burden or weakening safety.
+
+## 21. Cross-cutting tracks
+
+Every substantial future feature should be evaluated across these six tracks:
+
+1. **Privacy / Consent** — what metadata/content may be read, processed locally or sent to cloud providers?
+2. **Security / Recovery** — what existing identity, preview, journal, Safe Trash or Restore authority constrains the feature?
+3. **Resource / Performance** — when does it exist, wake, run, pause, release and return to idle?
+4. **Diagnostics** — how can failure be inspected locally without creating always-on telemetry or exposing sensitive content by default?
+5. **Accessibility** — keyboard/focus/screen-reader/reduced-motion/native-display behavior throughout its lifecycle.
+6. **Migration / Compatibility** — how do existing settings, rules, plans, caches and durable state survive the change?
+
+A feature is not product-complete merely because its happy-path UI works.
