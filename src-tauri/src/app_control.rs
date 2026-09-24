@@ -881,14 +881,16 @@ pub fn enter_background<R: Runtime>(
         let _ = readiness.set_ready(generation, true);
         return Err(format!("main_window_destroy_failed:{error}"));
     }
+    #[cfg(feature = "desktop-runtime")]
     eprintln!(
         "ui_runtime main_window_destroyed generation={generation} webview_count={}",
         app.webview_windows().len()
     );
+    #[cfg(not(feature = "desktop-runtime"))]
+    let _ = app;
     Ok(())
 }
 
-#[cfg(feature = "desktop-runtime")]
 fn restore_readiness_after_workspace_dispose_failure(
     readiness: &MainWindowReadinessState,
     generation: u64,
@@ -1033,6 +1035,8 @@ pub fn mark_main_window_ready<R: Runtime>(
             );
         }
     }
+    #[cfg(not(feature = "desktop-runtime"))]
+    let _ = (&app, &lifecycle);
     Ok(())
 }
 
