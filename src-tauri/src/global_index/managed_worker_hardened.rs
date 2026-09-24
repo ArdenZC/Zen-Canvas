@@ -705,7 +705,7 @@ fn run_worker(
     stop: Arc<AtomicBool>,
     wake_rx: Receiver<()>,
     wake_tx: SyncSender<()>,
-    mut idle_ready: Option<SyncSender<()>>,
+    idle_ready: Option<SyncSender<()>>,
 ) {
     let _ = db.reset_running_managed_ai_jobs();
     let active = Arc::new(AtomicUsize::new(0));
@@ -716,6 +716,7 @@ fn run_worker(
             .map(normalize_ai_settings)
             .ok()
             .filter(|settings| settings.enabled);
+        db.set_managed_ai_work_wakes_armed(settings.is_some());
         if let Some(settings) = settings {
             let desired_provider = match settings.provider {
                 AIProviderKind::Ollama => "local",
@@ -736,7 +737,7 @@ fn run_worker(
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
                 } else {
-                    signal_test_idle_wait(&mut idle_ready);
+                    signal_test_idle_wait(&idle_ready);
                     if wake_rx.recv().is_err() {
                         break;
                     }
@@ -775,18 +776,19 @@ fn run_worker(
                 }
             }
         }
-        signal_test_idle_wait(&mut idle_ready);
+        signal_test_idle_wait(&idle_ready);
         if wake_rx.recv().is_err() {
             break;
         }
     }
+    db.set_managed_ai_work_wakes_armed(false);
     while let Some(handle) = handles.pop() {
         let _ = handle.join();
     }
 }
 
-fn signal_test_idle_wait(idle_ready: &mut Option<SyncSender<()>>) {
-    if let Some(ready) = idle_ready.take() {
+fn signal_test_idle_wait(idle_ready: &Option<SyncSender<()>>) {
+    if let Some(ready) = idle_ready.as_ref() {
         let _ = ready.try_send(());
     }
 }
@@ -1380,6 +1382,104 @@ mod tests {
             completed_jobs, 3,
             "child completion must refill the worker slot"
         );
+        drop(worker);
+        drop(db);
+    }
+
+    #[test]
+    fn disabled_worker_ignores_global_index_batches_until_settings_control_wake() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind local Ollama fixture");
+        listener
+            .set_nonblocking(true)
+            .expect("make local Ollama fixture nonblocking");
+        let address = listener.local_addr().expect("local Ollama address");
+        let (served_tx, served_rx) = mpsc::channel();
+        let (server_stop_tx, server_stop_rx) = mpsc::channel();
+        let server = LocalOllamaServer {
+            stop_tx: server_stop_tx,
+            thread: Some(thread::spawn(move || {
+                run_local_ollama(listener, server_stop_rx, served_tx, 1);
+            })),
+        };
+
+        let test_dir = TestDatabaseDirectory::new();
+        let db = Database::open(test_dir.database_path()).expect("open worker database");
+        db.upsert_global_volume(&worker_test_volume())
+            .expect("insert managed source");
+        db.add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Managed\WakeTest".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add eligible managed scope");
+        let mut settings = AISettings {
+            enabled: false,
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: format!("http://{address}"),
+            model: "test-model".to_string(),
+            timeout_seconds: 5,
+            ..AISettings::default()
+        };
+        save_ai_settings_with_store(&db, &settings, &InMemoryCredentialStore::default())
+            .expect("persist disabled local provider settings");
+
+        let (worker, idle_rx) = ManagedAiWorker::start_for_test(db.clone());
+        idle_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("disabled worker reached its blocking wait");
+
+        // One batch creates durable eligible work, while many additional batches
+        // exercise the Global Index hot path without matching a Managed Scope.
+        db.upsert_global_entries_batch(&[worker_test_entry(0)])
+            .expect("create durable pending work while AI is disabled");
+        for index in 1..=32 {
+            let mut entry = worker_test_entry(index);
+            entry.path = format!(r"C:\Unmanaged\file-{index}.txt");
+            db.upsert_global_entries_batch(&[entry])
+                .expect("commit an unrelated Global Index batch");
+        }
+        let pending_jobs: i64 = db
+            .conn()
+            .expect("database connection")
+            .query_row(
+                "SELECT COUNT(*) FROM ai_jobs WHERE status = 'pending'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count durable pending jobs");
+        assert_eq!(pending_jobs, 1);
+        assert_eq!(
+            idle_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout),
+            "disabled AI must stay asleep across batches, including a newly pending job"
+        );
+        assert!(
+            served_rx.try_recv().is_err(),
+            "the disabled worker must not dispatch queued work"
+        );
+
+        settings.enabled = true;
+        save_ai_settings_with_store(&db, &settings, &InMemoryCredentialStore::default())
+            .expect("enable provider and force a control wake");
+        served_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("settings control wake processes previously pending durable work");
+        worker.shutdown();
+        server.stop_and_join();
+
+        let completed_jobs: i64 = db
+            .conn()
+            .expect("database connection")
+            .query_row(
+                "SELECT COUNT(*) FROM ai_jobs WHERE status = 'completed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count completed AI jobs");
+        assert_eq!(completed_jobs, 1);
         drop(worker);
         drop(db);
     }

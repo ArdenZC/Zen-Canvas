@@ -7,7 +7,11 @@ use std::{
     collections::VecDeque,
     fs,
     path::{Path, PathBuf},
-    sync::{mpsc::SyncSender, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::SyncSender,
+        Arc, Mutex,
+    },
 };
 
 const LIBRARY_COUNT_CACHE_MAX_ENTRIES: usize = 32;
@@ -19,19 +23,37 @@ struct LibraryCountCacheEntry {
 }
 
 #[derive(Clone, Default)]
-struct ManagedAiWakeSlot(Arc<Mutex<Option<SyncSender<()>>>>);
+struct ManagedAiWakeSlot {
+    sender: Arc<Mutex<Option<SyncSender<()>>>>,
+    work_wakes_armed: Arc<AtomicBool>,
+}
 
 impl ManagedAiWakeSlot {
     fn set(&self, sender: SyncSender<()>) {
+        self.set_work_wakes_armed(false);
         *self
-            .0
+            .sender
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(sender);
     }
 
-    fn notify(&self) {
+    fn set_work_wakes_armed(&self, armed: bool) {
+        self.work_wakes_armed.store(armed, Ordering::Release);
+    }
+
+    fn notify_control(&self) {
+        self.send_wake();
+    }
+
+    fn notify_work(&self) {
+        if self.work_wakes_armed.load(Ordering::Acquire) {
+            self.send_wake();
+        }
+    }
+
+    fn send_wake(&self) {
         let sender = self
-            .0
+            .sender
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
@@ -81,8 +103,18 @@ impl Database {
         self.managed_ai_waker.set(sender);
     }
 
-    pub(crate) fn notify_managed_ai_worker(&self) {
-        self.managed_ai_waker.notify();
+    /// Force the worker to re-read durable settings or policy state.
+    pub(crate) fn notify_managed_ai_control_wake(&self) {
+        self.managed_ai_waker.notify_control();
+    }
+
+    pub(crate) fn set_managed_ai_work_wakes_armed(&self, armed: bool) {
+        self.managed_ai_waker.set_work_wakes_armed(armed);
+    }
+
+    /// Signal newly eligible durable work only while the worker is interested.
+    pub(crate) fn notify_managed_ai_work(&self) {
+        self.managed_ai_waker.notify_work();
     }
 
     pub fn path(&self) -> &Path {
@@ -212,10 +244,19 @@ mod pool_tests {
         let wake_slot = ManagedAiWakeSlot::default();
         wake_slot.set(sender);
 
+        // Disarmed ordinary work signals do not wake a worker that has read that
+        // AI is disabled.
+        wake_slot.notify_work();
+        assert_eq!(
+            receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+
         // A producer can signal after the worker's last queue check but before it
         // begins waiting; the buffered token makes that transition race-safe.
-        wake_slot.notify();
-        wake_slot.notify();
+        wake_slot.set_work_wakes_armed(true);
+        wake_slot.notify_work();
+        wake_slot.notify_work();
         assert_eq!(receiver.try_recv(), Ok(()));
         assert_eq!(
             receiver.try_recv(),
@@ -224,7 +265,13 @@ mod pool_tests {
 
         // Separate clones share the same bounded, payload-free notification slot.
         let cloned_slot = wake_slot.clone();
-        cloned_slot.notify();
+        cloned_slot.set_work_wakes_armed(false);
+        cloned_slot.notify_work();
+        assert_eq!(
+            receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+        cloned_slot.notify_control();
         assert_eq!(receiver.try_recv(), Ok(()));
     }
 

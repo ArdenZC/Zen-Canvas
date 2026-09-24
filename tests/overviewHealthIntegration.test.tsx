@@ -210,22 +210,23 @@ let root: Root;
 let container: HTMLDivElement;
 let visibilityStateDescriptor: PropertyDescriptor | undefined;
 
-async function flush() {
+async function flush(useFakeTimers = false) {
   for (let index = 0; index < 4; index += 1) {
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (useFakeTimers) await Promise.resolve();
+      else await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
 }
 
-async function renderOverview(context: ChromeContextValue = chrome) {
+async function renderOverview(context: ChromeContextValue = chrome, useFakeTimers = false) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
     root.render(createElement(ChromeProvider, { value: context, children: createElement(ScannerView) }));
   });
-  await flush();
+  await flush(useFakeTimers);
 }
 
 function priorityTitle() {
@@ -284,13 +285,15 @@ describe("Overview durable health integration", () => {
     expect(container.querySelector('[data-overview-primary="true"]')?.textContent).toContain("检查搜索来源");
   });
 
-  it("refreshes on activation and authoritative changes without an interval, then releases listeners", async () => {
+  it("refreshes on activation and authoritative changes, then releases the visible-only timer and listeners", async () => {
     configureHealth({ roots: [{ id: "root-a", enabled: true }] });
     const intervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
     await renderOverview();
 
     expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(1);
-    expect(intervalSpy).not.toHaveBeenCalled();
+    expect(intervalSpy).toHaveBeenCalledTimes(1);
+    expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 60_000);
     expect(apiMocks.onWatcherReconciliationStatus).toHaveBeenCalledTimes(1);
     expect(apiMocks.onManagedScanEvent).toHaveBeenCalledTimes(1);
     expect(apiMocks.onAnalysisRunUpdated).toHaveBeenCalledTimes(1);
@@ -316,6 +319,7 @@ describe("Overview durable health integration", () => {
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
     await flush();
     expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(2);
+    expect(intervalSpy).toHaveBeenCalledTimes(2);
 
     await act(async () => eventMocks.managedScan?.({ status: "completed" }));
     await flush();
@@ -324,10 +328,65 @@ describe("Overview durable health integration", () => {
     act(() => root.unmount());
     await flush();
     expect(eventMocks.unregistered.sort()).toEqual(["analysis", "findings", "scan", "watcher"]);
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
     await act(async () => eventMocks.analysisRun?.({ status: "completed" }));
     await flush();
     expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(3);
     intervalSpy.mockRestore();
+  });
+
+  it("runs its 60-second safety refresh only while visible and clears it on unmount", async () => {
+    vi.useFakeTimers();
+    configureHealth({ roots: [{ id: "root-a", enabled: true }] });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+
+    await renderOverview(chrome, true);
+    expect(apiMocks.getGlobalIndexStatus).not.toHaveBeenCalled();
+    expect(intervalSpy).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    await flush(true);
+    expect(apiMocks.getGlobalIndexStatus).not.toHaveBeenCalled();
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await flush(true);
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(1);
+    expect(intervalSpy).toHaveBeenCalledTimes(1);
+    expect(intervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 60_000);
+    const firstTimer = intervalSpy.mock.results[0]?.value as number;
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    await flush(true);
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await flush(true);
+    expect(clearIntervalSpy).toHaveBeenCalledWith(firstTimer);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    await flush(true);
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await flush(true);
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(3);
+    expect(intervalSpy).toHaveBeenCalledTimes(2);
+    const secondTimer = intervalSpy.mock.results[1]?.value as number;
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    await flush(true);
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(4);
+
+    act(() => root.unmount());
+    await flush(true);
+    expect(clearIntervalSpy).toHaveBeenCalledWith(secondTimer);
+    expect(eventMocks.unregistered.sort()).toEqual(["analysis", "findings", "scan", "watcher"]);
+    await act(async () => eventMocks.analysisRun?.({ status: "completed" }));
+    await flush(true);
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(4);
   });
 
   it("shows the synchronization entry for watcher reconciliation", async () => {

@@ -81,7 +81,7 @@ impl Database {
 
         transaction.commit()?;
         let backfill_result = backfill_managed_scope(self, &scope);
-        self.notify_managed_ai_worker();
+        self.notify_managed_ai_control_wake();
         backfill_result?;
         Ok(scope)
     }
@@ -104,7 +104,7 @@ impl Database {
             [],
         )?;
         transaction.commit()?;
-        self.notify_managed_ai_worker();
+        self.notify_managed_ai_control_wake();
         Ok(removed > 0)
     }
 
@@ -195,7 +195,7 @@ impl Database {
             map_managed_scope,
         )?;
         transaction.commit()?;
-        self.notify_managed_ai_worker();
+        self.notify_managed_ai_control_wake();
         Ok(updated)
     }
 

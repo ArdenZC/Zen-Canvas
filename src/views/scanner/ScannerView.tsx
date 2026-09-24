@@ -52,6 +52,7 @@ const terminalAnalysisStatuses = new Set([
   "failed",
   "interrupted"
 ]);
+const OVERVIEW_HEALTH_SAFETY_REFRESH_MS = 60_000;
 
 export function ScannerView() {
   const { t, language } = useI18nContext();
@@ -93,6 +94,7 @@ export function ScannerView() {
   useEffect(() => {
     let disposed = false;
     let healthRefreshEpoch = 0;
+    let healthSafetyRefreshTimer: number | null = null;
     const unlisteners: Array<() => void> = [];
     const lastWatcherState = new Map<string, string>();
     const refreshHealth = async () => {
@@ -134,7 +136,30 @@ export function ScannerView() {
       });
     };
     const refreshIfVisible = () => {
-      if (!disposed && document.visibilityState !== "hidden") void refreshHealth();
+      if (!disposed && document.visibilityState === "visible") void refreshHealth();
+    };
+    const clearHealthSafetyRefresh = () => {
+      if (healthSafetyRefreshTimer !== null) {
+        window.clearInterval(healthSafetyRefreshTimer);
+        healthSafetyRefreshTimer = null;
+      }
+    };
+    const startHealthSafetyRefresh = () => {
+      clearHealthSafetyRefresh();
+      if (document.visibilityState === "visible") {
+        healthSafetyRefreshTimer = window.setInterval(
+          refreshIfVisible,
+          OVERVIEW_HEALTH_SAFETY_REFRESH_MS
+        );
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshIfVisible();
+        startHealthSafetyRefresh();
+      } else {
+        clearHealthSafetyRefresh();
+      }
     };
     const registerUnlistener = (register: () => Promise<() => void>) => {
       try {
@@ -147,8 +172,11 @@ export function ScannerView() {
       }
     };
 
-    if (document.visibilityState !== "hidden") void refreshHealth();
-    document.addEventListener("visibilitychange", refreshIfVisible);
+    if (document.visibilityState === "visible") {
+      refreshIfVisible();
+      startHealthSafetyRefresh();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     registerUnlistener(() => tauriApi.onWatcherReconciliationStatus((event) => {
       const nextState = [
         event.pending,
@@ -176,7 +204,8 @@ export function ScannerView() {
     return () => {
       disposed = true;
       healthRefreshEpoch += 1;
-      document.removeEventListener("visibilitychange", refreshIfVisible);
+      clearHealthSafetyRefresh();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       for (const unlisten of unlisteners) unlisten();
     };
   }, []);
