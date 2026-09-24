@@ -247,6 +247,7 @@ impl Database {
             count += 1;
         }
         transaction.commit()?;
+        self.notify_managed_ai_worker();
         Ok(count)
     }
 
