@@ -655,6 +655,16 @@ pub struct ManagedAiWorker {
 
 impl ManagedAiWorker {
     pub fn start(db: Database) -> Self {
+        Self::start_inner(db, None)
+    }
+
+    #[cfg(test)]
+    fn start_for_test(db: Database) -> (Self, Receiver<()>) {
+        let (idle_tx, idle_rx) = mpsc::sync_channel(1);
+        (Self::start_inner(db, Some(idle_tx)), idle_rx)
+    }
+
+    fn start_inner(db: Database, idle_ready: Option<SyncSender<()>>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_for_thread = stop.clone();
         let (wake, receiver) = mpsc::sync_channel(1);
@@ -662,7 +672,7 @@ impl ManagedAiWorker {
         let wake_for_thread = wake.clone();
         let handle = thread::Builder::new()
             .name("zen-canvas-managed-ai-worker".to_string())
-            .spawn(move || run_worker(db, stop_for_thread, receiver, wake_for_thread))
+            .spawn(move || run_worker(db, stop_for_thread, receiver, wake_for_thread, idle_ready))
             .ok();
         Self {
             stop,
@@ -690,7 +700,13 @@ impl Drop for ManagedAiWorker {
     }
 }
 
-fn run_worker(db: Database, stop: Arc<AtomicBool>, wake_rx: Receiver<()>, wake_tx: SyncSender<()>) {
+fn run_worker(
+    db: Database,
+    stop: Arc<AtomicBool>,
+    wake_rx: Receiver<()>,
+    wake_tx: SyncSender<()>,
+    mut idle_ready: Option<SyncSender<()>>,
+) {
     let _ = db.reset_running_managed_ai_jobs();
     let active = Arc::new(AtomicUsize::new(0));
     let mut handles = Vec::new();
@@ -719,8 +735,11 @@ fn run_worker(db: Database, stop: Arc<AtomicBool>, wake_rx: Receiver<()>, wake_t
                         Ok(()) | Err(RecvTimeoutError::Timeout) => continue,
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
-                } else if wake_rx.recv().is_err() {
-                    break;
+                } else {
+                    signal_test_idle_wait(&mut idle_ready);
+                    if wake_rx.recv().is_err() {
+                        break;
+                    }
                 }
                 continue;
             }
@@ -756,12 +775,19 @@ fn run_worker(db: Database, stop: Arc<AtomicBool>, wake_rx: Receiver<()>, wake_t
                 }
             }
         }
+        signal_test_idle_wait(&mut idle_ready);
         if wake_rx.recv().is_err() {
             break;
         }
     }
     while let Some(handle) = handles.pop() {
         let _ = handle.join();
+    }
+}
+
+fn signal_test_idle_wait(idle_ready: &mut Option<SyncSender<()>>) {
+    if let Some(ready) = idle_ready.take() {
+        let _ = ready.try_send(());
     }
 }
 
@@ -1165,6 +1191,31 @@ mod tests {
         }
     }
 
+    struct LocalOllamaServer {
+        stop_tx: mpsc::Sender<()>,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+
+    impl LocalOllamaServer {
+        fn stop_and_join(mut self) {
+            let _ = self.stop_tx.send(());
+            self.thread
+                .take()
+                .expect("local Ollama server thread")
+                .join()
+                .expect("local Ollama fixture thread");
+        }
+    }
+
+    impl Drop for LocalOllamaServer {
+        fn drop(&mut self) {
+            let _ = self.stop_tx.send(());
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
+
     fn worker_test_volume() -> GlobalVolume {
         GlobalVolume {
             id: "gv_zb02_worker_test".to_string(),
@@ -1260,9 +1311,12 @@ mod tests {
         let address = listener.local_addr().expect("local Ollama address");
         let (served_tx, served_rx) = mpsc::channel();
         let (server_stop_tx, server_stop_rx) = mpsc::channel();
-        let server = thread::spawn(move || {
-            run_local_ollama(listener, server_stop_rx, served_tx, 3);
-        });
+        let server = LocalOllamaServer {
+            stop_tx: server_stop_tx,
+            thread: Some(thread::spawn(move || {
+                run_local_ollama(listener, server_stop_rx, served_tx, 3);
+            })),
+        };
 
         let test_dir = TestDatabaseDirectory::new();
         let db = Database::open(test_dir.database_path()).expect("open worker database");
@@ -1288,9 +1342,12 @@ mod tests {
         save_ai_settings_with_store(&db, &settings, &InMemoryCredentialStore::default())
             .expect("enable local test provider");
 
-        let worker = ManagedAiWorker::start(db.clone());
-        // The worker starts with an empty durable queue and can already be waiting
-        // when this transaction commits. Its signal must survive that check→wait gap.
+        let (worker, idle_rx) = ManagedAiWorker::start_for_test(db.clone());
+        idle_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("worker reached the empty-queue wait after startup recovery");
+        // The worker has checked the empty durable queue and is at the check→wait
+        // boundary. Its buffered signal must survive a producer commit in this gap.
         let entries = (0..3).map(worker_test_entry).collect::<Vec<_>>();
         db.upsert_global_entries_batch(&entries)
             .expect("enqueue three durable AI jobs");
@@ -1303,8 +1360,7 @@ mod tests {
             }
         }
         worker.shutdown();
-        let _ = server_stop_tx.send(());
-        server.join().expect("local Ollama fixture thread");
+        server.stop_and_join();
         assert_eq!(
             served.len(),
             3,
