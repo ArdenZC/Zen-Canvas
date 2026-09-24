@@ -1326,15 +1326,15 @@ impl Database {
             .take(100)
             .map(|(_, file_id)| file_id)
             .collect::<Vec<_>>();
-        let queued_count =
-            crate::global_index::enqueue_managed_ai_for_library_files(&tx, &file_ids)? as i64;
+        let (queued_count, has_eligible_pending_work) =
+            crate::global_index::enqueue_managed_ai_for_library_files(&tx, &file_ids)?;
         tx.commit()?;
-        if queued_count > 0 {
-            self.notify_managed_ai_worker();
+        if has_eligible_pending_work {
+            self.notify_managed_ai_work();
         }
         Ok(AnalyzeOrganizationPlanItemsResult {
             plan_id,
-            queued_count,
+            queued_count: queued_count as i64,
             requires_refresh: true,
         })
     }

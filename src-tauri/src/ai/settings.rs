@@ -313,7 +313,7 @@ pub fn save_ai_settings_with_store(
         }
         return Err(DbError::from(error));
     }
-    db.notify_managed_ai_worker();
+    db.notify_managed_ai_control_wake();
     Ok(normalized)
 }
 

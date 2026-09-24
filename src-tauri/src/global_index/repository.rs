@@ -191,6 +191,7 @@ impl Database {
         let transaction = conn.transaction()?;
         let scope_policies = load_enabled_scope_policies(&transaction)?;
         let mut count = 0;
+        let mut has_eligible_pending_work = false;
         for entry in entries {
             let entry_id = entry.entry_id();
             transaction.execute(
@@ -243,11 +244,18 @@ impl Database {
                     entry.last_seen_at,
                 ],
             )?;
-            enqueue_ai_jobs_for_entry_with_scopes(&transaction, &entry_id, entry, &scope_policies)?;
+            has_eligible_pending_work |= enqueue_ai_jobs_for_entry_with_scopes(
+                &transaction,
+                &entry_id,
+                entry,
+                &scope_policies,
+            )?;
             count += 1;
         }
         transaction.commit()?;
-        self.notify_managed_ai_worker();
+        if has_eligible_pending_work {
+            self.notify_managed_ai_work();
+        }
         Ok(count)
     }
 
@@ -618,7 +626,7 @@ pub(crate) fn enqueue_ai_jobs_for_entry(
     transaction: &Transaction<'_>,
     entry_id: &str,
     entry: &GlobalEntryInput,
-) -> Result<(), DbError> {
+) -> Result<bool, DbError> {
     let scopes = load_enabled_scope_policies(transaction)?;
     enqueue_ai_jobs_for_entry_with_scopes(transaction, entry_id, entry, &scopes)
 }
@@ -626,8 +634,9 @@ pub(crate) fn enqueue_ai_jobs_for_entry(
 pub(crate) fn enqueue_managed_ai_for_library_files(
     transaction: &Transaction<'_>,
     file_ids: &[String],
-) -> Result<usize, DbError> {
+) -> Result<(usize, bool), DbError> {
     let mut queued = 0usize;
+    let mut has_eligible_pending_work = false;
     for file_id in file_ids {
         let path = transaction
             .query_row(
@@ -674,25 +683,26 @@ pub(crate) fn enqueue_managed_ai_for_library_files(
         let Some((entry_id, input)) = entry else {
             continue;
         };
-        enqueue_ai_jobs_for_entry(transaction, &entry_id, &input)?;
+        has_eligible_pending_work |= enqueue_ai_jobs_for_entry(transaction, &entry_id, &input)?;
         queued += 1;
     }
-    Ok(queued)
+    Ok((queued, has_eligible_pending_work))
 }
 
+/// Returns true only when this entry creates or reactivates scope-eligible pending work.
 pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
     transaction: &Transaction<'_>,
     entry_id: &str,
     entry: &GlobalEntryInput,
     scopes: &[ManagedScopePolicy],
-) -> Result<(), DbError> {
+) -> Result<bool, DbError> {
     let fingerprint = metadata_fingerprint(entry);
     let path_normalized = normalize_path(&entry.path);
     let Some(scope) = scopes
         .iter()
         .find(|scope| path_is_within(&path_normalized, &scope.path))
     else {
-        return Ok(());
+        return Ok(false);
     };
     let scope_id = &scope.id;
     let allow_local_ai = scope.allow_local_ai;
@@ -724,7 +734,7 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
                 "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_is_directory', updated_at = ?2 WHERE global_entry_id = ?1",
                 params![entry_id, now],
             )?;
-        return Ok(());
+        return Ok(false);
     }
     let now = unix_now();
     transaction.execute(
@@ -751,6 +761,7 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
             } else {
                 ("none", AI_JOB_BLOCKED_BY_POLICY)
             };
+            let reactivated_eligible_work = next_status == AI_JOB_PENDING;
             transaction.execute(
                     "UPDATE ai_jobs SET provider = ?2, status = ?3, attempt_count = 0, last_error = NULL, started_at = NULL, completed_at = NULL WHERE id = ?1",
                     params![job_id, provider, next_status],
@@ -763,8 +774,9 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
                     "UPDATE ai_analysis_state SET status = ?2, provider = ?3, last_error = NULL, updated_at = ?4 WHERE global_entry_id = ?1",
                     params![entry_id, next_status, provider, unix_now()],
                 )?;
+            return Ok(reactivated_eligible_work);
         }
-        return Ok(());
+        return Ok(false);
     }
     let (provider, status) = if allow_local_ai {
         ("local", AI_JOB_PENDING)
@@ -819,7 +831,7 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
         "#,
         params![entry_id, status, fingerprint, provider, unix_now()],
     )?;
-    Ok(())
+    Ok(status == AI_JOB_PENDING)
 }
 
 fn metadata_fingerprint(entry: &GlobalEntryInput) -> String {

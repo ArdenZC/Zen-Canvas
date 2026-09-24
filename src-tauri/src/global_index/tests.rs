@@ -730,6 +730,7 @@ fn managed_ai_queue_and_scope_eligibility_changes_wake_the_worker() {
         .expect("add managed scope");
     let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
     db.set_managed_ai_waker(wake_tx);
+    db.set_managed_ai_work_wakes_armed(true);
 
     let indexed = test_entry(r"C:\Global\Managed\indexed.txt", "indexed.txt", false);
     db.upsert_global_entries_batch(std::slice::from_ref(&indexed))
@@ -749,7 +750,11 @@ fn managed_ai_queue_and_scope_eligibility_changes_wake_the_worker() {
     let backfilled = test_entry(r"C:\Global\Backfill\saved.txt", "saved.txt", false);
     db.upsert_global_entries_batch(std::slice::from_ref(&backfilled))
         .expect("index entry outside managed scope");
-    assert_eq!(wake_rx.try_recv(), Ok(()));
+    assert_eq!(
+        wake_rx.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty),
+        "an entry without a matching scope must not wake the worker"
+    );
     let backfill_scope = db
         .add_managed_scope(AddManagedScopeRequest {
             path: r"C:\Global\Backfill".to_string(),
@@ -788,6 +793,93 @@ fn managed_ai_queue_and_scope_eligibility_changes_wake_the_worker() {
         )
         .expect("read re-enabled durable job status");
     assert_eq!(reenabled_status, "pending");
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_index_batch_wakes_only_for_new_or_reactivated_eligible_work() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let _scope = db
+        .add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Global\Eligible".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add eligible scope");
+    let _blocked_scope = db
+        .add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Global\Blocked".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: false,
+            allow_cloud_ai: false,
+        })
+        .expect("add policy-blocked scope");
+    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+    db.set_managed_ai_waker(wake_tx);
+    db.set_managed_ai_work_wakes_armed(true);
+
+    let outside_scope = test_entry(r"C:\Global\Outside\note.txt", "note.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&outside_scope))
+        .expect("index entry without a matching scope");
+    let directory = test_entry(r"C:\Global\Eligible\folder", "folder", true);
+    db.upsert_global_entries_batch(std::slice::from_ref(&directory))
+        .expect("index managed directory");
+    let blocked = test_entry(r"C:\Global\Blocked\blocked.txt", "blocked.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&blocked))
+        .expect("index policy-blocked entry");
+    assert_eq!(
+        wake_rx.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty),
+        "no-scope, directory, and blocked_by_policy entries must not wake the worker"
+    );
+
+    let eligible = test_entry(r"C:\Global\Eligible\work.txt", "work.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&eligible))
+        .expect("create eligible pending work");
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+
+    db.upsert_global_entries_batch(std::slice::from_ref(&eligible))
+        .expect("re-upsert unchanged pending input");
+    assert_eq!(
+        wake_rx.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty),
+        "an existing current job must not produce another work wake"
+    );
+
+    let entry_id = eligible.entry_id();
+    db.conn()
+        .expect("database connection")
+        .execute(
+            "UPDATE ai_jobs SET status = 'stale' WHERE global_entry_id = ?1",
+            [&entry_id],
+        )
+        .expect("mark current job stale");
+    db.upsert_global_entries_batch(std::slice::from_ref(&eligible))
+        .expect("reactivate stale eligible work");
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+
+    db.conn()
+        .expect("database connection")
+        .execute(
+            "UPDATE ai_jobs SET status = 'completed' WHERE global_entry_id = ?1",
+            [&entry_id],
+        )
+        .expect("mark current job completed");
+    db.upsert_global_entries_batch(std::slice::from_ref(&eligible))
+        .expect("re-upsert completed input");
+    assert_eq!(
+        wake_rx.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty),
+        "an existing completed result must not produce another work wake"
+    );
+
     drop(db);
     let _ = std::fs::remove_file(path);
 }

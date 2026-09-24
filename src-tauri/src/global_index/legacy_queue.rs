@@ -23,6 +23,7 @@ impl Database {
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
         let mut accepted = 0_i64;
+        let mut has_eligible_pending_work = false;
         for target in targets {
             if target.is_dir {
                 continue;
@@ -78,12 +79,13 @@ impl Database {
                     params![entry_id, super::models::unix_now()],
                 )?;
             }
-            enqueue_ai_jobs_for_entry(&transaction, &entry_id, &entry)?;
+            has_eligible_pending_work |=
+                enqueue_ai_jobs_for_entry(&transaction, &entry_id, &entry)?;
             accepted += 1;
         }
         transaction.commit()?;
-        if accepted > 0 {
-            self.notify_managed_ai_worker();
+        if has_eligible_pending_work {
+            self.notify_managed_ai_work();
         }
         Ok(queue_summary(targets.len() as i64, accepted))
     }
