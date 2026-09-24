@@ -1,6 +1,6 @@
 # ZB-03 — Runtime Resource Governance — Result
 
-Disposition: **READY FOR OWNER REVIEW — LOCAL CLEANUP PENDING**
+Disposition: **MERGED / OWNER REVIEW PASSED — LOCAL CLEANUP WAIVED BY OWNER POLICY EXCEPTION**
 
 ## Identity
 
@@ -177,3 +177,15 @@ Owner manual cleanup remains pending for these four task-owned roots under the l
 - No STATUS, ROADMAP, release/W6/RC1 state, or dependencies changed.
 - WebView lifecycle, Search Mini Runtime, Global Index 2-second redesign, MFT/USN, Spotlight/FSEvents redesign, AI semantic migration, and ZB-04 were not started.
 - No merge was performed; the PR will remain Draft and not Ready.
+
+
+## Final owner closeout
+
+- Final reviewed PR HEAD: `efcec2ccbbdafe2877ea89dc43a95453d23d3b55`.
+- Hosted CI on the exact final PR HEAD: run `36026398769` — success.
+- PR #262 was owner-approved and rebase-merged to `master` as `d13016fd15120e6faa879bce96c5eeaf7cc5d6f1`.
+- The remaining task-owned validation residue was **not tracked by Git** and was not part of the merged PR.
+- Conservative cleanup re-verified all eight documented reparse points, including two `protected-link` symlinks targeting `C:\Windows`.
+- Local command policy blocked even non-recursive deletion of the exact link objects. No bypass, target traversal, privilege change, alternate recursive deletion mechanism, or system-setting change was attempted.
+- Owner accepted the remaining local residue as a **local task-hygiene exception**, not a product/runtime correctness blocker.
+- No additional production code, schema, durable authority, STATUS, ROADMAP, release state, WebView lifecycle or Global Index provider work was added during closeout.
