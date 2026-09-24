@@ -3,7 +3,7 @@ import { act, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandModal } from "../src/components/CommandModal";
-import { tauriApi } from "../src/api/tauriApi";
+import { searchRuntimeApi as tauriApi } from "../src/api/searchRuntimeApi";
 import { makeTranslator } from "../src/i18n";
 
 const t = makeTranslator("en");
