@@ -1,6 +1,6 @@
 import { HardDrive, ListChecks, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
-import { tauriApi, type ScanRootDto } from "../../api/tauriApi";
+import { tauriApi, type ManagedScanEvent, type ScanRootDto } from "../../api/tauriApi";
 import { requestSettingsSection } from "../../components/spotlight/commandRegistry";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
@@ -12,6 +12,7 @@ import { formatBytes } from "../../utils/format";
 import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { cn } from "../../utils/tw";
 import { summarizeWatcherHealth, watcherHealthAttentionCount } from "../../utils/watcherPresentation";
+import type { AnalysisRun } from "../../types/domain";
 import { pageSurface } from "../shared/ui";
 import { OverviewPriorityTask } from "../overview/OverviewPriorityTask";
 import { ScanTaskPanel } from "../overview/ScanTaskPanel";
@@ -34,6 +35,23 @@ import {
   type OverviewHealthSnapshot,
   type OverviewPriorityTaskModel
 } from "../overview/overviewModel";
+
+const terminalScanStatuses = new Set([
+  "cancelled",
+  "cancelled_not_started",
+  "completed",
+  "completed_with_warnings",
+  "failed",
+  "interrupted",
+  "requires_reconciliation"
+]);
+const terminalAnalysisStatuses = new Set([
+  "cancelled",
+  "completed",
+  "completed_with_warnings",
+  "failed",
+  "interrupted"
+]);
 
 export function ScannerView() {
   const { t, language } = useI18nContext();
@@ -75,6 +93,8 @@ export function ScannerView() {
   useEffect(() => {
     let disposed = false;
     let healthRefreshEpoch = 0;
+    const unlisteners: Array<() => void> = [];
+    const lastWatcherState = new Map<string, string>();
     const refreshHealth = async () => {
       const refreshEpoch = ++healthRefreshEpoch;
       const [indexResult, rootsResult, managedScopesResult, analysisResult, analysisRunsResult, contentResult] = await Promise.allSettled([
@@ -113,11 +133,51 @@ export function ScannerView() {
         total: roots.length
       });
     };
-    void refreshHealth();
-    const timer = window.setInterval(() => { void refreshHealth(); }, 5000);
+    const refreshIfVisible = () => {
+      if (!disposed && document.visibilityState !== "hidden") void refreshHealth();
+    };
+    const registerUnlistener = (register: () => Promise<() => void>) => {
+      try {
+        void register().then((unlisten) => {
+          if (disposed) unlisten();
+          else unlisteners.push(unlisten);
+        }).catch(() => undefined);
+      } catch {
+        // The initial durable snapshot remains available if an optional event source fails.
+      }
+    };
+
+    if (document.visibilityState !== "hidden") void refreshHealth();
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    registerUnlistener(() => tauriApi.onWatcherReconciliationStatus((event) => {
+      const nextState = [
+        event.pending,
+        event.needsReconciliation,
+        event.rootRevision,
+        event.watcherRevision,
+        event.watcherAppliedRevision,
+        event.healthStatus,
+        event.activeRunId ?? "",
+        event.lastErrorCode ?? "",
+        event.lastErrorMessage ?? ""
+      ].join(":");
+      const previousState = lastWatcherState.get(event.scanRootId);
+      lastWatcherState.set(event.scanRootId, nextState);
+      if (previousState !== nextState) refreshIfVisible();
+    }));
+    registerUnlistener(() => tauriApi.onManagedScanEvent((event: ManagedScanEvent) => {
+      if (terminalScanStatuses.has(event.status)) refreshIfVisible();
+    }));
+    registerUnlistener(() => tauriApi.onAnalysisRunUpdated((event: AnalysisRun) => {
+      if (terminalAnalysisStatuses.has(event.status)) refreshIfVisible();
+    }));
+    registerUnlistener(() => tauriApi.onAnalysisFindingsPublished(() => refreshIfVisible()));
+
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      healthRefreshEpoch += 1;
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      for (const unlisten of unlisteners) unlisten();
     };
   }, []);
 
