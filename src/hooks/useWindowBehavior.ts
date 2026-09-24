@@ -1,17 +1,18 @@
 import { useCallback, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { tauriApi } from "../api/tauriApi";
-import type { CloseBehavior } from "../types/ui";
+import type { CloseBehavior, View } from "../types/ui";
 
 interface UseWindowBehaviorOptions {
   closeBehavior: CloseBehavior;
   setCloseBehavior: (next: CloseBehavior) => Promise<boolean>;
+  lastView: View;
   onError?: (error: unknown) => void;
 }
 
-export async function hideToBackground(onError?: (error: unknown) => void) {
+export async function hideToBackground(lastView: View = "scanner", onError?: (error: unknown) => void) {
   try {
-    await getCurrentWindow().hide();
+    await tauriApi.enterBackground(lastView);
   } catch (error) {
     onError?.(error);
   }
@@ -28,7 +29,8 @@ export async function quitApp(onError?: (error: unknown) => void) {
 export function performCloseBehavior(
   behavior: CloseBehavior,
   setCloseChoiceOpen: (open: boolean) => void,
-  onError?: (error: unknown) => void
+  onError?: (error: unknown) => void,
+  lastView: View = "scanner"
 ) {
   if (behavior === "ask") {
     setCloseChoiceOpen(true);
@@ -36,7 +38,7 @@ export function performCloseBehavior(
   }
 
   setCloseChoiceOpen(false);
-  if (behavior === "minimize") void hideToBackground(onError);
+  if (behavior === "minimize") void hideToBackground(lastView, onError);
   if (behavior === "quit") void quitApp(onError);
 }
 
@@ -67,6 +69,7 @@ export async function performWindowAction(
 export function useWindowBehavior({
   closeBehavior,
   setCloseBehavior: persistCloseBehavior,
+  lastView,
   onError
 }: UseWindowBehaviorOptions) {
   const [isCloseChoiceOpen, setIsCloseChoiceOpen] = useState(false);
@@ -85,8 +88,8 @@ export function useWindowBehavior({
   );
 
   const requestClose = useCallback(() => {
-    performCloseBehavior(closeBehaviorRef.current, setIsCloseChoiceOpen, onError);
-  }, [onError]);
+    performCloseBehavior(closeBehaviorRef.current, setIsCloseChoiceOpen, onError, lastView);
+  }, [lastView, onError]);
 
   const handleWindowAction = useCallback(
     async (action: "minimize" | "maximize" | "close") => {
@@ -100,9 +103,9 @@ export function useWindowBehavior({
       if (remember) await setCloseBehavior(action);
       setIsCloseChoiceOpen(false);
       if (action === "quit") void quitApp(onError);
-      if (action === "minimize") void hideToBackground(onError);
+      if (action === "minimize") void hideToBackground(lastView, onError);
     },
-    [onError, setCloseBehavior]
+    [lastView, onError, setCloseBehavior]
   );
 
   return {

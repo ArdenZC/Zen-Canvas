@@ -12,10 +12,12 @@ mod folder;
 mod location;
 mod preview;
 mod runtime;
+mod runtime_owner;
 mod thumbnail;
 pub mod types;
 
 pub use runtime::FileWorkspaceRuntime;
+pub use runtime_owner::{main_generation_from_window, FileWorkspaceRuntimeOwner};
 
 #[cfg(test)]
 mod tests;

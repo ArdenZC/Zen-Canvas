@@ -153,6 +153,7 @@ const explicitContracts: CommandContract[] = [
   ]),
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/app_control.rs", [
     "quit_app",
+    "enter_background",
     "mark_main_window_ready",
     "acknowledge_main_window_ready",
     "register_global_search_hotkey",

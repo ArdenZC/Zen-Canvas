@@ -14,6 +14,9 @@ export const windowApi = {
   quitApp(): Promise<void> {
     return invokeCommand<void>("quit_app");
   },
+  enterBackground(lastView: View): Promise<void> {
+    return invokeCommand<void>("enter_background", { lastView });
+  },
   activateSearchResult(view: View, fileId: string | null, snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">, settingsTarget?: SearchSettingsTarget | null): Promise<void> {
     return invokeCommand<void>("activate_search_result", { request: { sessionId: snapshot?.sessionId ?? null, expectedRevision: snapshot?.revision ?? null, view, fileId, settingsTarget: settingsTarget ?? null } });
   },
@@ -46,6 +49,9 @@ export const windowApi = {
   },
   onGlobalHotkeyRegistrationFailed(handler: EventHandler<GlobalHotkeyErrorPayload>): Promise<UnlistenFn> {
     return listenTo("global-hotkey-registration-failed", handler);
+  },
+  onMainWindowCloseRequested(handler: EventHandler<void>): Promise<UnlistenFn> {
+    return listenTo("main-window-close-requested", handler);
   }
 };
 

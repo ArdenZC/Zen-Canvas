@@ -1,5 +1,6 @@
 use super::{
     runtime::FileWorkspaceRuntime,
+    runtime_owner::FileWorkspaceRuntimeOwner,
     types::{
         encode_preview_asset_ipc_response, encode_thumbnail_ipc_response, BrowseCancelRequest,
         BrowseNextPageRequest, BrowseOpenRequest, BrowseReleasePageRequest,
@@ -71,27 +72,27 @@ where
 #[tauri::command]
 pub async fn file_workspace_browse_open<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseOpenRequest,
 ) -> Result<super::types::BrowseOpenResponse, String> {
     require_main_window(&window)?;
-    spawn_runtime(
-        runtime.inner().clone(),
-        "workspace_browse_open",
-        move |runtime| runtime.open_browse(request),
-    )
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_browse_open", move |runtime| {
+        runtime.open_browse(request)
+    })
     .await
 }
 
 #[tauri::command]
 pub async fn file_workspace_browse_restore<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseRestoreRequest,
 ) -> Result<super::types::BrowseOpenResponse, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_browse_restore",
         move |runtime| runtime.restore_browse(request),
     )
@@ -101,12 +102,13 @@ pub async fn file_workspace_browse_restore<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_location_browse<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: LocationBrowseRequest,
 ) -> Result<super::types::BrowseOpenResponse, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_location_browse",
         move |runtime| runtime.browse_location(request),
     )
@@ -116,12 +118,13 @@ pub async fn file_workspace_location_browse<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_browse_start_enumeration<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseStartEnumerationRequest,
 ) -> Result<super::types::BrowsePageDto, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_browse_start_enumeration",
         move |runtime| runtime.start_enumeration(request),
     )
@@ -131,12 +134,13 @@ pub async fn file_workspace_browse_start_enumeration<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_browse_next_page<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseNextPageRequest,
 ) -> Result<super::types::BrowsePageDto, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_browse_next_page",
         move |runtime| runtime.next_page(request),
     )
@@ -149,22 +153,28 @@ pub async fn file_workspace_browse_next_page<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_browse_cancel_enumeration<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseCancelRequest,
 ) -> Result<(), String> {
     require_main_window(&window)?;
-    runtime.cancel_enumeration(request)
+    if let Some(runtime) = runtime.current_if_initialized_for_window(&window)? {
+        runtime.cancel_enumeration(request)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn file_workspace_browse_release_page<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseReleasePageRequest,
 ) -> Result<(), String> {
     require_main_window(&window)?;
+    let Some(runtime) = runtime.current_if_initialized_for_window(&window)? else {
+        return Ok(());
+    };
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_browse_release_page",
         move |runtime| runtime.release_page(request),
     )
@@ -174,12 +184,15 @@ pub async fn file_workspace_browse_release_page<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_browse_release_path<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseReleasePathRequest,
 ) -> Result<(), String> {
     require_main_window(&window)?;
+    let Some(runtime) = runtime.current_if_initialized_for_window(&window)? else {
+        return Ok(());
+    };
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_browse_release_path",
         move |runtime| runtime.release_path(request),
     )
@@ -189,12 +202,15 @@ pub async fn file_workspace_browse_release_path<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_browse_retain_path<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseRetainPathRequest,
 ) -> Result<(), String> {
     require_main_window(&window)?;
+    let Some(runtime) = runtime.current_if_initialized_for_window(&window)? else {
+        return Ok(());
+    };
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_browse_retain_path",
         move |runtime| runtime.retain_path(request),
     )
@@ -204,12 +220,15 @@ pub async fn file_workspace_browse_retain_path<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_browse_dispose<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: BrowseSessionRequest,
 ) -> Result<(), String> {
     require_main_window(&window)?;
+    let Some(runtime) = runtime.current_if_initialized_for_window(&window)? else {
+        return Ok(());
+    };
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_browse_dispose",
         move |runtime| runtime.dispose_browse(request),
     )
@@ -219,51 +238,53 @@ pub async fn file_workspace_browse_dispose<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_location_list<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
 ) -> Result<Vec<crate::file_workspace::LocationDescriptor>, String> {
     require_main_window(&window)?;
-    spawn_runtime(
-        runtime.inner().clone(),
-        "workspace_location_list",
-        |runtime| runtime.list_locations(),
-    )
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_location_list", |runtime| {
+        runtime.list_locations()
+    })
     .await
 }
 
 #[tauri::command]
 pub async fn file_workspace_change_start<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: ChangeStartRequest,
 ) -> Result<super::types::ChangeStartResponse, String> {
     require_main_window(&window)?;
-    spawn_runtime(
-        runtime.inner().clone(),
-        "workspace_change_start",
-        move |runtime| runtime.start_change_monitor(request),
-    )
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_change_start", move |runtime| {
+        runtime.start_change_monitor(request)
+    })
     .await
 }
 
 #[tauri::command]
 pub async fn file_workspace_change_pending<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: ChangePendingRequest,
 ) -> Result<Option<super::types::ChangePendingResponse>, String> {
     require_main_window(&window)?;
-    runtime.pending_change(request)
+    match runtime.current_if_initialized_for_window(&window)? {
+        Some(runtime) => runtime.pending_change(request),
+        None => Ok(None),
+    }
 }
 
 #[tauri::command]
 pub async fn file_workspace_change_refresh<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: ChangeRefreshRequest,
 ) -> Result<super::types::BrowsePageDto, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_change_refresh",
         move |runtime| runtime.refresh_change(request),
     )
@@ -273,12 +294,15 @@ pub async fn file_workspace_change_refresh<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_change_dispose<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: ChangePendingRequest,
 ) -> Result<(), String> {
     require_main_window(&window)?;
+    let Some(runtime) = runtime.current_if_initialized_for_window(&window)? else {
+        return Ok(());
+    };
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_change_dispose",
         move |runtime| runtime.dispose_change_monitor(request),
     )
@@ -288,12 +312,13 @@ pub async fn file_workspace_change_dispose<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_read_eligibility<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: ReadEligibilityRequest,
 ) -> Result<super::types::ReadEligibilityResponse, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_read_eligibility",
         move |runtime| runtime.read_eligibility(request),
     )
@@ -303,12 +328,13 @@ pub async fn file_workspace_read_eligibility<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_thumbnail_request<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: ThumbnailRequestDto,
 ) -> Result<tauri::ipc::Response, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     let payload = spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_thumbnail_request",
         move |runtime| {
             let artifact = runtime.request_thumbnail(request)?;
@@ -324,22 +350,26 @@ pub async fn file_workspace_thumbnail_request<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_thumbnail_cancel<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: ThumbnailCancelRequest,
 ) -> Result<bool, String> {
     require_main_window(&window)?;
-    runtime.cancel_thumbnail(request)
+    match runtime.current_if_initialized_for_window(&window)? {
+        Some(runtime) => runtime.cancel_thumbnail(request),
+        None => Ok(false),
+    }
 }
 
 #[tauri::command]
 pub async fn file_workspace_preview_create<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: PreviewCreateRequest,
 ) -> Result<super::types::PreviewSnapshotDto, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_preview_create",
         move |runtime| runtime.create_preview(request),
     )
@@ -349,61 +379,68 @@ pub async fn file_workspace_preview_create<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_preview_snapshot<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: PreviewSessionRequest,
 ) -> Result<super::types::PreviewSnapshotDto, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     let presentation = request.native_presentation.clone();
     let snapshot = runtime.snapshot_preview(request)?;
-    attach_native_preview(&window, runtime.inner(), &snapshot, presentation.as_ref())
+    attach_native_preview(&window, &runtime, &snapshot, presentation.as_ref())
 }
 
 #[tauri::command]
 pub async fn file_workspace_preview_start<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: PreviewSessionRequest,
 ) -> Result<super::types::PreviewSnapshotDto, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     let presentation = request.native_presentation.clone();
-    let snapshot = spawn_runtime(
-        runtime.inner().clone(),
-        "workspace_preview_start",
-        move |runtime| runtime.start_preview(request),
-    )
+    let snapshot = spawn_runtime(runtime.clone(), "workspace_preview_start", move |runtime| {
+        runtime.start_preview(request)
+    })
     .await?;
-    attach_native_preview(&window, runtime.inner(), &snapshot, presentation.as_ref())
+    attach_native_preview(&window, &runtime, &snapshot, presentation.as_ref())
 }
 
 #[tauri::command]
 pub async fn file_workspace_preview_cancel<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: PreviewSessionRequest,
 ) -> Result<bool, String> {
     require_main_window(&window)?;
-    runtime.cancel_preview(request)
+    match runtime.current_if_initialized_for_window(&window)? {
+        Some(runtime) => runtime.cancel_preview(request),
+        None => Ok(false),
+    }
 }
 
 #[tauri::command]
 pub async fn file_workspace_preview_dispose<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: PreviewSessionRequest,
 ) -> Result<bool, String> {
     require_main_window(&window)?;
-    runtime.dispose_preview(request)
+    match runtime.current_if_initialized_for_window(&window)? {
+        Some(runtime) => runtime.dispose_preview(request),
+        None => Ok(false),
+    }
 }
 
 #[tauri::command]
 pub async fn file_workspace_preview_switch_source<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: PreviewSwitchSourceRequest,
 ) -> Result<super::types::PreviewSnapshotDto, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_preview_switch_source",
         move |runtime| runtime.switch_preview_source(request),
     )
@@ -413,12 +450,13 @@ pub async fn file_workspace_preview_switch_source<R: Runtime>(
 #[tauri::command]
 pub async fn file_workspace_preview_asset_request<R: Runtime>(
     window: WebviewWindow<R>,
-    runtime: State<'_, FileWorkspaceRuntime>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
     request: PreviewAssetRequestDto,
 ) -> Result<tauri::ipc::Response, String> {
     require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
     let payload = spawn_runtime(
-        runtime.inner().clone(),
+        runtime.clone(),
         "workspace_preview_asset_request",
         move |runtime| {
             let artifact = runtime.request_preview_asset(request)?;

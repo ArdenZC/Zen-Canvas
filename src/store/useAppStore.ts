@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Language } from "../i18n";
 import type { Density, ThemeMode, View } from "../types/ui";
-import { preferredLanguage, preferredTheme } from "../utils/viewHelpers";
+import { preferredLanguage, preferredTheme } from "../utils/uiPreferences";
 
 export type ToastState = { message: string; type: "success" | "error" | "info" };
 
@@ -29,7 +29,7 @@ export const useAppStore = create<AppStore>((set) => ({
   language: preferredLanguage(),
   theme: preferredTheme(),
   density: preferredDensity(),
-  view: "scanner",
+  view: initialMainView(),
   searchQuery: "",
   globalHotkeyError: "",
   toast: null,
@@ -53,6 +53,23 @@ export const useAppStore = create<AppStore>((set) => ({
   showError: (message) => set({ toast: { message, type: "error" } }),
   clearToast: () => set({ toast: null })
 }));
+
+function initialMainView(): View {
+  const requested = typeof window === "undefined"
+    ? null
+    : new URLSearchParams(window.location.search).get("view");
+  const valid: readonly View[] = [
+    "scanner",
+    "cleanup",
+    "organize",
+    "library",
+    "preview",
+    "rules",
+    "restore",
+    "settings"
+  ];
+  return valid.find((view) => view === requested) ?? "scanner";
+}
 
 function preferredDensity(): Density {
   try {

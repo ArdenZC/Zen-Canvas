@@ -131,6 +131,7 @@
     "allow-get-runtime-capabilities",
     "allow-analyze-cleanup-candidates-with-ai",
     "allow-quit-app",
+    "allow-enter-background",
     "allow-activate-search-result",
     "allow-get-search-window-state",
     "allow-resize-search-window",

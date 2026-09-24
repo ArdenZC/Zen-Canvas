@@ -19,20 +19,39 @@ use zen_canvas_tauri::{
 };
 
 fn main() {
+    let launch_args = std::env::args().collect::<Vec<_>>();
     #[cfg(windows)]
-    if std::env::args().any(|argument| argument == "--index-service") {
+    if launch_args
+        .iter()
+        .any(|argument| argument == "--index-service")
+    {
         std::process::exit(
             zen_canvas_tauri::global_index::windows::service_host::run_index_service_process(),
         );
     }
 
+    let background_launch = zen_canvas_tauri::app_control::is_background_launch_args(&launch_args);
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            match zen_canvas_tauri::app_control::second_instance_action(&args) {
+                zen_canvas_tauri::app_control::SecondInstanceAction::ActivateMain => {
+                    if let Err(error) = zen_canvas_tauri::app_control::show_main_window(app) {
+                        eprintln!("Show main window for second launch failed: {error}");
+                    }
+                }
+                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreBackground => {}
+                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreUnsupportedArguments => {
+                    eprintln!("Ignored unsupported single-instance arguments");
+                }
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec!["--background"]),
         ))
-        .setup(|app| {
+        .setup(move |app| {
             let db = open_database(app.handle()).map_err(io::Error::other)?;
             db.recover_dedupe_runs().map_err(io::Error::other)?;
             db.recover_analysis_runs().map_err(io::Error::other)?;
@@ -75,15 +94,14 @@ fn main() {
                 .app_data_dir()
                 .map_err(io::Error::other)?
                 .join("file-workspace-native-preview");
-            let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntime::new_with_native_preview_root(
+            let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntimeOwner::new(
                 db.clone(),
                 app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()
                     .inner()
                     .clone(),
                 workspace_thumbnail_cache_dir,
                 workspace_native_preview_root,
-            )
-            .map_err(io::Error::other)?;
+            );
             app.manage(workspace_runtime);
             let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
             app.manage(global_index_coordinator.clone());
@@ -110,8 +128,9 @@ fn main() {
             app.manage(zen_canvas_tauri::app_control::GlobalHotkeyStatusState::default());
             app.manage(zen_canvas_tauri::app_control::SearchWindowLifecycleState::default());
             app.manage(zen_canvas_tauri::app_control::MainWindowReadinessState::default());
+            app.manage(zen_canvas_tauri::app_control::MainWindowLifecycleState::default());
+            app.manage(zen_canvas_tauri::app_control::MainWindowSessionState::default());
             zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
-            zen_canvas_tauri::app_control::setup_search_window(app).map_err(io::Error::other)?;
             let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
             let launch_at_login = app.autolaunch();
             let app_settings = match settings::sync_launch_at_login_from_system(
@@ -252,6 +271,20 @@ fn main() {
             zen_canvas_tauri::scheduler::WorkScheduler::global()
                 .set_native_policy_notifications_available(true);
             app.manage(lifecycle);
+            if !background_launch {
+                zen_canvas_tauri::app_control::show_main_window(app.handle())
+                    .map_err(io::Error::other)?;
+            }
+            eprintln!(
+                "ui_runtime startup_mode={} webview_count={} labels={}",
+                if background_launch { "background" } else { "manual" },
+                app.webview_windows().len(),
+                app.webview_windows()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -363,6 +396,7 @@ fn main() {
             zen_canvas_tauri::runtime_capabilities::get_runtime_capabilities,
             zen_canvas_tauri::ai::cleanup::analyze_cleanup_candidates_with_ai,
             zen_canvas_tauri::app_control::quit_app,
+            zen_canvas_tauri::app_control::enter_background,
             zen_canvas_tauri::app_control::activate_search_result,
             zen_canvas_tauri::app_control::resize_search_window,
             zen_canvas_tauri::app_control::get_search_window_state,

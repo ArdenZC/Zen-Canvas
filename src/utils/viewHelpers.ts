@@ -1,6 +1,6 @@
 import type { AppSnapshot, FileQuery, FileRecord, LibraryScope, OperationPreview } from "../types/domain";
-import type { Language } from "../i18n";
-import type { ThemeMode, Translator } from "../types/ui";
+import type { Translator } from "../types/ui";
+export { preferredLanguage, preferredTheme } from "./uiPreferences";
 import { normalizeProposedFileNameExtension } from "./fileNaming";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "./hotkeys";
 
@@ -296,20 +296,6 @@ export function sumUniqueDiskTotal(roots: AppSnapshot["scanRoots"]): number {
     total += value;
   }
   return total;
-}
-
-export function preferredLanguage(): Language {
-  if (typeof window === "undefined") return "zh";
-  return window.localStorage.getItem("zc-language") === "en" || window.localStorage.getItem("fma-language") === "en"
-    ? "en"
-    : "zh";
-}
-
-export function preferredTheme(): ThemeMode {
-  if (typeof window === "undefined") return "light";
-  const stored = window.localStorage.getItem("zc-theme");
-  if (stored === "light" || stored === "dark" || stored === "system") return stored;
-  return "system";
 }
 
 export function prefersDarkScheme(): boolean {

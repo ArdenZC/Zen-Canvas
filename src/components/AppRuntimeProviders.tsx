@@ -28,6 +28,7 @@ import type {
   RuntimeCapabilities
 } from "../types/domain";
 import { applySearchNavigation, shouldApplySearchNavigation, type PendingSearchNavigation } from "../utils/searchNavigation";
+import { installMainReadinessListenerBeforeReady } from "../utils/mainWindowReadiness";
 import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { localizedStableError, normalizePathLike, readableError } from "../utils/viewHelpers";
 
@@ -206,21 +207,27 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void tauriApi.onMainWindowReadyRequest(({ nonce, sessionId = null, revision = null }) => {
-      pendingSearchNavigationRef.current = {
-        nonce,
-        view: useAppStore.getState().view,
-        selectedFileId: useFileLibraryStore.getState().selectedFileId,
-        librarySelection: useFileLibrarySelectionStore.getState().selection,
-        libraryFocusedId: useFileLibrarySelectionStore.getState().focusedId,
-        sessionId,
-        revision
-      };
-      void tauriApi.acknowledgeMainWindowReady(nonce).catch((error) => {
-        if (!disposed) showError(readableError(error));
-      });
-    }).then((dispose) => {
-      if (disposed) dispose();
+    const mainGeneration = Number(new URLSearchParams(window.location.search).get("mainGeneration"));
+    void installMainReadinessListenerBeforeReady(
+      () => tauriApi.onMainWindowReadyRequest(({ nonce, generation, sessionId = null, revision = null }) => {
+        if (generation !== mainGeneration) return;
+        pendingSearchNavigationRef.current = {
+          nonce,
+          view: useAppStore.getState().view,
+          selectedFileId: useFileLibraryStore.getState().selectedFileId,
+          librarySelection: useFileLibrarySelectionStore.getState().selection,
+          libraryFocusedId: useFileLibrarySelectionStore.getState().focusedId,
+          sessionId,
+          revision
+        };
+        void tauriApi.acknowledgeMainWindowReady(nonce).catch((error) => {
+          if (!disposed) showError(readableError(error));
+        });
+      }),
+      () => tauriApi.markMainWindowReady(true),
+      () => disposed
+    ).then((dispose) => {
+      if (disposed) dispose?.();
       else unlisten = dispose;
     }).catch((error) => {
       if (!disposed) showError(readableError(error));
@@ -229,13 +236,6 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     return () => {
       disposed = true;
       unlisten?.();
-    };
-  }, [isSearchMode, showError]);
-
-  useEffect(() => {
-    if (isSearchMode) return;
-    void tauriApi.markMainWindowReady(true).catch((error) => showError(readableError(error)));
-    return () => {
       void tauriApi.markMainWindowReady(false).catch(() => undefined);
     };
   }, [isSearchMode, showError]);
@@ -376,6 +376,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const windowBehavior = useWindowBehavior({
     closeBehavior: appSettings.closeBehavior,
     setCloseBehavior,
+    lastView: view,
     onError: reportWindowActionError
   });
   const {

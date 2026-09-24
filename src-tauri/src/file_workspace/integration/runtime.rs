@@ -359,6 +359,15 @@ impl FileWorkspaceRuntime {
         dispose_inner(&self.inner)
     }
 
+    /// Disposes this Main-window-owned runtime and reports whether every
+    /// native owner could be released. The owner may retry this method after
+    /// a native dispatcher temporarily fails; the disposed flag prevents new
+    /// work while the retained native host keeps failed releases retryable.
+    pub fn dispose_for_main_teardown(&self) -> Result<(), String> {
+        self.inner.disposed.store(true, Ordering::Release);
+        dispose_inner_fields(&self.inner)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_thumbnail_reservation_gate(&self, gate: Arc<ThumbnailReservationGate>) {
         *self
@@ -442,7 +451,9 @@ pub(crate) struct ResourceCounts {
 
 impl Drop for RuntimeInner {
     fn drop(&mut self) {
-        dispose_inner_fields(self);
+        if let Err(error) = dispose_inner_fields(self) {
+            eprintln!("file_workspace_runtime_drop_dispose_failed:{error}");
+        }
     }
 }
 
@@ -450,11 +461,13 @@ fn dispose_inner(inner: &Arc<RuntimeInner>) -> bool {
     if inner.disposed.swap(true, Ordering::AcqRel) {
         return false;
     }
-    dispose_inner_fields(inner);
+    if let Err(error) = dispose_inner_fields(inner) {
+        eprintln!("file_workspace_runtime_dispose_failed:{error}");
+    }
     true
 }
 
-fn dispose_inner_fields(inner: &RuntimeInner) {
+fn dispose_inner_fields(inner: &RuntimeInner) -> Result<(), String> {
     let monitors = take_map(&inner.monitors);
     for record in monitors.into_values() {
         record.monitor.dispose();
@@ -467,10 +480,10 @@ fn dispose_inner_fields(inner: &RuntimeInner) {
     for session in previews.into_values() {
         session.dispose();
     }
-    if let Err(error) = inner.native_preview_host.dispose() {
-        eprintln!("native_preview_host_dispose_failed:{error}");
+    let native_preview_host_release = inner.native_preview_host.dispose();
+    if native_preview_host_release.is_ok() {
+        inner.native_preview_access.dispose();
     }
-    inner.native_preview_access.dispose();
     inner.host_provided.dispose();
 
     let thumbnail_tasks = take_map(&inner.thumbnail_tasks);
@@ -488,6 +501,8 @@ fn dispose_inner_fields(inner: &RuntimeInner) {
     inner.thumbnail.dispose();
     inner.read_gate.dispose();
     inner.preview_assets.dispose();
+    native_preview_host_release
+        .map_err(|error| format!("native_preview_host_dispose_failed:{error}"))
 }
 
 fn take_map<T>(map: &Mutex<HashMap<String, T>>) -> HashMap<String, T> {
