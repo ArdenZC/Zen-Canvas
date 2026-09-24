@@ -1,5 +1,5 @@
 use crate::{
-    db::{Database, DbError},
+    db::{current_unix_seconds, Database, DbError},
     dedupe::DedupeJobManager,
     path_filter::is_ignored_dir_name,
     scanner::ScanJobManager,
@@ -15,13 +15,13 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, RecvTimeoutError, TrySendError},
+        mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError},
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use thiserror::Error;
 
 const FILE_EVENT_NAME: &str = "fs-event";
@@ -106,14 +106,32 @@ pub struct WatcherReconciliationStatusEvent {
     pub timestamp: i64,
 }
 
+#[derive(Debug)]
 enum WatcherInput {
     Notify(notify::Result<Event>),
+    Stop,
 }
 
-#[derive(Default)]
 pub struct FileWatcherManager {
     session: Mutex<Option<WatcherSession>>,
     reload_lock: Mutex<()>,
+    reconciliation_retries: Arc<Mutex<HashMap<String, (i64, mpsc::Sender<()>)>>>,
+}
+
+impl Default for FileWatcherManager {
+    fn default() -> Self {
+        Self {
+            session: Mutex::new(None),
+            reload_lock: Mutex::new(()),
+            reconciliation_retries: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl Drop for FileWatcherManager {
+    fn drop(&mut self) {
+        self.cancel_reconciliation_retries();
+    }
 }
 
 struct WatcherSession {
@@ -143,6 +161,117 @@ impl Drop for WatcherSession {
 }
 
 impl FileWatcherManager {
+    fn cancel_reconciliation_retries(&self) {
+        let Ok(mut retries) = self.reconciliation_retries.lock() else {
+            return;
+        };
+        for (_, (_, cancel)) in retries.drain() {
+            let _ = cancel.send(());
+        }
+    }
+
+    fn cancel_reconciliation_retry(&self, root_id: &str) {
+        let Ok(mut retries) = self.reconciliation_retries.lock() else {
+            return;
+        };
+        if let Some((_, cancel)) = retries.remove(root_id) {
+            let _ = cancel.send(());
+        }
+    }
+
+    fn schedule_reconciliation_retry<R: Runtime>(
+        &self,
+        app: AppHandle<R>,
+        db: Database,
+        jobs: ScanJobManager,
+        dedupe_jobs: DedupeJobManager,
+        root_id: String,
+        retry_at: i64,
+    ) {
+        // The durable retry timestamp is authoritative; this is one cancellable wake, not a poll.
+        let (cancel_tx, cancel_rx) = mpsc::channel();
+        let mut retries = match self.reconciliation_retries.lock() {
+            Ok(retries) => retries,
+            Err(_) => {
+                emit_file_watcher_error(
+                    &app,
+                    "Unable to schedule watcher reconciliation retry.".to_string(),
+                );
+                return;
+            }
+        };
+        if retries
+            .get(&root_id)
+            .is_some_and(|(existing_retry_at, _)| *existing_retry_at == retry_at)
+        {
+            return;
+        }
+        let previous = retries.insert(root_id.clone(), (retry_at, cancel_tx));
+        drop(retries);
+        if let Some((_, cancel)) = previous {
+            let _ = cancel.send(());
+        }
+
+        let retries = Arc::clone(&self.reconciliation_retries);
+        let timer_root_id = root_id.clone();
+        let app_for_retry = app.clone();
+        let spawn_result = thread::Builder::new()
+            .name("zen-canvas-watcher-retry".to_string())
+            .spawn(move || {
+                let delay = Duration::from_secs(
+                    retry_at.saturating_sub(current_unix_seconds()).max(0) as u64,
+                );
+                if !matches!(
+                    cancel_rx.recv_timeout(delay),
+                    Err(RecvTimeoutError::Timeout)
+                ) {
+                    return;
+                }
+
+                let is_current = match retries.lock() {
+                    Ok(mut retries) => {
+                        if retries
+                            .get(&timer_root_id)
+                            .is_some_and(|(current_retry_at, _)| *current_retry_at == retry_at)
+                        {
+                            retries.remove(&timer_root_id);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Err(_) => false,
+                };
+                if !is_current {
+                    return;
+                }
+
+                if let Err(error) = crate::scanner::schedule_watcher_reconciliation_roots(
+                    app_for_retry.clone(),
+                    db,
+                    jobs,
+                    dedupe_jobs,
+                    vec![timer_root_id],
+                ) {
+                    emit_file_watcher_error(&app_for_retry, error);
+                }
+            });
+        if let Err(error) = spawn_result {
+            if let Ok(mut retries) = self.reconciliation_retries.lock() {
+                if retries
+                    .get(&root_id)
+                    .is_some_and(|(current_retry_at, _)| *current_retry_at == retry_at)
+                {
+                    retries.remove(&root_id);
+                }
+            }
+            emit_file_watcher_error(
+                &app,
+                format!("Unable to start watcher reconciliation retry: {error}"),
+            );
+        }
+    }
+
     fn restart<R: Runtime>(
         &self,
         app: AppHandle<R>,
@@ -255,6 +384,34 @@ impl FileWatcherManager {
     }
 }
 
+pub(crate) fn schedule_reconciliation_retry<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+    root_id: String,
+    retry_at: i64,
+) {
+    if let Some(manager) = app.try_state::<FileWatcherManager>() {
+        manager.schedule_reconciliation_retry(
+            app.clone(),
+            db,
+            jobs,
+            dedupe_jobs,
+            root_id,
+            retry_at,
+        );
+    } else {
+        eprintln!("Watcher reconciliation retry has no active watcher manager state.");
+    }
+}
+
+pub(crate) fn cancel_reconciliation_retry<R: Runtime>(app: &AppHandle<R>, root_id: &str) {
+    if let Some(manager) = app.try_state::<FileWatcherManager>() {
+        manager.cancel_reconciliation_retry(root_id);
+    }
+}
+
 pub fn setup_file_watcher<R: Runtime>(
     app: AppHandle<R>,
     paths: Vec<PathBuf>,
@@ -273,12 +430,13 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
     db.sync_file_library_watcher_roots(&settings.default_scan_folders)
         .map_err(|error| error.to_string())?;
     if backend_watcher_reconciliation_enabled() {
+        manager.cancel_reconciliation_retries();
         let paths = existing_watch_paths_from_default_scan_folders(&settings.default_scan_folders);
         let root_labels = paths
             .iter()
             .map(|path| normalize_path(path))
             .collect::<Vec<_>>();
-        let changed = manager
+        let restart_result = manager
             .restart_backend(
                 app.clone(),
                 paths,
@@ -286,13 +444,15 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
                 jobs.clone(),
                 dedupe_jobs.clone(),
             )
-            .map_err(|error| error.to_string())?;
-        crate::scanner::schedule_watcher_reconciliations(
+            .map_err(|error| error.to_string());
+        let schedule_result = crate::scanner::schedule_watcher_reconciliations(
             app.clone(),
             db.clone(),
             jobs.clone(),
             dedupe_jobs.clone(),
-        )?;
+        );
+        let changed = restart_result?;
+        schedule_result?;
         if changed {
             emit_watcher_ready(&app, root_labels).map_err(|error| error.to_string())?;
         }
@@ -315,6 +475,7 @@ pub fn suspend_file_watcher_for_lifecycle<R: Runtime>(
     jobs: &ScanJobManager,
     dedupe_jobs: &DedupeJobManager,
 ) -> Result<bool, String> {
+    manager.cancel_reconciliation_retries();
     if backend_watcher_reconciliation_enabled() {
         manager
             .restart_backend(
@@ -433,14 +594,15 @@ fn start_legacy_watcher_session<R: Runtime>(
         .iter()
         .map(|path| normalize_path(path))
         .collect::<Vec<_>>();
-    let (tx, rx) = mpsc::sync_channel::<notify::Result<Event>>(WATCHER_CHANNEL_CAPACITY);
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let (tx, rx) = mpsc::sync_channel::<WatcherInput>(WATCHER_CHANNEL_CAPACITY);
+    let stop_tx = tx.clone();
+    let stop_requested = Arc::new(AtomicBool::new(false));
     let overflow_reported = Arc::new(AtomicBool::new(false));
     let overflow_for_callback = Arc::clone(&overflow_reported);
     let overflow_app = app.clone();
 
     let mut watcher = recommended_watcher(move |event| {
-        if let Err(TrySendError::Full(_)) = tx.try_send(event) {
+        if let Err(TrySendError::Full(_)) = tx.try_send(WatcherInput::Notify(event)) {
             if !overflow_for_callback.swap(true, Ordering::AcqRel) {
                 emit_file_watcher_error(
                     &overflow_app,
@@ -459,11 +621,14 @@ fn start_legacy_watcher_session<R: Runtime>(
 
     let handle = thread::Builder::new()
         .name("zen-canvas-file-watcher".to_string())
-        .spawn(move || run_legacy_watcher_loop(app, watcher, rx, stop_rx))
+        .spawn({
+            let stop_requested = Arc::clone(&stop_requested);
+            move || run_legacy_watcher_loop(app, watcher, rx, stop_requested)
+        })
         .map_err(WatcherError::Thread)?;
 
     Ok(WatcherSession::new(roots, move || {
-        stop_watcher(stop_tx, handle)
+        stop_watcher(stop_tx, stop_requested, handle)
     }))
 }
 
@@ -475,7 +640,8 @@ fn start_backend_watcher_session<R: Runtime>(
     dedupe_jobs: DedupeJobManager,
 ) -> Result<WatcherSession, WatcherError> {
     let (tx, rx) = mpsc::sync_channel::<WatcherInput>(WATCHER_CHANNEL_CAPACITY);
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let stop_tx = tx.clone();
+    let stop_requested = Arc::new(AtomicBool::new(false));
     let overflow_signal = Arc::new(AtomicBool::new(false));
     let overflow_burst_active = Arc::new(AtomicBool::new(false));
     let overflow_signal_for_callback = Arc::clone(&overflow_signal);
@@ -491,6 +657,7 @@ fn start_backend_watcher_session<R: Runtime>(
         watcher.watch(root, RecursiveMode::Recursive)?;
     }
 
+    let loop_stop_requested = Arc::clone(&stop_requested);
     let handle = thread::Builder::new()
         .name("zen-canvas-file-watcher-backend".to_string())
         .spawn(move || {
@@ -498,7 +665,7 @@ fn start_backend_watcher_session<R: Runtime>(
                 app,
                 watcher,
                 rx,
-                stop_rx,
+                loop_stop_requested,
                 db,
                 jobs,
                 dedupe_jobs,
@@ -509,12 +676,17 @@ fn start_backend_watcher_session<R: Runtime>(
         .map_err(WatcherError::Thread)?;
 
     Ok(WatcherSession::new(roots, move || {
-        stop_watcher(stop_tx, handle)
+        stop_watcher(stop_tx, stop_requested, handle)
     }))
 }
 
-fn stop_watcher(stop_tx: mpsc::Sender<()>, handle: JoinHandle<()>) {
-    let _ = stop_tx.send(());
+fn stop_watcher(
+    tx: SyncSender<WatcherInput>,
+    stop_requested: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+) {
+    stop_requested.store(true, Ordering::Release);
+    let _ = tx.try_send(WatcherInput::Stop);
     let _ = handle.join();
 }
 
@@ -532,26 +704,56 @@ fn emit_watcher_ready<R: Runtime>(
     Ok(())
 }
 
+fn recv_watcher_input(
+    rx: &Receiver<WatcherInput>,
+    stop_requested: &AtomicBool,
+) -> Option<WatcherInput> {
+    if stop_requested.load(Ordering::Acquire) {
+        return None;
+    }
+    match rx.recv() {
+        Ok(WatcherInput::Stop) => None,
+        Ok(input) if stop_requested.load(Ordering::Acquire) => {
+            drop(input);
+            None
+        }
+        Ok(input) => Some(input),
+        Err(_) => None,
+    }
+}
+
 fn run_legacy_watcher_loop(
     app: AppHandle<impl Runtime>,
     _watcher: RecommendedWatcher,
-    rx: Receiver<notify::Result<Event>>,
-    stop_rx: Receiver<()>,
+    rx: Receiver<WatcherInput>,
+    stop_requested: Arc<AtomicBool>,
 ) {
     loop {
-        if stop_rx.try_recv().is_ok() {
+        if stop_requested.load(Ordering::Acquire) {
             break;
         }
 
-        match rx.recv_timeout(Duration::from_millis(250)) {
-            Ok(event) => match event {
+        let Some(input) = recv_watcher_input(&rx, &stop_requested) else {
+            break;
+        };
+        match input {
+            WatcherInput::Stop => break,
+            WatcherInput::Notify(event) => match event {
                 Ok(event) => {
                     let mut payloads = event_to_payload(event).into_iter().collect::<Vec<_>>();
                     let deadline = Instant::now() + WATCHER_COALESCE_WINDOW;
                     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+                        if stop_requested.load(Ordering::Acquire) {
+                            return;
+                        }
                         match rx.recv_timeout(remaining) {
-                            Ok(Ok(event)) => payloads.extend(event_to_payload(event)),
-                            Ok(Err(error)) => emit_file_watcher_error(&app, error.to_string()),
+                            Ok(WatcherInput::Notify(Ok(event))) => {
+                                payloads.extend(event_to_payload(event));
+                            }
+                            Ok(WatcherInput::Notify(Err(error))) => {
+                                emit_file_watcher_error(&app, error.to_string());
+                            }
+                            Ok(WatcherInput::Stop) => return,
                             Err(RecvTimeoutError::Timeout) => break,
                             Err(RecvTimeoutError::Disconnected) => break,
                         }
@@ -562,8 +764,6 @@ fn run_legacy_watcher_loop(
                 }
                 Err(error) => emit_file_watcher_error(&app, error.to_string()),
             },
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
 }
@@ -604,16 +804,15 @@ fn run_backend_watcher_loop<R: Runtime>(
     app: AppHandle<R>,
     _watcher: RecommendedWatcher,
     rx: Receiver<WatcherInput>,
-    stop_rx: Receiver<()>,
+    stop_requested: Arc<AtomicBool>,
     db: Database,
     jobs: ScanJobManager,
     dedupe_jobs: DedupeJobManager,
     overflow_signal: Arc<AtomicBool>,
     overflow_burst_active: Arc<AtomicBool>,
 ) {
-    let mut last_schedule = Instant::now() - Duration::from_secs(2);
     loop {
-        if stop_rx.try_recv().is_ok() {
+        if stop_requested.load(Ordering::Acquire) {
             break;
         }
 
@@ -629,13 +828,21 @@ fn run_backend_watcher_loop<R: Runtime>(
                 "File watcher overflowed its bounded queue. Durable reconciliation was scheduled."
                     .to_string(),
             );
+            schedule_reconciliation_for_dirty_roots(&app, &db, &jobs, &dedupe_jobs);
         }
 
-        match rx.recv_timeout(Duration::from_millis(250)) {
-            Ok(WatcherInput::Notify(Ok(event))) => {
+        let Some(input) = recv_watcher_input(&rx, &stop_requested) else {
+            break;
+        };
+        match input {
+            WatcherInput::Stop => break,
+            WatcherInput::Notify(Ok(event)) => {
                 let mut payloads = event_to_payload(event).into_iter().collect::<Vec<_>>();
                 let deadline = Instant::now() + WATCHER_COALESCE_WINDOW;
                 while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+                    if stop_requested.load(Ordering::Acquire) {
+                        return;
+                    }
                     match rx.recv_timeout(remaining) {
                         Ok(WatcherInput::Notify(Ok(event))) => {
                             payloads.extend(event_to_payload(event));
@@ -647,40 +854,44 @@ fn run_backend_watcher_loop<R: Runtime>(
                                 "watcher_notify_error",
                                 &error.to_string(),
                             );
+                            schedule_reconciliation_for_dirty_roots(&app, &db, &jobs, &dedupe_jobs);
                         }
+                        Ok(WatcherInput::Stop) => return,
                         Err(RecvTimeoutError::Timeout) => break,
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
                 }
+                overflow_burst_active.store(false, Ordering::Release);
                 if let Some(payload) = coalesce_payloads(payloads) {
                     process_backend_payload(&app, &db, &jobs, &dedupe_jobs, payload);
                 }
             }
-            Ok(WatcherInput::Notify(Err(error))) => {
+            WatcherInput::Notify(Err(error)) => {
                 mark_all_roots_for_reconciliation(
                     &app,
                     &db,
                     "watcher_notify_error",
                     &error.to_string(),
                 );
+                schedule_reconciliation_for_dirty_roots(&app, &db, &jobs, &dedupe_jobs);
             }
-            Err(RecvTimeoutError::Timeout) => {
-                overflow_burst_active.store(false, Ordering::Release);
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
         }
+    }
+}
 
-        if last_schedule.elapsed() >= Duration::from_secs(1) {
-            if let Err(error) = crate::scanner::schedule_watcher_reconciliations(
-                app.clone(),
-                db.clone(),
-                jobs.clone(),
-                dedupe_jobs.clone(),
-            ) {
-                emit_file_watcher_error(&app, error);
-            }
-            last_schedule = Instant::now();
-        }
+fn schedule_reconciliation_for_dirty_roots<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    jobs: &ScanJobManager,
+    dedupe_jobs: &DedupeJobManager,
+) {
+    if let Err(error) = crate::scanner::schedule_watcher_reconciliations(
+        app.clone(),
+        db.clone(),
+        jobs.clone(),
+        dedupe_jobs.clone(),
+    ) {
+        emit_file_watcher_error(app, error);
     }
 }
 
@@ -708,6 +919,7 @@ fn process_backend_payload<R: Runtime>(
         .collect::<HashSet<_>>();
     let mut grouped = HashMap::<String, Vec<String>>::new();
     let mut ambiguous = HashMap::<String, Vec<String>>::new();
+    let mut roots_requiring_reconciliation = HashSet::new();
 
     for path in paths {
         let matches = configs
@@ -738,6 +950,7 @@ fn process_backend_payload<R: Runtime>(
         );
         let _ = db.mark_watcher_reconciliation(&root_id, "ambiguous_root", &message);
         emit_root_status(app, db, &root_id, Some(batch.watcher_revision));
+        roots_requiring_reconciliation.insert(root_id);
     }
 
     for (root_id, mut paths) in grouped {
@@ -748,6 +961,7 @@ fn process_backend_payload<R: Runtime>(
         let Some(batch) = begin_watcher_batch(app, db, &root_id) else {
             continue;
         };
+        let mut should_reconcile = false;
         let result =
             apply_watcher_exact_mutations_with_retry(db, &root_id, &paths, &directory_paths);
         match result {
@@ -784,6 +998,7 @@ fn process_backend_payload<R: Runtime>(
                         "watcher_reconciliation_required",
                         message,
                     );
+                    should_reconcile = true;
                 } else if !db
                     .complete_watcher_revision(&root_id, batch.watcher_revision)
                     .unwrap_or(false)
@@ -793,6 +1008,7 @@ fn process_backend_payload<R: Runtime>(
                         "watcher_revision_cas_failed",
                         "Watcher applied revision CAS failed; a full reconciliation is required.",
                     );
+                    should_reconcile = true;
                 }
                 if let Some(message) = rule_warning {
                     let _ = db.record_watcher_warning(&root_id, "watcher_rule_failure", &message);
@@ -803,18 +1019,25 @@ fn process_backend_payload<R: Runtime>(
                 let _ =
                     db.mark_watcher_reconciliation(&root_id, "watcher_mutation_failed", &message);
                 emit_file_watcher_error(app, message);
+                should_reconcile = true;
             }
         }
         emit_root_status(app, db, &root_id, Some(batch.watcher_revision));
+        if should_reconcile {
+            roots_requiring_reconciliation.insert(root_id);
+        }
     }
 
-    if let Err(error) = crate::scanner::schedule_watcher_reconciliations(
-        app.clone(),
-        db.clone(),
-        jobs.clone(),
-        dedupe_jobs.clone(),
-    ) {
-        emit_file_watcher_error(app, error);
+    if !roots_requiring_reconciliation.is_empty() {
+        if let Err(error) = crate::scanner::schedule_watcher_reconciliation_roots(
+            app.clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            roots_requiring_reconciliation.into_iter().collect(),
+        ) {
+            emit_file_watcher_error(app, error);
+        }
     }
 }
 
@@ -1107,6 +1330,33 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+    #[cfg(feature = "performance-test-tauri")]
+    use std::{fs, time::SystemTime};
+
+    #[cfg(feature = "performance-test-tauri")]
+    struct WatcherTestTree(PathBuf);
+
+    #[cfg(feature = "performance-test-tauri")]
+    impl WatcherTestTree {
+        fn new(label: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos();
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(".tmp-tests")
+                .join(format!("zb-02-{label}-{}-{nonce}", std::process::id()));
+            fs::create_dir_all(&path).expect("create watcher test fixture");
+            Self(path)
+        }
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    impl Drop for WatcherTestTree {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn watch_paths_follow_enabled_absolute_scan_root_settings() {
@@ -1499,6 +1749,211 @@ mod tests {
     }
 
     #[test]
+    fn idle_watcher_receiver_unblocks_on_explicit_stop() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let stop_requested = Arc::new(AtomicBool::new(false));
+        let stop_for_waiter = Arc::clone(&stop_requested);
+        let (waiting_tx, waiting_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            waiting_tx.send(()).expect("announce idle receiver");
+            assert!(recv_watcher_input(&rx, &stop_for_waiter).is_none());
+            finished_tx.send(()).expect("announce receiver exit");
+        });
+
+        waiting_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("receiver reached idle wait");
+        assert!(finished_rx.recv_timeout(Duration::from_millis(25)).is_err());
+        stop_requested.store(true, Ordering::Release);
+        tx.try_send(WatcherInput::Stop)
+            .expect("send explicit stop signal");
+        finished_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("idle receiver exits promptly");
+        waiter.join().expect("idle receiver exits");
+    }
+
+    #[test]
+    fn idle_watcher_receiver_delivers_filesystem_events_without_a_timer_tick() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let event = Event {
+            kind: EventKind::Create(notify::event::CreateKind::File),
+            paths: vec![PathBuf::from("/Users/zen/Documents/created.pdf")],
+            attrs: EventAttributes::new(),
+        };
+        tx.try_send(WatcherInput::Notify(Ok(event)))
+            .expect("queue filesystem event");
+
+        assert!(matches!(
+            recv_watcher_input(&rx, &AtomicBool::new(false)),
+            Some(WatcherInput::Notify(Ok(_)))
+        ));
+    }
+
+    #[test]
+    fn watcher_lifecycle_cancels_delayed_reconciliation_wakes() {
+        let manager = FileWatcherManager::default();
+        let (cancel_tx, cancel_rx) = mpsc::channel();
+        manager
+            .reconciliation_retries
+            .lock()
+            .expect("retry registry")
+            .insert("root-a".to_string(), (i64::MAX, cancel_tx));
+
+        manager.cancel_reconciliation_retries();
+
+        assert!(cancel_rx.recv_timeout(Duration::from_secs(1)).is_ok());
+        assert!(manager
+            .reconciliation_retries
+            .lock()
+            .expect("retry registry")
+            .is_empty());
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    #[test]
+    fn filesystem_event_reconciles_only_the_affected_root_without_a_periodic_tick() {
+        let fixture = WatcherTestTree::new("event-reconciliation");
+        let first_root_path = fixture.0.join("library-a");
+        let second_root_path = fixture.0.join("library-b");
+        fs::create_dir_all(&first_root_path).expect("create first managed root");
+        fs::create_dir_all(&second_root_path).expect("create second managed root");
+        let db = Database::open(fixture.0.join("state.sqlite3")).expect("open watcher test db");
+        let roots = [
+            scan_root("library-a", &first_root_path.to_string_lossy(), true),
+            scan_root("library-b", &second_root_path.to_string_lossy(), true),
+        ];
+        db.sync_file_library_watcher_roots(&roots)
+            .expect("sync managed roots");
+        let app = tauri::test::mock_app();
+        app.manage(FileWatcherManager::default());
+        let app_handle = app.handle().clone();
+        let jobs = ScanJobManager::default();
+        let dedupe_jobs = DedupeJobManager::default();
+        let initial_roots = db.list_scan_roots().expect("list initial managed roots");
+        assert_eq!(
+            crate::scanner::schedule_watcher_reconciliations(
+                app_handle.clone(),
+                db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+            )
+            .expect("schedule initial root reconciliation"),
+            2
+        );
+        for root in &initial_roots {
+            wait_for_watcher_root_reconciliation(&db, &root.id, root.watcher_revision);
+        }
+        let first = db
+            .get_scan_root_health(None, Some(&first_root_path.to_string_lossy()))
+            .expect("read first root before event");
+        let second = db
+            .get_scan_root_health(None, Some(&second_root_path.to_string_lossy()))
+            .expect("read second root before event");
+        let new_directory = first_root_path.join("new-folder");
+        fs::create_dir_all(&new_directory).expect("create directory from watcher event");
+        let payload = event_to_payload(Event {
+            kind: EventKind::Create(notify::event::CreateKind::Folder),
+            paths: vec![new_directory],
+            attrs: EventAttributes::new(),
+        })
+        .expect("directory event requests reconciliation");
+
+        process_backend_payload(&app_handle, &db, &jobs, &dedupe_jobs, payload);
+
+        let reconciled =
+            wait_for_watcher_root_reconciliation(&db, &first.id, first.watcher_revision + 1);
+        let untouched = db
+            .get_scan_root_health(Some(&second.id), None)
+            .expect("read unaffected root after event");
+        assert_eq!(
+            reconciled.watcher_revision,
+            reconciled.watcher_applied_revision
+        );
+        assert!(!reconciled.needs_reconciliation);
+        assert!(reconciled.last_successful_generation.is_some());
+        assert_eq!(untouched.watcher_revision, second.watcher_revision);
+        assert_eq!(untouched.current_generation, second.current_generation);
+        assert!(untouched.active_run_id.is_none());
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    #[test]
+    fn overflow_marks_managed_roots_for_durable_reconciliation() {
+        let fixture = WatcherTestTree::new("overflow-state");
+        let root_path = fixture.0.join("library");
+        fs::create_dir_all(&root_path).expect("create managed root");
+        let db = Database::open(fixture.0.join("state.sqlite3")).expect("open watcher test db");
+        db.sync_file_library_watcher_roots(&[scan_root(
+            "library",
+            &root_path.to_string_lossy(),
+            true,
+        )])
+        .expect("sync managed root");
+        let app = tauri::test::mock_app();
+        let app_handle = app.handle().clone();
+        let before = db
+            .get_scan_root_health(None, Some(&root_path.to_string_lossy()))
+            .expect("read root before overflow");
+
+        mark_all_roots_for_reconciliation(
+            &app_handle,
+            &db,
+            "watcher_overflow",
+            "The bounded watcher queue overflowed; a managed scan is required.",
+        );
+
+        let after = db
+            .get_scan_root_health(Some(&before.id), None)
+            .expect("read root after overflow");
+        assert!(after.needs_reconciliation);
+        assert!(after.watcher_revision > before.watcher_revision);
+        assert_eq!(
+            after.watcher_last_error_code.as_deref(),
+            Some("watcher_overflow")
+        );
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    #[test]
+    fn non_directory_managed_root_keeps_permission_required_health() {
+        let fixture = WatcherTestTree::new("permission-state");
+        let file_path = fixture.0.join("not-a-directory");
+        fs::write(&file_path, b"fixture").expect("create non-directory root target");
+        let db = Database::open(fixture.0.join("state.sqlite3")).expect("open watcher test db");
+        db.sync_file_library_watcher_roots(&[scan_root(
+            "library",
+            &file_path.to_string_lossy(),
+            true,
+        )])
+        .expect("sync managed root");
+        let app = tauri::test::mock_app();
+        app.manage(FileWatcherManager::default());
+        let root = db
+            .get_scan_root_health(None, Some(&file_path.to_string_lossy()))
+            .expect("read root before permission check");
+
+        let scheduled = crate::scanner::schedule_watcher_reconciliations(
+            app.handle().clone(),
+            db.clone(),
+            ScanJobManager::default(),
+            DedupeJobManager::default(),
+        )
+        .expect("check watcher roots");
+
+        let after = db
+            .get_scan_root_health(Some(&root.id), None)
+            .expect("read root after permission check");
+        assert_eq!(scheduled, 0);
+        assert_eq!(after.health_status, "permission_required");
+        assert_eq!(
+            after.watcher_last_error_code.as_deref(),
+            Some("permission_required")
+        );
+    }
+
+    #[test]
     fn bounded_retry_recovers_after_a_transient_rule_failure() {
         let attempts = Arc::new(AtomicUsize::new(0));
         let delays = Arc::new(AtomicUsize::new(0));
@@ -1564,6 +2019,32 @@ mod tests {
             label: id.to_string(),
             enabled,
             created_at: "2026-06-22T00:00:00.000Z".to_string(),
+        }
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    fn wait_for_watcher_root_reconciliation(
+        db: &Database,
+        root_id: &str,
+        minimum_revision: i64,
+    ) -> crate::db::scan::ScanRootDto {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let root = db
+                .get_scan_root_health(Some(root_id), None)
+                .expect("read watcher root reconciliation state");
+            if root.watcher_revision >= minimum_revision
+                && root.watcher_revision == root.watcher_applied_revision
+                && !root.needs_reconciliation
+                && root.active_run_id.is_none()
+            {
+                return root;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "watcher root reconciliation did not finish: {root:?}"
+            );
+            thread::sleep(Duration::from_millis(10));
         }
     }
 
