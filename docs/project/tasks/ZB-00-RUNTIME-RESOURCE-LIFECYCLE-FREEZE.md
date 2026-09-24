@@ -1044,8 +1044,12 @@ DONE
 
 The product-level rules remain:
 
-> **Search everything lightly.**  
-> **Understand only what is needed.**  
-> **Run AI only when asked.**  
-> **Consume resources only when useful.**  
+> **Search everything lightly.**
+>
+> **Understand only what is needed.**
+>
+> **Run AI only when asked.**
+>
+> **Consume resources only when useful.**
+>
 > **Touch files only after approval.**
