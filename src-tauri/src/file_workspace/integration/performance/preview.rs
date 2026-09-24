@@ -1615,6 +1615,9 @@ fn max_scheduler_snapshot(left: SchedulerSnapshot, right: SchedulerSnapshot) -> 
         total_releases: left.total_releases.max(right.total_releases),
         total_cancellations: left.total_cancellations.max(right.total_cancellations),
         total_rejections: left.total_rejections.max(right.total_rejections),
+        total_timed_wait_wakeups: left
+            .total_timed_wait_wakeups
+            .max(right.total_timed_wait_wakeups),
     }
 }
 

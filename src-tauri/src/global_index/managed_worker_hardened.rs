@@ -13,6 +13,10 @@ use crate::ai::{
     settings::{get_ai_settings_for_db, normalize_ai_settings, provider_for_settings, AISettings},
 };
 use crate::db::{Database, DbError};
+use crate::{
+    file_workspace::WorkClass,
+    scheduler::{AcquireError, ResourceHints, WorkRequest, WorkScheduler},
+};
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -26,7 +30,7 @@ use std::time::Duration;
 
 const MAX_ATTEMPTS: i64 = 3;
 const MAX_STORED_RESPONSE_BYTES: usize = 64 * 1024;
-const ACTIVITY_BLOCKED_RECHECK: Duration = Duration::from_secs(5);
+const RESOURCE_POLICY_RECHECK: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub(crate) struct ManagedAiJob {
@@ -651,33 +655,62 @@ pub struct ManagedAiWorker {
     stop: Arc<AtomicBool>,
     wake: SyncSender<()>,
     handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    scheduler: Arc<WorkScheduler>,
 }
 
 impl ManagedAiWorker {
     pub fn start(db: Database) -> Self {
-        Self::start_inner(db, None)
+        Self::start_inner(db, None, WorkScheduler::global())
     }
 
     #[cfg(test)]
     fn start_for_test(db: Database) -> (Self, Receiver<()>) {
         let (idle_tx, idle_rx) = mpsc::sync_channel(1);
-        (Self::start_inner(db, Some(idle_tx)), idle_rx)
+        let scheduler = Arc::new(WorkScheduler::new(
+            crate::scheduler::SchedulerConfig::default(),
+        ));
+        (Self::start_inner(db, Some(idle_tx), scheduler), idle_rx)
     }
 
-    fn start_inner(db: Database, idle_ready: Option<SyncSender<()>>) -> Self {
+    #[cfg(test)]
+    fn start_for_test_with_scheduler(
+        db: Database,
+        scheduler: Arc<WorkScheduler>,
+    ) -> (Self, Receiver<()>) {
+        let (idle_tx, idle_rx) = mpsc::sync_channel(1);
+        (Self::start_inner(db, Some(idle_tx), scheduler), idle_rx)
+    }
+
+    fn start_inner(
+        db: Database,
+        idle_ready: Option<SyncSender<()>>,
+        scheduler: Arc<WorkScheduler>,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_for_thread = stop.clone();
         let (wake, receiver) = mpsc::sync_channel(1);
         db.set_managed_ai_waker(wake.clone());
+        scheduler.set_resource_change_waker(wake.clone());
         let wake_for_thread = wake.clone();
+        let scheduler_for_thread = Arc::clone(&scheduler);
         let handle = thread::Builder::new()
             .name("zen-canvas-managed-ai-worker".to_string())
-            .spawn(move || run_worker(db, stop_for_thread, receiver, wake_for_thread, idle_ready))
+            .spawn(move || {
+                run_worker(
+                    db,
+                    stop_for_thread,
+                    receiver,
+                    wake_for_thread,
+                    idle_ready,
+                    scheduler_for_thread,
+                )
+            })
             .ok();
         Self {
             stop,
             wake,
             handle: Arc::new(Mutex::new(handle)),
+            scheduler,
         }
     }
 
@@ -689,6 +722,7 @@ impl ManagedAiWorker {
                 let _ = handle.join();
             }
         }
+        self.scheduler.clear_resource_change_waker();
     }
 }
 
@@ -706,10 +740,12 @@ fn run_worker(
     wake_rx: Receiver<()>,
     wake_tx: SyncSender<()>,
     idle_ready: Option<SyncSender<()>>,
+    scheduler: Arc<WorkScheduler>,
 ) {
     let _ = db.reset_running_managed_ai_jobs();
     let active = Arc::new(AtomicUsize::new(0));
     let mut handles = Vec::new();
+    let mut next_resource_slot = 1_u64;
     while !stop.load(Ordering::Acquire) {
         reap_finished(&mut handles);
         let settings = get_ai_settings_for_db(&db)
@@ -717,41 +753,66 @@ fn run_worker(
             .ok()
             .filter(|settings| settings.enabled);
         db.set_managed_ai_work_wakes_armed(settings.is_some());
+        let mut policy_blocked_with_pending_work = false;
         if let Some(settings) = settings {
             let desired_provider = match settings.provider {
                 AIProviderKind::Ollama => "local",
                 AIProviderKind::OpenAICompatible => "cloud",
             };
-            let activity_policy = crate::platform::macos::activity::policy_for(
-                crate::platform::macos::activity::MacActivitySnapshot::current(),
-                settings.classification_concurrency.clamp(1, 4),
-                true,
-            );
-            if !activity_policy.allow_nonessential_background_work {
-                let pending_work = db
-                    .has_eligible_managed_ai_work(desired_provider)
-                    .unwrap_or(false);
-                if pending_work {
-                    match wake_rx.recv_timeout(ACTIVITY_BLOCKED_RECHECK) {
-                        Ok(()) | Err(RecvTimeoutError::Timeout) => continue,
-                        Err(RecvTimeoutError::Disconnected) => break,
-                    }
-                } else {
-                    signal_test_idle_wait(&idle_ready);
-                    if wake_rx.recv().is_err() {
-                        break;
-                    }
+            let pending_work = db
+                .has_eligible_managed_ai_work(desired_provider)
+                .unwrap_or(false);
+            if !pending_work {
+                signal_test_idle_wait(&idle_ready);
+                if wake_rx.recv().is_err() {
+                    break;
                 }
                 continue;
             }
+            let activity_policy = scheduler.policy_decision(WorkClass::Background);
             let concurrency = settings
                 .classification_concurrency
                 .clamp(1, 4)
-                .min(activity_policy.max_parallelism);
-            while active.load(Ordering::Acquire) < concurrency && !stop.load(Ordering::Acquire) {
+                .min(activity_policy.effective_capacity.cpu.max(1) as usize);
+            policy_blocked_with_pending_work = !activity_policy.allow_background;
+            while !policy_blocked_with_pending_work
+                && active.load(Ordering::Acquire) < concurrency
+                && !stop.load(Ordering::Acquire)
+            {
+                let resource_slot = next_resource_slot;
+                next_resource_slot = next_resource_slot.wrapping_add(1).max(1);
+                let request = WorkRequest::new(
+                    format!("managed-ai-resource-slot-{resource_slot}"),
+                    WorkClass::Background,
+                    ResourceHints {
+                        cpu: 1,
+                        io: 1,
+                        open_handles: 1,
+                        provider_network: 1,
+                        ..ResourceHints::empty()
+                    },
+                );
+                let lease = match scheduler.try_acquire(request) {
+                    Ok(lease) => lease,
+                    Err(AcquireError::PolicyDenied) => {
+                        policy_blocked_with_pending_work = true;
+                        break;
+                    }
+                    Err(AcquireError::WouldBlock | AcquireError::QueueFull) => {
+                        break;
+                    }
+                    Err(AcquireError::Cancelled) => break,
+                    Err(error) => {
+                        eprintln!("Managed AI resource admission failed: {error}");
+                        break;
+                    }
+                };
                 let job = match db.claim_next_managed_ai_job(desired_provider) {
                     Ok(Some(job)) => job,
-                    Ok(None) | Err(_) => break,
+                    Ok(None) | Err(_) => {
+                        drop(lease);
+                        break;
+                    }
                 };
                 let db_for_job = db.clone();
                 let active_for_job = active.clone();
@@ -762,7 +823,9 @@ fn run_worker(
                 let handle = thread::Builder::new()
                     .name(format!("zen-canvas-managed-ai-{}", job.id))
                     .spawn(move || {
+                        let _ = crate::resource_governor::apply_thread_qos(WorkClass::Background);
                         process_job(&db_for_job, &job_for_thread, &settings_for_job);
+                        drop(lease);
                         active_for_job.fetch_sub(1, Ordering::AcqRel);
                         let _ = wake_for_job.try_send(());
                     });
@@ -777,7 +840,12 @@ fn run_worker(
             }
         }
         signal_test_idle_wait(&idle_ready);
-        if wake_rx.recv().is_err() {
+        if policy_blocked_with_pending_work && !scheduler.native_policy_notifications_available() {
+            match wake_rx.recv_timeout(RESOURCE_POLICY_RECHECK) {
+                Ok(()) | Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        } else if wake_rx.recv().is_err() {
             break;
         }
     }
@@ -785,6 +853,7 @@ fn run_worker(
     while let Some(handle) = handles.pop() {
         let _ = handle.join();
     }
+    scheduler.clear_resource_change_waker();
 }
 
 fn signal_test_idle_wait(idle_ready: &Option<SyncSender<()>>) {
@@ -1049,6 +1118,9 @@ mod tests {
         AddManagedScopeRequest, GlobalEntryInput, GlobalVolume, INDEX_STATUS_READY,
         PROVIDER_WINDOWS_MFT_USN,
     };
+    use crate::scheduler::{
+        PlatformResourcePolicy, ResourceCapacities, ResourcePolicyDecision, SchedulerConfig,
+    };
     use serde_json::Value;
     use std::{
         io::{Read, Write},
@@ -1059,6 +1131,31 @@ mod tests {
     };
 
     struct TestDatabaseDirectory(PathBuf);
+
+    struct SwitchableAiResourcePolicy(AtomicBool);
+
+    impl PlatformResourcePolicy for SwitchableAiResourcePolicy {
+        fn decision(
+            &self,
+            class: WorkClass,
+            configured_capacity: ResourceCapacities,
+        ) -> ResourcePolicyDecision {
+            let background = matches!(class, WorkClass::Background);
+            let allow_background = !background || self.0.load(Ordering::Acquire);
+            ResourcePolicyDecision {
+                effective_capacity: if allow_background {
+                    configured_capacity
+                } else {
+                    ResourceCapacities {
+                        cpu: configured_capacity.cpu.min(1),
+                        ..configured_capacity
+                    }
+                },
+                allow_background,
+                efficiency_qos: background,
+            }
+        }
+    }
 
     impl TestDatabaseDirectory {
         fn new() -> Self {
@@ -1480,6 +1577,89 @@ mod tests {
             )
             .expect("count completed AI jobs");
         assert_eq!(completed_jobs, 1);
+        drop(worker);
+        drop(db);
+    }
+
+    #[test]
+    fn pending_managed_ai_work_restarts_on_scheduler_policy_change_without_idle_polling() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind local Ollama fixture");
+        listener
+            .set_nonblocking(true)
+            .expect("make local Ollama fixture nonblocking");
+        let address = listener.local_addr().expect("local Ollama address");
+        let (served_tx, served_rx) = mpsc::channel();
+        let (server_stop_tx, server_stop_rx) = mpsc::channel();
+        let server = LocalOllamaServer {
+            stop_tx: server_stop_tx,
+            thread: Some(thread::spawn(move || {
+                run_local_ollama(listener, server_stop_rx, served_tx, 1);
+            })),
+        };
+
+        let test_dir = TestDatabaseDirectory::new();
+        let db = Database::open(test_dir.database_path()).expect("open worker database");
+        db.upsert_global_volume(&worker_test_volume())
+            .expect("insert managed source");
+        db.add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Managed\WakeTest".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add eligible managed scope");
+        let settings = AISettings {
+            enabled: true,
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: format!("http://{address}"),
+            model: "test-model".to_string(),
+            timeout_seconds: 5,
+            ..AISettings::default()
+        };
+        save_ai_settings_with_store(&db, &settings, &InMemoryCredentialStore::default())
+            .expect("enable local test provider");
+        db.upsert_global_entries_batch(&[worker_test_entry(0)])
+            .expect("create durable pending work");
+
+        let policy = Arc::new(SwitchableAiResourcePolicy(AtomicBool::new(false)));
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(4, 4, 16, 2, 1, 4))
+                .with_policy(policy.clone()),
+        ));
+        scheduler.set_native_policy_notifications_available(true);
+        let (worker, idle_rx) =
+            ManagedAiWorker::start_for_test_with_scheduler(db.clone(), Arc::clone(&scheduler));
+        idle_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("worker observed durable pending work and policy block");
+        assert_eq!(
+            served_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout),
+            "policy-blocked AI work must remain unclaimed until policy changes"
+        );
+
+        policy.0.store(true, Ordering::Release);
+        scheduler.notify_resource_policy_changed();
+        served_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("resource policy notification wakes and processes pending work");
+        worker.shutdown();
+        server.stop_and_join();
+
+        let (completed, running): (i64, i64) = db
+            .conn()
+            .expect("database connection")
+            .query_row(
+                "SELECT SUM(status = 'completed'), SUM(status = 'running') FROM ai_jobs",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read durable AI job state");
+        assert_eq!(completed, 1, "one durable job must complete exactly once");
+        assert_eq!(running, 0, "no job should remain claimed after completion");
         drop(worker);
         drop(db);
     }

@@ -267,17 +267,23 @@ impl ScanJobManager {
             return false;
         };
         token.store(true, Ordering::Release);
+        crate::scheduler::WorkScheduler::global().cancel_session(job_id.trim());
         true
     }
 
     pub fn cancel_all(&self) -> usize {
-        let Ok(jobs) = self.0.lock() else {
-            return 0;
+        let job_ids = {
+            let Ok(jobs) = self.0.lock() else {
+                return 0;
+            };
+            for entry in jobs.jobs.values() {
+                entry.token.store(true, Ordering::Release);
+            }
+            jobs.jobs.keys().cloned().collect::<Vec<_>>()
         };
-        let mut canceled = 0;
-        for entry in jobs.jobs.values() {
-            entry.token.store(true, Ordering::Release);
-            canceled += 1;
+        let canceled = job_ids.len();
+        for job_id in job_ids {
+            crate::scheduler::WorkScheduler::global().cancel_session(&job_id);
         }
         canceled
     }
@@ -896,20 +902,13 @@ fn acquire_scan_resource_lease(
     let adapter = ManagedScanResourceLeaseAdapter::global();
     let cancellation = CancellationToken::from_flag(Arc::clone(cancel_flag));
     let class = scan_work_class(legacy);
-    loop {
-        if is_scan_cancelled(cancel_flag) {
-            return Ok(None);
-        }
-        match adapter.try_acquire(run_id, class, cancellation.clone()) {
-            Ok(lease) => return Ok(Some(lease)),
-            Err(AcquireError::WouldBlock)
-            | Err(AcquireError::QueueFull)
-            | Err(AcquireError::PolicyDenied) => {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            Err(AcquireError::Cancelled) => return Ok(None),
-            Err(error) => return Err(ScanError::Scheduler(error.to_string())),
-        }
+    if is_scan_cancelled(cancel_flag) {
+        return Ok(None);
+    }
+    match adapter.acquire(run_id, class, cancellation) {
+        Ok(lease) => Ok(Some(lease)),
+        Err(AcquireError::Cancelled) => Ok(None),
+        Err(error) => Err(ScanError::Scheduler(error.to_string())),
     }
 }
 
@@ -1138,6 +1137,7 @@ fn run_scan_run<R: Runtime>(
         }
         Err(error) => return Err(error),
     };
+    let _qos_scope = crate::resource_governor::scope_thread_qos(scan_work_class(legacy));
     let skipped_for_filter = Arc::clone(&skipped);
     let mut batch = ScanBatchBuffer::new(started_at);
     let root = PathBuf::from(&root_label);

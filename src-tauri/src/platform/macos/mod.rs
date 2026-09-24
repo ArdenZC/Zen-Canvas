@@ -15,6 +15,7 @@ pub mod lifecycle;
 pub mod mutation;
 pub mod native_preview;
 pub mod package;
+pub mod qos;
 pub mod quick_look;
 #[cfg(target_os = "macos")]
 pub mod strategy;

@@ -54,6 +54,7 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
+            app.manage(zen_canvas_tauri::content::ContentRunManager::default());
             let thumbnail_cache_dir = app
                 .path()
                 .app_data_dir()
@@ -172,6 +173,11 @@ fn main() {
                         let app_handle = lifecycle_app.clone();
                         let db = lifecycle_db.clone();
                         match event {
+                            MacLifecycleEvent::ResourcePolicyChanged => {
+                                zen_canvas_tauri::scheduler::WorkScheduler::global()
+                                    .notify_resource_policy_changed();
+                                Ok(())
+                            }
                             MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
                                 lifecycle_coordinator
                                     .pause()
@@ -242,6 +248,9 @@ fn main() {
                     },
                 )
                 .map_err(|error| error.to_string())?;
+            #[cfg(target_os = "macos")]
+            zen_canvas_tauri::scheduler::WorkScheduler::global()
+                .set_native_policy_notifications_available(true);
             app.manage(lifecycle);
             Ok(())
         })

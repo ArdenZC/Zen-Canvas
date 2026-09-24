@@ -4,10 +4,11 @@
 //! resource lease. Durable jobs, cancellation state, retries, recovery and
 //! filesystem truth remain owned by their existing authorities.
 
-use crate::file_workspace::WorkClass;
+use crate::{file_workspace::WorkClass, resource_governor::RuntimeResourceGovernor};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -18,6 +19,8 @@ const DEFAULT_OPEN_HANDLES: u32 = 64;
 const DEFAULT_DECODER_SLOTS: u32 = 2;
 const DEFAULT_NATIVE_PREVIEW_SLOTS: u32 = 1;
 const DEFAULT_PROVIDER_NETWORK_SLOTS: u32 = 4;
+const EXTERNAL_CANCELLATION_RECHECK: Duration = Duration::from_secs(1);
+const POLICY_RECHECK: Duration = Duration::from_secs(5);
 
 /// The bounded resource dimensions understood by the scheduler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -252,6 +255,10 @@ impl CancellationToken {
             signal.notify_all();
         }
     }
+
+    fn has_unobservable_external_cancel(&self) -> bool {
+        !self.inner.external_flags.is_empty()
+    }
 }
 
 impl fmt::Debug for CancellationToken {
@@ -308,6 +315,7 @@ impl WorkRequest {
 pub struct ResourcePolicyDecision {
     pub effective_capacity: ResourceCapacities,
     pub allow_background: bool,
+    pub efficiency_qos: bool,
 }
 
 /// Platform adapters provide pressure and essential-work policy without
@@ -326,12 +334,13 @@ pub struct PermissiveResourcePolicy;
 impl PlatformResourcePolicy for PermissiveResourcePolicy {
     fn decision(
         &self,
-        _class: WorkClass,
+        class: WorkClass,
         configured_capacity: ResourceCapacities,
     ) -> ResourcePolicyDecision {
         ResourcePolicyDecision {
             effective_capacity: configured_capacity,
             allow_background: true,
+            efficiency_qos: matches!(class, WorkClass::Background),
         }
     }
 }
@@ -344,7 +353,7 @@ pub struct ConservativeResourcePolicy;
 impl PlatformResourcePolicy for ConservativeResourcePolicy {
     fn decision(
         &self,
-        _class: WorkClass,
+        class: WorkClass,
         configured_capacity: ResourceCapacities,
     ) -> ResourcePolicyDecision {
         ResourcePolicyDecision {
@@ -353,80 +362,13 @@ impl PlatformResourcePolicy for ConservativeResourcePolicy {
                 ..configured_capacity
             },
             allow_background: true,
-        }
-    }
-}
-
-/// Adapter over the existing macOS Activity/Thermal/Low Power policy.
-#[derive(Clone)]
-pub struct MacActivityResourcePolicy {
-    snapshot_provider:
-        Arc<dyn Fn() -> crate::platform::macos::activity::MacActivitySnapshot + Send + Sync>,
-}
-
-impl fmt::Debug for MacActivityResourcePolicy {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("MacActivityResourcePolicy")
-            .finish_non_exhaustive()
-    }
-}
-
-impl MacActivityResourcePolicy {
-    pub fn current() -> Self {
-        Self {
-            snapshot_provider: Arc::new(|| {
-                crate::platform::macos::activity::MacActivitySnapshot::current()
-            }),
-        }
-    }
-
-    pub fn from_snapshot(snapshot: crate::platform::macos::activity::MacActivitySnapshot) -> Self {
-        Self {
-            snapshot_provider: Arc::new(move || snapshot),
-        }
-    }
-}
-
-impl Default for MacActivityResourcePolicy {
-    fn default() -> Self {
-        Self::current()
-    }
-}
-
-impl PlatformResourcePolicy for MacActivityResourcePolicy {
-    fn decision(
-        &self,
-        class: WorkClass,
-        configured_capacity: ResourceCapacities,
-    ) -> ResourcePolicyDecision {
-        let activity = crate::platform::macos::activity::policy_for(
-            (self.snapshot_provider)(),
-            configured_capacity.cpu.max(1) as usize,
-            matches!(class, WorkClass::Background),
-        );
-        ResourcePolicyDecision {
-            effective_capacity: ResourceCapacities {
-                cpu: configured_capacity
-                    .cpu
-                    .min(activity.max_parallelism.max(1) as u32),
-                ..configured_capacity
-            },
-            allow_background: activity.allow_nonessential_background_work,
+            efficiency_qos: matches!(class, WorkClass::Background),
         }
     }
 }
 
 fn default_platform_policy() -> Arc<dyn PlatformResourcePolicy> {
-    #[cfg(target_os = "macos")]
-    {
-        Arc::new(MacActivityResourcePolicy::current())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Arc::new(ConservativeResourcePolicy)
-    }
+    Arc::new(RuntimeResourceGovernor::current())
 }
 
 /// Scheduler configuration. All limits are process-local and non-durable.
@@ -607,6 +549,7 @@ struct SchedulerMetrics {
     total_releases: u64,
     total_cancellations: u64,
     total_rejections: u64,
+    total_timed_wait_wakeups: u64,
 }
 
 struct SchedulerState {
@@ -636,6 +579,8 @@ struct SchedulerInner {
     changed: Arc<Condvar>,
     config: SchedulerConfig,
     next_lease_id: AtomicU64,
+    resource_change_waker: Mutex<Option<SyncSender<()>>>,
+    native_policy_notifications: AtomicBool,
 }
 
 /// A process-local, bounded resource scheduler.
@@ -664,6 +609,8 @@ impl WorkScheduler {
                 changed: Arc::new(Condvar::new()),
                 config,
                 next_lease_id: AtomicU64::new(1),
+                resource_change_waker: Mutex::new(None),
+                native_policy_notifications: AtomicBool::new(false),
             }),
         }
     }
@@ -679,10 +626,138 @@ impl WorkScheduler {
         &self.inner.config
     }
 
+    /// Read the current transient policy for a class. Admission still occurs
+    /// only through this scheduler's acquire methods.
+    pub fn policy_decision(&self, class: WorkClass) -> ResourcePolicyDecision {
+        self.inner
+            .config
+            .policy
+            .decision(class, self.inner.config.capacities)
+    }
+
+    /// Mark whether an OS event source currently wakes policy-blocked work.
+    /// Without one, timed rechecks are used only while Background work is
+    /// actually blocked by policy.
+    pub fn set_native_policy_notifications_available(&self, available: bool) {
+        self.inner
+            .native_policy_notifications
+            .store(available, Ordering::Release);
+        self.notify_resource_policy_changed();
+    }
+
+    pub fn native_policy_notifications_available(&self) -> bool {
+        self.inner
+            .native_policy_notifications
+            .load(Ordering::Acquire)
+    }
+
+    /// Register the one coalescing resource-change wake slot used by
+    /// Managed AI. This is a wake hint only; durable queue state stays in
+    /// SQLite and WorkScheduler remains the admission authority.
+    pub(crate) fn set_resource_change_waker(&self, sender: SyncSender<()>) {
+        if let Ok(mut slot) = self.inner.resource_change_waker.lock() {
+            *slot = Some(sender.clone());
+        }
+    }
+
+    pub(crate) fn clear_resource_change_waker(&self) {
+        if let Ok(mut slot) = self.inner.resource_change_waker.lock() {
+            *slot = None;
+        }
+    }
+
+    /// Re-evaluate queued work after a platform power/thermal change.
+    pub fn notify_resource_policy_changed(&self) {
+        if let Ok(mut state) = self.inner.state.lock() {
+            self.dispatch_locked(&mut state);
+        }
+        self.signal_resource_change_waker();
+    }
+
+    fn signal_resource_change_waker(&self) {
+        let sender = self
+            .inner
+            .resource_change_waker
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone());
+        if let Some(sender) = sender {
+            let _ = sender.try_send(());
+        }
+    }
+
     /// Wait for a lease, respecting priority, bounded fairness and caller
     /// cancellation. A queued request never owns durable job state.
     pub fn acquire(&self, request: WorkRequest) -> Result<ResourceLease, AcquireError> {
         self.acquire_until(request, None)
+    }
+
+    /// Acquire a lease while respecting the bounded queue as backpressure.
+    /// The request remains caller-owned and cancellation/deadline behavior is
+    /// unchanged; this does not create a scheduler-owned job.
+    pub fn acquire_with_backpressure(
+        &self,
+        request: WorkRequest,
+    ) -> Result<ResourceLease, AcquireError> {
+        loop {
+            match self.acquire(request.clone()) {
+                Err(AcquireError::QueueFull) => {
+                    self.wait_for_queue_capacity(&request.cancellation, None)?;
+                }
+                result => return result,
+            }
+        }
+    }
+
+    /// Wait until bounded queue backpressure has room for a request. This is
+    /// used by existing authorities that own a durable request and must not
+    /// turn transient scheduler overload into a durable job failure.
+    pub fn wait_for_queue_capacity(
+        &self,
+        cancellation: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<(), AcquireError> {
+        cancellation.attach_waiter_signal(&self.inner.changed);
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| AcquireError::Unavailable)?;
+        loop {
+            if cancellation.is_cancelled() {
+                return Err(AcquireError::Cancelled);
+            }
+            if state.queue.len() < self.inner.config.max_queued {
+                return Ok(());
+            }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(AcquireError::WouldBlock);
+            }
+            let timeout = if cancellation.has_unobservable_external_cancel() {
+                Some(deadline.map_or(EXTERNAL_CANCELLATION_RECHECK, |deadline| {
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .min(EXTERNAL_CANCELLATION_RECHECK)
+                }))
+            } else {
+                deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()))
+            };
+            if timeout.is_some_and(|duration| duration.is_zero()) {
+                return Err(AcquireError::WouldBlock);
+            }
+            state = if let Some(timeout) = timeout {
+                self.inner
+                    .changed
+                    .wait_timeout(state, timeout)
+                    .map_err(|_| AcquireError::Unavailable)?
+                    .0
+            } else {
+                self.inner
+                    .changed
+                    .wait(state)
+                    .map_err(|_| AcquireError::Unavailable)?
+            };
+        }
     }
 
     /// Wait for a lease until a caller-owned deadline. This remains a
@@ -750,24 +825,29 @@ impl WorkScheduler {
                 }
                 return Ok(lease);
             }
-            let wait_duration = deadline
-                .map(|deadline| {
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .min(Duration::from_millis(50))
-                })
-                .unwrap_or_else(|| Duration::from_millis(50));
-            if wait_duration.is_zero() {
+            let wait_duration = self.wait_duration(&state, &cancellation, deadline);
+            if wait_duration.is_some_and(|duration| duration.is_zero()) {
                 self.remove_waiter_locked(&mut state, &waiter);
                 self.inner.changed.notify_all();
                 return Err(AcquireError::WouldBlock);
             }
-            state = self
-                .inner
-                .changed
-                .wait_timeout(state, wait_duration)
-                .map_err(|_| AcquireError::Unavailable)?
-                .0;
+            state = if let Some(wait_duration) = wait_duration {
+                let (mut state, result) = self
+                    .inner
+                    .changed
+                    .wait_timeout(state, wait_duration)
+                    .map_err(|_| AcquireError::Unavailable)?;
+                if result.timed_out() {
+                    state.metrics.total_timed_wait_wakeups =
+                        state.metrics.total_timed_wait_wakeups.saturating_add(1);
+                }
+                state
+            } else {
+                self.inner
+                    .changed
+                    .wait(state)
+                    .map_err(|_| AcquireError::Unavailable)?
+            };
         }
     }
 
@@ -831,6 +911,9 @@ impl WorkScheduler {
             return Ok(lease);
         }
         let removed = self.remove_waiter_by_sequence_locked(&mut state, sequence);
+        if removed {
+            self.inner.changed.notify_all();
+        }
         if cancellation.is_cancelled() {
             if removed {
                 state.metrics.total_cancellations += 1;
@@ -877,6 +960,7 @@ impl WorkScheduler {
             total_releases: state.metrics.total_releases,
             total_cancellations: state.metrics.total_cancellations,
             total_rejections: state.metrics.total_rejections,
+            total_timed_wait_wakeups: state.metrics.total_timed_wait_wakeups,
             ..SchedulerSnapshot::default()
         };
         for queued in &state.queue {
@@ -939,6 +1023,24 @@ impl WorkScheduler {
         !matches!(request.class, WorkClass::Background) || decision.allow_background
     }
 
+    fn policy_blocks_request(&self, request: &WorkRequest) -> bool {
+        if !matches!(request.class, WorkClass::Background) {
+            return false;
+        }
+        let decision = self
+            .inner
+            .config
+            .policy
+            .decision(request.class, self.inner.config.capacities);
+        !decision.allow_background
+            || (request
+                .resources
+                .fits_in(self.inner.config.capacities.as_hints())
+                && !request
+                    .resources
+                    .fits_in(decision.effective_capacity.as_hints()))
+    }
+
     fn request_fits(&self, state: &SchedulerState, request: &WorkRequest) -> bool {
         let decision = self
             .inner
@@ -954,6 +1056,32 @@ impl WorkScheduler {
                 .as_hints()
                 .saturating_sub(state.granted),
         )
+    }
+
+    fn wait_duration(
+        &self,
+        state: &SchedulerState,
+        cancellation: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Option<Duration> {
+        let mut timeout = if cancellation.has_unobservable_external_cancel() {
+            Some(EXTERNAL_CANCELLATION_RECHECK)
+        } else {
+            None
+        };
+        if !self.native_policy_notifications_available()
+            && state.queue.iter().any(|queued| {
+                matches!(queued.request.class, WorkClass::Background)
+                    && self.policy_blocks_request(&queued.request)
+            })
+        {
+            timeout = Some(timeout.map_or(POLICY_RECHECK, |current| current.min(POLICY_RECHECK)));
+        }
+        if let Some(deadline) = deadline {
+            let until_deadline = deadline.saturating_duration_since(Instant::now());
+            timeout = Some(timeout.map_or(until_deadline, |current| current.min(until_deadline)));
+        }
+        timeout
     }
 
     fn dispatch_locked(&self, state: &mut SchedulerState) {
@@ -1054,6 +1182,8 @@ impl WorkScheduler {
         state.granted = state.granted.saturating_sub(active.resources);
         state.metrics.total_releases += 1;
         self.dispatch_locked(&mut state);
+        drop(state);
+        self.signal_resource_change_waker();
     }
 
     fn cancel_superseded_locked(&self, state: &mut SchedulerState, request: &WorkRequest) {
@@ -1192,6 +1322,7 @@ pub struct SchedulerSnapshot {
     pub total_releases: u64,
     pub total_cancellations: u64,
     pub total_rejections: u64,
+    pub total_timed_wait_wakeups: u64,
 }
 
 /// Adapters for existing heavy authorities. These wrappers only acquire
@@ -1241,6 +1372,27 @@ pub mod adapters {
             .with_session_id(run_id.to_string())
             .with_cancellation(cancellation);
             self.scheduler.try_acquire(request)
+        }
+
+        pub fn acquire(
+            &self,
+            run_id: &str,
+            class: WorkClass,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            let request = WorkRequest::new(
+                run_id.to_string(),
+                class,
+                ResourceHints {
+                    cpu: 1,
+                    io: 1,
+                    open_handles: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(run_id.to_string())
+            .with_cancellation(cancellation);
+            self.scheduler.acquire_with_backpressure(request)
         }
 
         pub fn scheduler(&self) -> Arc<WorkScheduler> {
@@ -1557,7 +1709,10 @@ pub mod adapters {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::macos::activity::{MacActivitySnapshot, MacThermalState};
+    use crate::{
+        platform::macos::activity::{MacActivitySnapshot, MacThermalState},
+        resource_governor::RuntimeResourceGovernor,
+    };
     use std::sync::mpsc;
     use std::thread;
 
@@ -1567,6 +1722,56 @@ mod tests {
                 .with_capacities(ResourceCapacities::new(cpu, 1, 8, 1, 1, 1))
                 .with_policy(Arc::new(PermissiveResourcePolicy)),
         )
+    }
+
+    struct SwitchableResourcePolicy(AtomicBool);
+
+    impl PlatformResourcePolicy for SwitchableResourcePolicy {
+        fn decision(
+            &self,
+            class: WorkClass,
+            configured_capacity: ResourceCapacities,
+        ) -> ResourcePolicyDecision {
+            let background = matches!(class, WorkClass::Background);
+            let admitted = !background || self.0.load(Ordering::Acquire);
+            ResourcePolicyDecision {
+                effective_capacity: if admitted {
+                    configured_capacity
+                } else {
+                    ResourceCapacities {
+                        cpu: configured_capacity.cpu.min(1),
+                        ..configured_capacity
+                    }
+                },
+                allow_background: admitted,
+                efficiency_qos: background,
+            }
+        }
+    }
+
+    struct SwitchableCapacityPolicy(AtomicBool);
+
+    impl PlatformResourcePolicy for SwitchableCapacityPolicy {
+        fn decision(
+            &self,
+            class: WorkClass,
+            configured_capacity: ResourceCapacities,
+        ) -> ResourcePolicyDecision {
+            let constrained =
+                matches!(class, WorkClass::Background) && !self.0.load(Ordering::Acquire);
+            ResourcePolicyDecision {
+                effective_capacity: if constrained {
+                    ResourceCapacities {
+                        cpu: configured_capacity.cpu.min(1),
+                        ..configured_capacity
+                    }
+                } else {
+                    configured_capacity
+                },
+                allow_background: true,
+                efficiency_qos: matches!(class, WorkClass::Background),
+            }
+        }
     }
 
     fn request(id: &str, class: WorkClass) -> WorkRequest {
@@ -1915,6 +2120,128 @@ mod tests {
     }
 
     #[test]
+    fn queued_request_waits_for_release_without_periodic_wakes_or_duplicate_grants() {
+        let scheduler = Arc::new(test_scheduler(1));
+        let holder = scheduler
+            .try_acquire(request("resource-holder", WorkClass::Foreground))
+            .expect("holder lease");
+        let executions = Arc::new(AtomicU64::new(0));
+        let worker_executions = Arc::clone(&executions);
+        let waiter_scheduler = Arc::clone(&scheduler);
+        let (tx, rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let lease = waiter_scheduler
+                .acquire(request("resource-waiter", WorkClass::Background))
+                .expect("background lease after release");
+            worker_executions.fetch_add(1, Ordering::AcqRel);
+            tx.send(lease.request_id().to_string())
+                .expect("send admitted request");
+            drop(lease);
+        });
+        wait_for_queued(&scheduler, 1);
+        thread::sleep(Duration::from_millis(130));
+        assert_eq!(scheduler.snapshot().total_timed_wait_wakeups, 0);
+
+        drop(holder);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(1))
+                .expect("resource release wakes waiter"),
+            "resource-waiter"
+        );
+        waiter.join().expect("waiter joins");
+        assert_eq!(executions.load(Ordering::Acquire), 1);
+        assert_eq!(scheduler.snapshot().total_grants, 2);
+        assert_eq!(scheduler.snapshot().running, 0);
+    }
+
+    #[test]
+    fn native_policy_change_wakes_blocked_background_and_restores_capacity() {
+        let policy = Arc::new(SwitchableResourcePolicy(AtomicBool::new(false)));
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(4, 4, 8, 1, 1, 1))
+                .with_policy(policy.clone()),
+        ));
+        scheduler.set_native_policy_notifications_available(true);
+        assert_eq!(
+            scheduler
+                .policy_decision(WorkClass::Background)
+                .effective_capacity
+                .cpu,
+            1
+        );
+        let waiter_scheduler = Arc::clone(&scheduler);
+        let (tx, rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let result = waiter_scheduler.acquire(request("policy-waiter", WorkClass::Background));
+            tx.send(result.map(|lease| lease.request_id().to_string()))
+                .expect("send policy admission");
+        });
+        wait_for_queued(&scheduler, 1);
+        thread::sleep(Duration::from_millis(130));
+        assert_eq!(scheduler.snapshot().total_timed_wait_wakeups, 0);
+
+        policy.0.store(true, Ordering::Release);
+        scheduler.notify_resource_policy_changed();
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(1))
+                .expect("policy event wakes blocked background"),
+            Ok("policy-waiter".to_string())
+        );
+        waiter.join().expect("policy waiter joins");
+        assert_eq!(
+            scheduler
+                .policy_decision(WorkClass::Background)
+                .effective_capacity
+                .cpu,
+            4
+        );
+        assert_eq!(scheduler.snapshot().running, 0);
+    }
+
+    #[test]
+    fn eventless_background_capacity_block_gets_only_the_slow_policy_fallback() {
+        let policy = Arc::new(SwitchableCapacityPolicy(AtomicBool::new(false)));
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(4, 4, 8, 1, 1, 1))
+                .with_policy(policy.clone()),
+        ));
+        let cancellation = CancellationToken::new();
+        let waiter_cancellation = cancellation.clone();
+        let waiter_scheduler = Arc::clone(&scheduler);
+        let request = WorkRequest::new(
+            "capacity-policy-waiter",
+            WorkClass::Background,
+            ResourceHints::cpu_io(2, 1),
+        )
+        .with_cancellation(waiter_cancellation);
+        let (tx, rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            tx.send(waiter_scheduler.acquire(request))
+                .expect("send capacity-policy result");
+        });
+        wait_for_queued(&scheduler, 1);
+        let state = scheduler.inner.state.lock().expect("scheduler state");
+        assert_eq!(
+            scheduler.wait_duration(&state, &cancellation, None),
+            Some(POLICY_RECHECK),
+            "only a policy-reduced eligible capacity gets the 5s recheck"
+        );
+        drop(state);
+
+        policy.0.store(true, Ordering::Release);
+        scheduler.notify_resource_policy_changed();
+        let lease = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("policy event wakes request")
+            .expect("restored capacity grants request");
+        assert_eq!(lease.resources().cpu, 2);
+        drop(lease);
+        waiter.join().expect("capacity-policy waiter joins");
+    }
+
+    #[test]
     fn superseded_session_work_is_cancelled_before_new_work_consumes_capacity() {
         let scheduler = Arc::new(test_scheduler(1));
         let holder = scheduler
@@ -2001,7 +2328,7 @@ mod tests {
 
     #[test]
     fn mac_policy_preserves_critical_foreground_and_blocks_nonessential_background() {
-        let policy = Arc::new(MacActivityResourcePolicy::from_snapshot(
+        let policy = Arc::new(RuntimeResourceGovernor::from_snapshot(
             MacActivitySnapshot {
                 thermal: MacThermalState::Critical,
                 low_power_mode: false,
@@ -2025,7 +2352,7 @@ mod tests {
 
     #[test]
     fn mac_policy_keeps_low_power_background_bounded_but_admitted() {
-        let policy = Arc::new(MacActivityResourcePolicy::from_snapshot(
+        let policy = Arc::new(RuntimeResourceGovernor::from_snapshot(
             MacActivitySnapshot {
                 thermal: MacThermalState::Nominal,
                 low_power_mode: true,

@@ -47,10 +47,11 @@ pub fn preview_content<R: Runtime>(
 pub fn start_content_run<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
+    manager: State<'_, ContentRunManager>,
     request: StartContentRunRequest,
 ) -> Result<ContentRunDto, String> {
     require_main_window(&window)?;
-    db.start_content_run(request)
+    db.start_content_run_with_manager(request, manager.inner())
         .map_err(|error| error.to_string())
 }
 
@@ -91,11 +92,16 @@ pub fn get_active_content_run_for_file<R: Runtime>(
 pub fn cancel_content_run<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
+    manager: State<'_, ContentRunManager>,
     request: ContentRunIdRequest,
 ) -> Result<ContentRunDto, String> {
     require_main_window(&window)?;
-    db.cancel_content_run(request)
-        .map_err(|error| error.to_string())
+    let run_id = request.run_id.clone();
+    let run = db
+        .cancel_content_run(request)
+        .map_err(|error| error.to_string())?;
+    manager.cancel(&run_id);
+    Ok(run)
 }
 
 #[tauri::command]
@@ -168,9 +174,10 @@ pub fn purge_content_scope<R: Runtime>(
 pub fn understand_content_artifacts<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
+    manager: State<'_, ContentRunManager>,
     request: UnderstandContentArtifactsRequest,
 ) -> Result<ContentUnderstandingResultDto, String> {
     require_main_window(&window)?;
-    db.understand_content_artifacts(request)
+    db.understand_content_artifacts_with_manager(request, manager.inner())
         .map_err(|error| error.to_string())
 }

@@ -21,6 +21,7 @@ pub enum MacLifecycleEvent {
     WillUnmount,
     DidUnmount,
     VolumeChanged,
+    ResourcePolicyChanged,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +110,10 @@ impl MacLifecycleController {
         callback: &dyn Fn(MacLifecycleEvent) -> Result<(), String>,
         event: MacLifecycleEvent,
     ) {
+        if event == MacLifecycleEvent::ResourcePolicyChanged {
+            let _ = callback(event);
+            return;
+        }
         #[cfg(target_os = "macos")]
         if matches!(
             event,
@@ -129,6 +134,7 @@ impl MacLifecycleController {
                 | MacLifecycleEvent::WillUnmount
                 | MacLifecycleEvent::DidUnmount
                 | MacLifecycleEvent::VolumeChanged => MacLifecycleState::ReconcileRequired,
+                MacLifecycleEvent::ResourcePolicyChanged => unreachable!(),
             };
         }
 
@@ -178,7 +184,11 @@ fn run_workspace_observer(
         NSWorkspaceDidUnmountNotification, NSWorkspaceDidWakeNotification,
         NSWorkspaceWillSleepNotification, NSWorkspaceWillUnmountNotification,
     };
-    use objc2_foundation::{NSNotification, NSNotificationCenter, NSRunLoop};
+    use objc2_foundation::{
+        NSNotification, NSNotificationCenter, NSProcessInfo,
+        NSProcessInfoPowerStateDidChangeNotification,
+        NSProcessInfoThermalStateDidChangeNotification, NSRunLoop,
+    };
     use std::ptr::NonNull;
 
     let workspace = NSWorkspace::sharedWorkspace();
@@ -210,6 +220,46 @@ fn run_workspace_observer(
 
     let observer =
         unsafe { center.addObserverForName_object_queue_usingBlock(None, None, None, &block) };
+    // Read once before subscription as required by NSProcessInfo's thermal
+    // state contract, then subscribe to both native policy-change signals.
+    let process_info = NSProcessInfo::processInfo();
+    let _initial_activity = (
+        process_info.thermalState(),
+        process_info.isLowPowerModeEnabled(),
+    );
+    let process_center: Retained<NSNotificationCenter> = NSNotificationCenter::defaultCenter();
+    let policy_callback = Arc::clone(callback);
+    let policy_state = Arc::clone(state);
+    let policy_block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+        MacLifecycleController::apply_event(
+            &policy_state,
+            &*policy_callback,
+            MacLifecycleEvent::ResourcePolicyChanged,
+        );
+    });
+    let power_observer = unsafe {
+        process_center.addObserverForName_object_queue_usingBlock(
+            Some(NSProcessInfoPowerStateDidChangeNotification),
+            None,
+            None,
+            &policy_block,
+        )
+    };
+    let thermal_observer = unsafe {
+        process_center.addObserverForName_object_queue_usingBlock(
+            Some(NSProcessInfoThermalStateDidChangeNotification),
+            None,
+            None,
+            &policy_block,
+        )
+    };
+    // A change between the initial snapshot and observer registration is
+    // covered by this fresh scheduler re-evaluation.
+    MacLifecycleController::apply_event(
+        state,
+        &**callback,
+        MacLifecycleEvent::ResourcePolicyChanged,
+    );
     let run_loop = NSRunLoop::currentRunLoop();
     while !stopped.load(Ordering::Acquire) {
         let deadline = objc2_foundation::NSDate::dateWithTimeIntervalSinceNow(0.25);
@@ -219,6 +269,12 @@ fn run_workspace_observer(
         observer.as_ref();
     let observer_object: &AnyObject = protocol_object.as_ref();
     unsafe { center.removeObserver(observer_object) };
+    for observer in [power_observer, thermal_observer] {
+        let protocol_object: &ProtocolObject<dyn objc2_foundation::NSObjectProtocol> =
+            observer.as_ref();
+        let observer_object: &AnyObject = protocol_object.as_ref();
+        unsafe { process_center.removeObserver(observer_object) };
+    }
 }
 
 #[cfg(test)]
@@ -256,6 +312,25 @@ mod tests {
         let snapshot = controller.snapshot();
         assert_eq!(snapshot.state, MacLifecycleState::ReconcileRequired);
         assert_eq!(snapshot.last_error.as_deref(), Some("reconcile_failed"));
+        controller.stop();
+    }
+
+    #[test]
+    fn resource_policy_change_wakes_admission_without_changing_lifecycle_state() {
+        let controller = MacLifecycleController::start(|_| Ok(())).expect("controller starts");
+        let before = controller.snapshot();
+        let callbacks = std::sync::atomic::AtomicUsize::new(0);
+        MacLifecycleController::apply_event(
+            &controller.state,
+            &|event| {
+                assert_eq!(event, MacLifecycleEvent::ResourcePolicyChanged);
+                callbacks.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                Ok(())
+            },
+            MacLifecycleEvent::ResourcePolicyChanged,
+        );
+        assert_eq!(callbacks.load(std::sync::atomic::Ordering::Acquire), 1);
+        assert_eq!(controller.snapshot(), before);
         controller.stop();
     }
 }
