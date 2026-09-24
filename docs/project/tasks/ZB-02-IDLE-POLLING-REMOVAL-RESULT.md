@@ -1,6 +1,6 @@
 # ZB-02 — Idle Polling Removal — Result
 
-**Disposition: OWNER-REVIEW REPAIR PUSH PENDING**
+**Disposition: READY FOR OWNER RE-REVIEW**
 
 | Item | Identity |
 | --- | --- |
@@ -9,8 +9,9 @@
 | Taskbook starting HEAD | `480bb5df138293765e33c28fca778b0b896385a8` |
 | Initial Track production HEAD with full local validation | `77058cded7f117164b824e262d7b4cb11eb517e7` |
 | Owner-review repair production HEAD | `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` |
+| Pushed repair candidate validated by Hosted CI | `d1466c4512f4cbed0b0d37d8142322e07dd1ec80` |
 
-All three scopes were integrated on this branch. The initial Track full local validation listed below applies only to `77058cded7f117164b824e262d7b4cb11eb517e7`. The owner-review repair at `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` has the focused validation recorded below; PR #260 Hosted CI is the new full integration validation for the pushed repair.
+All three scopes were integrated on this branch. The initial Track full local validation listed below applies only to `77058cded7f117164b824e262d7b4cb11eb517e7`. The owner-review repair at `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` has the focused validation recorded below. [PR #260 Hosted CI run 35985044270](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35985044270) completed successfully against pushed candidate `d1466c4512f4cbed0b0d37d8142322e07dd1ec80`; this Result status update is docs-only and does not change the production source.
 
 ## Before and after
 
@@ -64,7 +65,7 @@ All commands below ran after the three scopes were integrated, against productio
 | Repository-routed extended performance suites | PASS — Search 100k (broad query p95 about 30.426 ms against a 100 ms threshold); Managed Scan and schema 100k suites; Intelligence 100k analysis/publication plus Dedupe, Organization Plan, and Rule Proposal suites. |
 | Windows native file-hardening smoke | PASS on the exact production HEAD; test reported fixture cleanup complete, no real app data access, and unchanged canary. Its temporary `C:\zen-canvas-final-hardening-...` path was verified absent afterward. |
 
-The hosted macOS lane was not executable on this Windows host and remains for the Draft PR's hosted checks. The first standard `npm test` attempt discovered Rust-generated fixtures under the task temp root; those task-owned fixtures were sent to the Recycle Bin and the unfiltered suite was rerun successfully.
+The hosted macOS lane was not executable on this Windows host during that initial run; PR #260 Hosted CI later passed the macOS lane on the owner-review repair candidate. The first standard `npm test` attempt discovered Rust-generated fixtures under the task temp root; those task-owned fixtures were sent to the Recycle Bin and the unfiltered suite was rerun successfully.
 
 ## Change boundary
 
@@ -95,6 +96,6 @@ The hosted macOS lane was not executable on this Windows host and remains for th
 
 - Two moderate npm advisories remain below the repository command's `high` threshold; no dependency files were changed.
 - Frontend build completed with the warnings recorded above.
-- Hosted macOS validation remains pending the PR CI environment.
+- PR #260 Hosted CI run `35985044270` passed the owner-review repair candidate, including Windows/macOS Rust quality, release compile, and the routed performance lanes. Packaging, dependency-audit, documentation-only, and Windows Preview Handler jobs were skipped under the selected change classification.
 
-**OWNER-REVIEW REPAIR — HOSTED CI PENDING**
+**READY FOR OWNER RE-REVIEW**
