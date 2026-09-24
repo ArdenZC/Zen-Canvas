@@ -7,7 +7,7 @@ use std::{
     collections::VecDeque,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{mpsc::SyncSender, Arc, Mutex},
 };
 
 const LIBRARY_COUNT_CACHE_MAX_ENTRIES: usize = 32;
@@ -18,11 +18,38 @@ struct LibraryCountCacheEntry {
     total_count: i64,
 }
 
+#[derive(Clone, Default)]
+struct ManagedAiWakeSlot(Arc<Mutex<Option<SyncSender<()>>>>);
+
+impl ManagedAiWakeSlot {
+    fn set(&self, sender: SyncSender<()>) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(sender);
+    }
+
+    fn notify(&self) {
+        let sender = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(sender) = sender {
+            // A full one-slot channel already contains a wake. The durable SQLite
+            // queue remains the source of work; this signal only asks the worker
+            // to inspect it.
+            let _ = sender.try_send(());
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
+    managed_ai_waker: ManagedAiWakeSlot,
 }
 
 impl Database {
@@ -46,7 +73,16 @@ impl Database {
             path,
             pool,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
+            managed_ai_waker: ManagedAiWakeSlot::default(),
         })
+    }
+
+    pub(crate) fn set_managed_ai_waker(&self, sender: SyncSender<()>) {
+        self.managed_ai_waker.set(sender);
+    }
+
+    pub(crate) fn notify_managed_ai_worker(&self) {
+        self.managed_ai_waker.notify();
     }
 
     pub fn path(&self) -> &Path {
@@ -168,6 +204,28 @@ mod pool_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn managed_ai_wake_slot_buffers_and_coalesces_wakes() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let wake_slot = ManagedAiWakeSlot::default();
+        wake_slot.set(sender);
+
+        // A producer can signal after the worker's last queue check but before it
+        // begins waiting; the buffered token makes that transition race-safe.
+        wake_slot.notify();
+        wake_slot.notify();
+        assert_eq!(receiver.try_recv(), Ok(()));
+        assert_eq!(
+            receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+
+        // Separate clones share the same bounded, payload-free notification slot.
+        let cloned_slot = wake_slot.clone();
+        cloned_slot.notify();
+        assert_eq!(receiver.try_recv(), Ok(()));
     }
 
     #[test]

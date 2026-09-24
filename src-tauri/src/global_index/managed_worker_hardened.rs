@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
@@ -25,6 +26,7 @@ use std::time::Duration;
 
 const MAX_ATTEMPTS: i64 = 3;
 const MAX_STORED_RESPONSE_BYTES: usize = 64 * 1024;
+const ACTIVITY_BLOCKED_RECHECK: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub(crate) struct ManagedAiJob {
@@ -93,6 +95,37 @@ impl ManagedClassificationResult {
 }
 
 impl Database {
+    fn has_eligible_managed_ai_work(&self, desired_provider: &str) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let eligible = conn.query_row(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM ai_jobs job
+                JOIN managed_scopes scope ON scope.id = job.managed_scope_id
+                JOIN managed_entries managed
+                  ON managed.global_entry_id = job.global_entry_id
+                 AND managed.managed_scope_id = job.managed_scope_id
+                JOIN global_entries entry ON entry.id = job.global_entry_id
+                JOIN global_volumes volume ON volume.id = entry.volume_id
+                LEFT JOIN ai_analysis_state state ON state.global_entry_id = job.global_entry_id
+                WHERE job.status IN ('pending', 'blocked_by_policy')
+                  AND scope.enabled = 1
+                  AND managed.enabled = 1
+                  AND volume.enabled = 1
+                  AND entry.is_stale = 0
+                  AND entry.is_directory = 0
+                  AND COALESCE(state.user_corrected, 0) = 0
+                  AND ((?1 = 'local' AND scope.allow_local_ai = 1)
+                    OR (?1 = 'cloud' AND scope.allow_cloud_ai = 1))
+            )
+            "#,
+            params![desired_provider],
+            |row| row.get::<_, bool>(0),
+        )?;
+        Ok(eligible)
+    }
+
     pub(crate) fn reset_running_managed_ai_jobs(&self) -> Result<(), DbError> {
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
@@ -616,6 +649,7 @@ impl Database {
 #[derive(Clone)]
 pub struct ManagedAiWorker {
     stop: Arc<AtomicBool>,
+    wake: SyncSender<()>,
     handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
@@ -623,18 +657,23 @@ impl ManagedAiWorker {
     pub fn start(db: Database) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_for_thread = stop.clone();
+        let (wake, receiver) = mpsc::sync_channel(1);
+        db.set_managed_ai_waker(wake.clone());
+        let wake_for_thread = wake.clone();
         let handle = thread::Builder::new()
             .name("zen-canvas-managed-ai-worker".to_string())
-            .spawn(move || run_worker(db, stop_for_thread))
+            .spawn(move || run_worker(db, stop_for_thread, receiver, wake_for_thread))
             .ok();
         Self {
             stop,
+            wake,
             handle: Arc::new(Mutex::new(handle)),
         }
     }
 
     pub fn shutdown(&self) {
         self.stop.store(true, Ordering::Release);
+        let _ = self.wake.try_send(());
         if let Ok(mut handle) = self.handle.lock() {
             if let Some(handle) = handle.take() {
                 let _ = handle.join();
@@ -651,14 +690,17 @@ impl Drop for ManagedAiWorker {
     }
 }
 
-fn run_worker(db: Database, stop: Arc<AtomicBool>) {
+fn run_worker(db: Database, stop: Arc<AtomicBool>, wake_rx: Receiver<()>, wake_tx: SyncSender<()>) {
     let _ = db.reset_running_managed_ai_jobs();
     let active = Arc::new(AtomicUsize::new(0));
     let mut handles = Vec::new();
     while !stop.load(Ordering::Acquire) {
         reap_finished(&mut handles);
-        let settings = get_ai_settings_for_db(&db).map(normalize_ai_settings).ok();
-        if let Some(settings) = settings.filter(|settings| settings.enabled) {
+        let settings = get_ai_settings_for_db(&db)
+            .map(normalize_ai_settings)
+            .ok()
+            .filter(|settings| settings.enabled);
+        if let Some(settings) = settings {
             let desired_provider = match settings.provider {
                 AIProviderKind::Ollama => "local",
                 AIProviderKind::OpenAICompatible => "cloud",
@@ -669,7 +711,17 @@ fn run_worker(db: Database, stop: Arc<AtomicBool>) {
                 true,
             );
             if !activity_policy.allow_nonessential_background_work {
-                thread::sleep(Duration::from_millis(250));
+                let pending_work = db
+                    .has_eligible_managed_ai_work(desired_provider)
+                    .unwrap_or(false);
+                if pending_work {
+                    match wake_rx.recv_timeout(ACTIVITY_BLOCKED_RECHECK) {
+                        Ok(()) | Err(RecvTimeoutError::Timeout) => continue,
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                } else if wake_rx.recv().is_err() {
+                    break;
+                }
                 continue;
             }
             let concurrency = settings
@@ -685,12 +737,14 @@ fn run_worker(db: Database, stop: Arc<AtomicBool>) {
                 let active_for_job = active.clone();
                 let settings_for_job = settings.clone();
                 let job_for_thread = job.clone();
+                let wake_for_job = wake_tx.clone();
                 active.fetch_add(1, Ordering::AcqRel);
                 let handle = thread::Builder::new()
                     .name(format!("zen-canvas-managed-ai-{}", job.id))
                     .spawn(move || {
                         process_job(&db_for_job, &job_for_thread, &settings_for_job);
                         active_for_job.fetch_sub(1, Ordering::AcqRel);
+                        let _ = wake_for_job.try_send(());
                     });
                 match handle {
                     Ok(handle) => handles.push(handle),
@@ -698,12 +752,13 @@ fn run_worker(db: Database, stop: Arc<AtomicBool>) {
                         active.fetch_sub(1, Ordering::AcqRel);
                         let _ =
                             db.fail_managed_ai_job(&job, &format!("worker_spawn_failed: {error}"));
-                        break;
                     }
                 }
             }
         }
-        thread::sleep(Duration::from_millis(250));
+        if wake_rx.recv().is_err() {
+            break;
+        }
     }
     while let Some(handle) = handles.pop() {
         let _ = handle.join();
@@ -958,6 +1013,201 @@ fn sanitize_worker_error(error: String, settings: &AISettings) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::{
+        schema::{AIProviderKind, AIProviderPresetId},
+        settings::{save_ai_settings_with_store, InMemoryCredentialStore},
+    };
+    use crate::global_index::models::{
+        AddManagedScopeRequest, GlobalEntryInput, GlobalVolume, INDEX_STATUS_READY,
+        PROVIDER_WINDOWS_MFT_USN,
+    };
+    use serde_json::Value;
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        path::PathBuf,
+        sync::mpsc,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    struct TestDatabaseDirectory(PathBuf);
+
+    impl TestDatabaseDirectory {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos();
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(".tmp-tests")
+                .join("zb-02-managed-ai-worker")
+                .join(format!("{}-{nonce}", std::process::id()));
+            std::fs::create_dir_all(&path).expect("create task-local worker test directory");
+            Self(path)
+        }
+
+        fn database_path(&self) -> PathBuf {
+            self.0.join("database.sqlite3")
+        }
+    }
+
+    impl Drop for TestDatabaseDirectory {
+        fn drop(&mut self) {
+            if let Err(error) = std::fs::remove_dir_all(&self.0) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("failed to clean worker test data {:?}: {error}", self.0);
+                }
+            }
+        }
+    }
+
+    fn read_json_request(stream: &mut TcpStream) -> Value {
+        let mut bytes = Vec::new();
+        let mut expected_length = None;
+        loop {
+            if expected_length.is_some_and(|length| bytes.len() >= length) {
+                break;
+            }
+            let mut chunk = [0_u8; 4096];
+            let read = stream.read(&mut chunk).expect("read local Ollama request");
+            assert_ne!(read, 0, "local Ollama request ended before its body");
+            bytes.extend_from_slice(&chunk[..read]);
+            if expected_length.is_none() {
+                if let Some(header_end) = bytes.windows(4).position(|window| window == b"\r\n\r\n")
+                {
+                    let headers = String::from_utf8_lossy(&bytes[..header_end]);
+                    let content_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().ok())
+                                .flatten()
+                        })
+                        .expect("JSON request content length");
+                    expected_length = Some(header_end + 4 + content_length);
+                }
+            }
+        }
+        let header_end = bytes
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("HTTP header terminator");
+        serde_json::from_slice(&bytes[header_end + 4..]).expect("parse local Ollama request")
+    }
+
+    fn run_local_ollama(
+        listener: TcpListener,
+        stop_rx: mpsc::Receiver<()>,
+        served_tx: mpsc::Sender<String>,
+        expected_requests: usize,
+    ) {
+        let mut served = 0;
+        while served < expected_requests {
+            if stop_rx.try_recv().is_ok() {
+                return;
+            }
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_nonblocking(false)
+                        .expect("make accepted Ollama stream blocking");
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .expect("set local server read timeout");
+                    let request = read_json_request(&mut stream);
+                    let user_content = request["messages"]
+                        .as_array()
+                        .expect("request messages")
+                        .iter()
+                        .find(|message| message["role"] == "user")
+                        .and_then(|message| message["content"].as_str())
+                        .expect("managed metadata user message");
+                    let metadata: Value =
+                        serde_json::from_str(user_content).expect("managed metadata JSON");
+                    let reference = metadata["refId"]
+                        .as_str()
+                        .expect("managed reference ID")
+                        .to_string();
+                    let classification = serde_json::json!({
+                        "refId": reference,
+                        "fileType": "document",
+                        "purpose": "work",
+                        "lifecycle": "active",
+                        "riskLevel": "low",
+                        "suggestedAction": "keep",
+                        "confidence": 0.9,
+                        "reason": "deterministic idle worker test"
+                    })
+                    .to_string();
+                    let body = serde_json::json!({
+                        "message": { "content": classification }
+                    })
+                    .to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("write local Ollama response");
+                    served_tx
+                        .send(reference)
+                        .expect("report served classification");
+                    served += 1;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("accept local Ollama request: {error}"),
+            }
+        }
+    }
+
+    fn worker_test_volume() -> GlobalVolume {
+        GlobalVolume {
+            id: "gv_zb02_worker_test".to_string(),
+            platform: "windows".to_string(),
+            stable_volume_id: "zb02-worker-test-volume".to_string(),
+            display_name: "Worker test volume".to_string(),
+            mount_path: r"C:\Managed".to_string(),
+            filesystem_type: "ntfs".to_string(),
+            drive_kind: "fixed".to_string(),
+            enabled: true,
+            provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+            index_status: INDEX_STATUS_READY.to_string(),
+            last_error: None,
+            journal_id: Some("1".to_string()),
+            journal_cursor: Some("1".to_string()),
+            last_full_index_at: Some(1),
+            last_incremental_sync_at: Some(1),
+            entry_count: 0,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn worker_test_entry(index: usize) -> GlobalEntryInput {
+        let name = format!("file-{index}.txt");
+        GlobalEntryInput {
+            volume_id: "gv_zb02_worker_test".to_string(),
+            platform_file_id: format!("worker-test:{index}"),
+            parent_platform_file_id: "worker-test:parent".to_string(),
+            name: name.clone(),
+            path: format!(r"C:\Managed\WakeTest\{name}"),
+            extension: "txt".to_string(),
+            is_directory: false,
+            size: 42,
+            created_at_fs: Some(1),
+            modified_at_fs: Some(2),
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+            last_seen_at: 2,
+        }
+    }
 
     fn job() -> ManagedAiJob {
         ManagedAiJob {
@@ -987,5 +1237,94 @@ mod tests {
         let response = r#"{"refId":"managed:entry","fileType":"document","purpose":"work","lifecycle":"active","riskLevel":"low","suggestedAction":"keep","confidence":0.9,"reason":"test"}"#;
         let canonical = ManagedClassificationResult::parse(&job(), response).expect("valid schema");
         assert!(canonical.contains("\"confidence\":0.9"));
+    }
+
+    #[test]
+    fn idle_worker_shutdown_uses_an_explicit_wake() {
+        let test_dir = TestDatabaseDirectory::new();
+        let db = Database::open(test_dir.database_path()).expect("open worker database");
+        let worker = ManagedAiWorker::start(db.clone());
+        let started_at = Instant::now();
+        worker.shutdown();
+        assert!(started_at.elapsed() < Duration::from_secs(1));
+        drop(worker);
+        drop(db);
+    }
+
+    #[test]
+    fn queued_work_wakes_idle_worker_and_child_completion_refills_queue() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind local Ollama fixture");
+        listener
+            .set_nonblocking(true)
+            .expect("make local Ollama fixture nonblocking");
+        let address = listener.local_addr().expect("local Ollama address");
+        let (served_tx, served_rx) = mpsc::channel();
+        let (server_stop_tx, server_stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            run_local_ollama(listener, server_stop_rx, served_tx, 3);
+        });
+
+        let test_dir = TestDatabaseDirectory::new();
+        let db = Database::open(test_dir.database_path()).expect("open worker database");
+        db.upsert_global_volume(&worker_test_volume())
+            .expect("insert managed source");
+        db.add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Managed\WakeTest".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add eligible managed scope");
+        let settings = AISettings {
+            enabled: true,
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: format!("http://{address}"),
+            model: "test-model".to_string(),
+            timeout_seconds: 5,
+            ..AISettings::default()
+        };
+        save_ai_settings_with_store(&db, &settings, &InMemoryCredentialStore::default())
+            .expect("enable local test provider");
+
+        let worker = ManagedAiWorker::start(db.clone());
+        // The worker starts with an empty durable queue and can already be waiting
+        // when this transaction commits. Its signal must survive that check→wait gap.
+        let entries = (0..3).map(worker_test_entry).collect::<Vec<_>>();
+        db.upsert_global_entries_batch(&entries)
+            .expect("enqueue three durable AI jobs");
+
+        let mut served = Vec::new();
+        for _ in 0..3 {
+            match served_rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(reference) => served.push(reference),
+                Err(_) => break,
+            }
+        }
+        worker.shutdown();
+        let _ = server_stop_tx.send(());
+        server.join().expect("local Ollama fixture thread");
+        assert_eq!(
+            served.len(),
+            3,
+            "each queued job must be reached by a worker wake"
+        );
+
+        let completed_jobs: i64 = db
+            .conn()
+            .expect("database connection")
+            .query_row(
+                "SELECT COUNT(*) FROM ai_jobs WHERE status = 'completed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count completed AI jobs");
+        assert_eq!(
+            completed_jobs, 3,
+            "child completion must refill the worker slot"
+        );
+        drop(worker);
+        drop(db);
     }
 }

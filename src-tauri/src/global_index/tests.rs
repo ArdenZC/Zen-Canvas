@@ -714,6 +714,85 @@ fn disabled_ai_policy_creates_no_jobs_without_removing_global_search() {
 }
 
 #[test]
+fn managed_ai_queue_and_scope_eligibility_changes_wake_the_worker() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let _scope = db
+        .add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Global\Managed".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add managed scope");
+    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+    db.set_managed_ai_waker(wake_tx);
+
+    let indexed = test_entry(r"C:\Global\Managed\indexed.txt", "indexed.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&indexed))
+        .expect("index entry and durably enqueue AI work");
+    let pending_jobs: i64 = db
+        .conn()
+        .expect("database connection")
+        .query_row(
+            "SELECT COUNT(*) FROM ai_jobs WHERE status = 'pending'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read durable pending jobs");
+    assert_eq!(pending_jobs, 1);
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+
+    let backfilled = test_entry(r"C:\Global\Backfill\saved.txt", "saved.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&backfilled))
+        .expect("index entry outside managed scope");
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+    let backfill_scope = db
+        .add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Global\Backfill".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("backfill new managed scope");
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+
+    db.update_managed_scope_policy(UpdateManagedScopePolicyRequest {
+        id: backfill_scope.id.clone(),
+        enabled: Some(false),
+        allow_local_ai: None,
+        allow_cloud_ai: None,
+    })
+    .expect("disable managed scope policy");
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+    db.update_managed_scope_policy(UpdateManagedScopePolicyRequest {
+        id: backfill_scope.id.clone(),
+        enabled: Some(true),
+        allow_local_ai: None,
+        allow_cloud_ai: None,
+    })
+    .expect("re-enable managed scope policy");
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+
+    let reenabled_status: String = db
+        .conn()
+        .expect("database connection")
+        .query_row(
+            "SELECT status FROM ai_jobs WHERE managed_scope_id = ?1 ORDER BY created_at DESC LIMIT 1",
+            [&backfill_scope.id],
+            |row| row.get(0),
+        )
+        .expect("read re-enabled durable job status");
+    assert_eq!(reenabled_status, "pending");
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn disabled_managed_scope_is_not_reported_as_active_management() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");

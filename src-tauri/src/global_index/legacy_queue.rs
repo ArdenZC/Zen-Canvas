@@ -82,6 +82,9 @@ impl Database {
             accepted += 1;
         }
         transaction.commit()?;
+        if accepted > 0 {
+            self.notify_managed_ai_worker();
+        }
         Ok(queue_summary(targets.len() as i64, accepted))
     }
 

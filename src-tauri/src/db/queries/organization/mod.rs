@@ -1329,6 +1329,9 @@ impl Database {
         let queued_count =
             crate::global_index::enqueue_managed_ai_for_library_files(&tx, &file_ids)? as i64;
         tx.commit()?;
+        if queued_count > 0 {
+            self.notify_managed_ai_worker();
+        }
         Ok(AnalyzeOrganizationPlanItemsResult {
             plan_id,
             queued_count,

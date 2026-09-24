@@ -313,6 +313,7 @@ pub fn save_ai_settings_with_store(
         }
         return Err(DbError::from(error));
     }
+    db.notify_managed_ai_worker();
     Ok(normalized)
 }
 
@@ -1404,6 +1405,25 @@ mod validation_tests {
             std::process::id(),
             uuid::Uuid::new_v4()
         ))
+    }
+
+    #[test]
+    fn committed_ai_settings_change_wakes_managed_worker() {
+        let db_path = concurrency_test_db_path("managed-worker-wake");
+        let db = Database::open(&db_path).expect("settings wake database");
+        let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+        db.set_managed_ai_waker(wake_tx);
+
+        save_ai_settings_with_store(
+            &db,
+            &AISettings::default(),
+            &InMemoryCredentialStore::default(),
+        )
+        .expect("commit AI settings");
+        assert_eq!(wake_rx.try_recv(), Ok(()));
+
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
     }
 
     #[test]
