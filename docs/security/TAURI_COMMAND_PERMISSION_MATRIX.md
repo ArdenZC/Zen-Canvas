@@ -136,6 +136,7 @@
 | `get_runtime_capabilities` | `read_only` | main/search | Read feature flags | default/search-window | no | capability allow-list |
 | `analyze_cleanup_candidates_with_ai` | `main_state_mutation` | main | Write cleanup suggestions | default | yes | command permission contract |
 | `quit_app` | `window_internal` | main | Quit application | default | yes | command permission contract |
+| `enter_background` | `window_internal` | main | Save the small last-view session, dispose Main-owned FileWorkspace resources, and destroy Main while the resident process remains active | default | yes | window lifecycle and owner teardown tests |
 | `activate_search_result` | `window_internal` | search | Navigate main window with fixed view/file/settings target | default/search-window | no | capability allow-list + navigation DTO tests |
 | `get_search_window_state` | `read_only` | main/search | Hydrate the Rust-owned search-window lifecycle projection | default/search-window | no | lifecycle CAS tests |
 | `search_window_ready` | `window_internal` | search | Complete the current showing transition with session/revision CAS | search-window | no | lifecycle CAS tests |

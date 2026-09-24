@@ -28,6 +28,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauriCoreMock.invoke
 }));
 
+vi.mock("../src/utils/runtimeMode", () => ({
+  isBrowserMockEnabled: () => false
+}));
+
 describe("close behavior state machine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -49,17 +53,17 @@ describe("close behavior state machine", () => {
     expect(tauriCoreMock.invoke).not.toHaveBeenCalled();
   });
 
-  it("hides the current window for minimize", async () => {
+  it("destroys the main UI runtime for the background close choice", async () => {
     const setIsCloseChoiceOpen = vi.fn();
 
     performCloseBehavior("minimize", setIsCloseChoiceOpen);
     await Promise.resolve();
 
     expect(setIsCloseChoiceOpen).toHaveBeenCalledWith(false);
-    expect(tauriWindowMock.currentWindow.hide).toHaveBeenCalledOnce();
+    expect(tauriCoreMock.invoke).toHaveBeenCalledWith("enter_background", { lastView: "scanner" });
+    expect(tauriWindowMock.currentWindow.hide).not.toHaveBeenCalled();
     expect(tauriWindowMock.currentWindow.minimize).not.toHaveBeenCalled();
     expect(tauriWindowMock.currentWindow.close).not.toHaveBeenCalled();
-    expect(tauriCoreMock.invoke).not.toHaveBeenCalled();
   });
 
   it("invokes the app-level quit command for quit", async () => {
@@ -73,11 +77,11 @@ describe("close behavior state machine", () => {
     expect(tauriWindowMock.getCurrentWindow).not.toHaveBeenCalled();
   });
 
-  it("reports hide failures when minimizing to background", async () => {
+  it("reports background teardown failures", async () => {
     const setIsCloseChoiceOpen = vi.fn();
     const onError = vi.fn();
     const error = new Error("ACL denied");
-    tauriWindowMock.currentWindow.hide.mockRejectedValueOnce(error);
+    tauriCoreMock.invoke.mockRejectedValueOnce(error);
 
     performCloseBehavior("minimize", setIsCloseChoiceOpen, onError);
     await Promise.resolve();

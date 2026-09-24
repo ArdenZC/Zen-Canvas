@@ -5,7 +5,7 @@ use super::{
         ChangeStartRequest, LocationBrowseRequest, PreviewAssetRequestDto, PreviewCreateRequest,
         PreviewSessionRequest, ThumbnailCancelRequest, ThumbnailRequestDto, ThumbnailVariantDto,
     },
-    FileWorkspaceRuntime,
+    FileWorkspaceRuntime, FileWorkspaceRuntimeOwner,
 };
 use crate::{
     db::{scan::ScanAdmissionOptions, Database},
@@ -67,11 +67,136 @@ impl Fixture {
         )
         .expect("workspace runtime")
     }
+
+    fn runtime_owner(&self) -> FileWorkspaceRuntimeOwner {
+        let database = Database::open(self.root.join("runtime-owner.sqlite3")).expect("database");
+        FileWorkspaceRuntimeOwner::new(
+            database,
+            MacThumbnailService::new(self.root.join("legacy-owner-thumbnail-cache")),
+            self.root.join("owner-thumbnail-cache"),
+            self.root.join("owner-native-preview"),
+        )
+    }
 }
 
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+#[test]
+fn runtime_owner_is_lazy_single_generation_and_recreates_after_teardown() {
+    let fixture = Fixture::new("runtime-owner-generations");
+    let owner = fixture.runtime_owner();
+
+    assert_eq!(owner.current_generation(), None);
+    assert!(!owner.is_initialized());
+    owner
+        .activate_generation(1)
+        .expect("activate Main generation 1");
+    assert!(owner
+        .current_if_initialized(1)
+        .expect("empty owner")
+        .is_none());
+    assert!(!owner.is_initialized());
+
+    let first = owner.acquire(1).expect("first lazy runtime");
+    let concurrent = owner.acquire(1).expect("reuse runtime in generation");
+    assert!(Arc::ptr_eq(&first.inner, &concurrent.inner));
+    assert!(owner.is_initialized());
+
+    owner.dispose_generation(1).expect("dispose generation 1");
+    assert_eq!(owner.current_generation(), None);
+    assert!(!owner.is_initialized());
+    assert!(owner
+        .current_if_initialized(1)
+        .expect("closed generation cleanup is a no-op")
+        .is_none());
+    assert!(first
+        .open_browse(open_request(&fixture))
+        .expect_err("old clone is revoked")
+        .contains("file_workspace_runtime_disposed"));
+    assert!(!first.dispose(), "owner already disposed the generation");
+    assert_eq!(
+        owner
+            .acquire(1)
+            .err()
+            .expect("old generation cannot be reused"),
+        "file_workspace_main_generation_inactive"
+    );
+
+    owner
+        .activate_generation(2)
+        .expect("activate Main generation 2");
+    let reopened = owner.acquire(2).expect("reopened lazy runtime");
+    assert!(!Arc::ptr_eq(&first.inner, &reopened.inner));
+    owner.dispose_generation(2).expect("dispose generation 2");
+}
+
+#[test]
+fn runtime_owner_concurrent_first_acquires_share_one_runtime() {
+    let fixture = Fixture::new("runtime-owner-concurrent-acquire");
+    let owner = Arc::new(fixture.runtime_owner());
+    owner.activate_generation(1).expect("activate generation");
+    let barrier = Arc::new(std::sync::Barrier::new(8));
+    let workers = (0..8)
+        .map(|_| {
+            let owner = Arc::clone(&owner);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                owner.acquire(1).expect("concurrent acquire")
+            })
+        })
+        .collect::<Vec<_>>();
+    let runtimes = workers
+        .into_iter()
+        .map(|worker| worker.join().expect("acquire worker"))
+        .collect::<Vec<_>>();
+    assert!(runtimes
+        .iter()
+        .all(|runtime| Arc::ptr_eq(&runtimes[0].inner, &runtime.inner)));
+    owner
+        .dispose_generation(1)
+        .expect("dispose concurrent generation");
+}
+
+#[test]
+fn runtime_owner_teardown_racing_first_acquire_never_leaves_a_live_generation() {
+    let fixture = Fixture::new("runtime-owner-acquire-teardown-race");
+    let owner = Arc::new(fixture.runtime_owner());
+    owner.activate_generation(1).expect("activate generation");
+    let barrier = Arc::new(std::sync::Barrier::new(3));
+
+    let acquiring_owner = Arc::clone(&owner);
+    let acquiring_barrier = Arc::clone(&barrier);
+    let acquire = thread::spawn(move || {
+        acquiring_barrier.wait();
+        acquiring_owner.acquire(1)
+    });
+
+    let disposing_owner = Arc::clone(&owner);
+    let disposing_barrier = Arc::clone(&barrier);
+    let dispose = thread::spawn(move || {
+        disposing_barrier.wait();
+        disposing_owner.dispose_generation(1)
+    });
+
+    barrier.wait();
+    let acquired = acquire.join().expect("acquire thread");
+    dispose
+        .join()
+        .expect("dispose thread")
+        .expect("teardown succeeds");
+    assert_eq!(owner.current_generation(), None);
+    assert!(!owner.is_initialized());
+
+    if let Ok(runtime) = acquired {
+        assert!(runtime
+            .open_browse(open_request(&fixture))
+            .expect_err("a clone returned during teardown is revoked")
+            .contains("file_workspace_runtime_disposed"));
     }
 }
 

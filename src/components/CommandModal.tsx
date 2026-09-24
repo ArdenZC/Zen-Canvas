@@ -2,20 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type * as React from "react";
 import { Activity, ChevronRight, CornerDownLeft, File as FileIcon, Folder, LayoutGrid, Radar, Search, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { tauriApi, type SearchWindowSnapshot } from "../api/tauriApi";
+import { searchRuntimeApi } from "../api/searchRuntimeApi";
+import type { SearchWindowSnapshot } from "../api/types";
 import type { GlobalIndexStatus, GlobalSearchResult } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatCount } from "../i18n";
 import { cn, focusVisibleState, focusWithinSurface, selectedFocusSurface } from "../utils/tw";
-import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
-import { IconButton, StateBlock, quietText } from "../views/shared/ui";
+import { IconButton } from "./ui/Button";
+import { StateBlock } from "./ui/Notice";
+import { quietText } from "./ui/surfaces";
 import { ModalPortal } from "./modal/ModalPortal";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
 import { completedSpotlightComposition, committedSpotlightInput } from "./spotlight/spotlightComposition";
 import { groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
 import { SpotlightQueryController } from "./spotlight/spotlightQueryController";
 import { settingsTargetForSection, type SearchSettingsTarget } from "../utils/searchNavigation";
+
+const tauriApi = searchRuntimeApi;
 
 const keyBadge =
   "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
@@ -148,7 +152,8 @@ export function CommandModal({
   t,
   onError,
   standalone = false,
-  restoreFocusRef
+  restoreFocusRef,
+  backgroundStatus
 }: {
   inputRef: RefObject<HTMLInputElement | null>;
   setView: (view: View) => void;
@@ -160,6 +165,11 @@ export function CommandModal({
   onError?: (message: string) => void;
   standalone?: boolean;
   restoreFocusRef?: React.RefObject<HTMLElement | null>;
+  backgroundStatus?: {
+    isRunning: boolean;
+    currentRoot: string | null;
+    pending: number;
+  };
 }) {
   const [search, setSearch] = useState("");
   const [committedSearch, setCommittedSearch] = useState("");
@@ -176,9 +186,6 @@ export function CommandModal({
   const settingsCommandSectionRef = useRef<string | null>(null);
   const queryControllerRef = useRef(new SpotlightQueryController());
   const searchWindowSnapshotRef = useRef<SearchWindowSnapshot | null>(null);
-  const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
-  const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
-  const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
   const prefersReducedMotion = useReducedMotion();
   const trimmedSearch = search.trim();
   const searchableQuery = isComposing ? "" : trimmedSearch;
@@ -686,9 +693,7 @@ export function CommandModal({
         {shouldShowIdleState && (
           <CommandIdleGroups
             t={t}
-            isBackgroundIndexing={isBackgroundIndexing}
-            currentBackgroundRoot={currentBackgroundRoot}
-            pendingBackgroundRoots={pendingBackgroundRoots}
+            backgroundStatus={backgroundStatus}
             onOpen={openIdleDestination}
           />
         )}
@@ -806,17 +811,20 @@ function SpotlightResultGroups({
 
 function CommandIdleGroups({
   t,
-  isBackgroundIndexing,
-  currentBackgroundRoot,
-  pendingBackgroundRoots,
+  backgroundStatus,
   onOpen
 }: {
   t: Translator;
-  isBackgroundIndexing: boolean;
-  currentBackgroundRoot: string | null;
-  pendingBackgroundRoots: number;
+  backgroundStatus?: {
+    isRunning: boolean;
+    currentRoot: string | null;
+    pending: number;
+  };
   onOpen: (view: View) => void;
 }) {
+  const isBackgroundIndexing = backgroundStatus?.isRunning ?? false;
+  const currentBackgroundRoot = backgroundStatus?.currentRoot ?? null;
+  const pendingBackgroundRoots = backgroundStatus?.pending ?? 0;
   const backgroundDescription = isBackgroundIndexing && currentBackgroundRoot
     ? compactPath(formatDisplayPath(currentBackgroundRoot), 42)
     : pendingBackgroundRoots > 0
@@ -831,10 +839,12 @@ function CommandIdleGroups({
           <IdleAction icon={<LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("organizeFiles")} onClick={() => onOpen("organize")} />
         </IdleGroup>
       </div>
-      <div className={commandBackgroundStatus} role="status" aria-label={t("spotlightBackgroundTasks")}>
-        <Activity size={15} className={isBackgroundIndexing ? "animate-pulse text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} />
-        <span className="min-w-0 truncate">{backgroundDescription}</span>
-      </div>
+      {backgroundStatus ? (
+        <div className={commandBackgroundStatus} role="status" aria-label={t("spotlightBackgroundTasks")}>
+          <Activity size={15} className={isBackgroundIndexing ? "animate-pulse text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} />
+          <span className="min-w-0 truncate">{backgroundDescription}</span>
+        </div>
+      ) : null}
     </>
   );
 }

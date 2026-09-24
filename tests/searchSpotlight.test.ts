@@ -407,7 +407,7 @@ describe("spotlight search navigation", () => {
     const styles = readFileSync(resolve("src/styles.css"), "utf8");
 
     const setupSearchWindow = appControl.slice(
-      appControl.indexOf("pub fn setup_search_window"),
+      appControl.indexOf("fn create_search_window"),
       appControl.indexOf("pub fn setup_global_search_shortcut")
     );
 
@@ -438,6 +438,7 @@ describe("spotlight search navigation", () => {
     expect(setupSearchWindow).toContain(".always_on_top(true)");
     expect(mainRs).toContain("zen_canvas_tauri::app_control::resize_search_window");
     expect(mainRs).toContain("zen_canvas_tauri::app_control::hide_search_window_command");
+    expect(mainRs).not.toContain("setup_search_window");
     expect(tauriApi).toContain("resizeSearchWindow(snapshot: SearchWindowSnapshot, expanded: boolean)");
     expect(tauriApi).toContain('invokeCommand<SearchWindowSnapshot>("resize_search_window"');
     expect(appShell).toContain("const searchWindowRoot =");

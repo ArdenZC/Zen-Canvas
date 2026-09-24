@@ -1,3 +1,4 @@
+import "./styles.css";
 import { AppRuntimeProviders } from "./components/AppRuntimeProviders";
 import { AppShell } from "./components/AppShell";
 import { DatabaseBootstrapper } from "./components/DatabaseBootstrapper";

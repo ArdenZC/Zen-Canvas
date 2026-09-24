@@ -17,6 +17,7 @@ import {
   X
 } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { tauriApi } from "../api/tauriApi";
 import { CommandModal } from "./CommandModal";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
@@ -28,6 +29,7 @@ import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../store/useFileLibraryV2Store";
 import { organizationPlanPendingReview, useOrganizationPlanStore } from "../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
+import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
 import type { DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
@@ -81,7 +83,7 @@ type NavGroup = { id: "primary" | "workflow" | "advanced"; label: string; items:
 
 export function AppShell() {
   const { isSearchMode, setIsCommandOpen, hotkeyLabel, isCommandOpen } = useCommandContext();
-  const { isCloseChoiceOpen, onCancelCloseChoice, resolveCloseChoice } = useWindowContext();
+  const { isCloseChoiceOpen, onCancelCloseChoice, requestClose, resolveCloseChoice } = useWindowContext();
   const { view } = useNavigationContext();
   const { t } = useI18nContext();
   const stats = useFileLibraryStore((state) => state.stats);
@@ -90,6 +92,23 @@ export function AppShell() {
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void tauriApi.onMainWindowCloseRequested(() => requestCloseRef.current()).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch((error) => {
+      if (!disposed) console.error("Main window close listener failed", error);
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   const groups = useMemo(() => navGroups(t), [t]);
   const activeLabel = view === "rules"
@@ -181,6 +200,9 @@ function CommandLauncher({
   const { commandInputRef, setIsCommandOpen, platform } = useCommandContext();
   const { setView, onError } = useNavigationContext();
   const { t } = useI18nContext();
+  const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
+  const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
+  const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
   const activateFileLibraryFile = useCallback(
     (fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
@@ -206,6 +228,11 @@ function CommandLauncher({
       onError={onError}
       standalone={standalone}
       restoreFocusRef={restoreFocusRef}
+      backgroundStatus={{
+        isRunning: isBackgroundIndexing,
+        currentRoot: currentBackgroundRoot,
+        pending: pendingBackgroundRoots
+      }}
     />
   );
 }

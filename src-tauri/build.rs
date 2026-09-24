@@ -107,6 +107,7 @@ const COMMANDS: &[&str] = &[
     "get_runtime_capabilities",
     "analyze_cleanup_candidates_with_ai",
     "quit_app",
+    "enter_background",
     "activate_search_result",
     "resize_search_window",
     "get_search_window_state",

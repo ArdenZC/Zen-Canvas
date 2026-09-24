@@ -254,6 +254,7 @@ export interface SearchWindowSnapshot {
 
 export interface MainWindowReadyRequest {
   nonce: number;
+  generation: number;
   sessionId: number | null;
   revision: number | null;
 }

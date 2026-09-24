@@ -11,17 +11,6 @@
   },
   "app": {
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "title": "Zen Canvas",
-        "width": 1280,
-        "height": 860,
-        "minWidth": 980,
-        "minHeight": 680,
-        "transparent": true,
-        "decorations": false
-      }
-    ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' blob: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "assetProtocol": {
