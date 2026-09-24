@@ -7,10 +7,10 @@ Disposition: **BLOCKED**
 - Baseline: `master@ea942b433ea7ad68297f731972f5bda49c7318b8`
 - Taskbook commit: `b0f071be581cfe00e14edb2161eacc6ef375389c`
 - Branch: `perf/zb-03-runtime-resource-governance`
-- Production HEAD: `a93a2a67806b59db47af82b5cbba16992746d7c0`
+- Integrated source HEAD: `907717169d1c7f3459d503c0f26baf22460183b6`
 - Final branch HEAD: this Result is a documentation-only successor to the production HEAD; its exact SHA is reported in the final closeout and is visible as the Draft PR source head.
 
-The production commit contains the full ZB-03 implementation. The Result commit changes no production code.
+The ZB-03 implementation was integrated at `a93a2a67806b59db47af82b5cbba16992746d7c0`. macOS QoS enum binding was corrected at `f41fddaab1242abecae5bbf7783b80326400810d`. The `907717169d1c7f3459d503c0f26baf22460183b6` follow-up isolates PDF timeout test seams from host power policy and synchronizes the thumbnail cancellation fixture; production Content work continues to use the shared global WorkScheduler. The Result commit changes documentation only.
 
 ## Architecture
 
@@ -69,7 +69,7 @@ There is no true-idle governor or scheduler timer in this Track.
 
 ## Changed files
 
-Production files:
+Production and test source files:
 
 - `src-tauri/Cargo.toml`
 - `src-tauri/src/analysis.rs`
@@ -90,6 +90,7 @@ Production files:
 - `src-tauri/src/resource_governor.rs`
 - `src-tauri/src/scanner.rs`
 - `src-tauri/src/scheduler.rs`
+- `src-tauri/src/file_workspace/thumbnail/tests/lifecycle.rs` (deterministic cancellation fixture)
 
 Documentation:
 
@@ -105,10 +106,11 @@ No frontend, schema, lockfile, STATUS, or ROADMAP changes were made.
 - Analysis, Content extraction/provider, Managed Scan, and Dedupe focused admission/cancellation tests passed.
 - macOS lifecycle policy-event state test passed; this Windows host does not provide native macOS execution evidence.
 - `cargo fmt --check`, desktop-runtime binary `cargo check`, and narrow desktop-runtime Clippy passed.
+- After Hosted CI exposed host-load-sensitive tests, the PDF midflight test seams received a local permissive WorkScheduler and the thumbnail repeated-cancellation test received an entered/release barrier. Focused checks then passed: `content::tests::pdf_midflight` (3 passed), `file_workspace::thumbnail::tests::lifecycle::repeated_request_cancel_cycles_return_to_steady_state` (1 passed), `cargo fmt --check`, and desktop-runtime all-targets Clippy with `-D warnings`.
 
 ## Final local validation
 
-All full local validation commands were run once after integration against production HEAD `a93a2a67806b59db47af82b5cbba16992746d7c0`:
+All full local validation commands were run once after the main integration against production HEAD `a93a2a67806b59db47af82b5cbba16992746d7c0`:
 
 | Validation | Result |
 | --- | --- |
@@ -126,11 +128,19 @@ The linked worktree initially had no `node_modules`; `npm ci` restored the commi
 
 The extended profile passed Search, Scan/Schema, Library/Content, Intelligence, Workspace Foundation, and Preview Platform suites. The managed-scan pressure benchmark reported a soft target miss for foreground first-page wait (`2594 ms`, exceeding its `2x idle` target); its test passed, and the same run's hard pressure/admission/cancellation/release checks passed. This is recorded for owner review without broadening ZB-03.
 
+After the local full run, the macOS QoS compile repair and test-fixture isolation were validated with focused checks only. The final exact-source Windows/macOS integration proof is Hosted CI run `36005127859` on `907717169d1c7f3459d503c0f26baf22460183b6` below; the extended performance suite was not repeated locally.
+
 Security audit returned success at the repository's `high` npm threshold. `npm audit` reported two **moderate** transitive Vitest / `@vitest/mocker` advisories. Cargo audit completed with the repository's 8 allowed warnings, including unmaintained crates, one glib unsoundness advisory, and a yanked crate. No crate was added or upgraded; both Cargo lockfiles are unchanged. The existing `windows-sys` dependency only gained its `Win32_System_Power` feature.
 
 ## Hosted CI
 
-Pending Draft PR creation. Hosted Windows/macOS integration proof is not claimed by this local Windows run.
+Draft PR [#262](https://github.com/ArdenZC/Zen-Canvas/pull/262) is open and remains Draft. Hosted CI run [36005127859](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36005127859), bound to source HEAD `907717169d1c7f3459d503c0f26baf22460183b6`, completed successfully:
+
+- Windows and macOS release compile, Rust quality, and Quality aggregate: PASS.
+- Native macOS performance and all six routed performance lanes (Search, Scan & Schema, Library & Content, Intelligence, Workspace Foundation, Preview Platform): PASS.
+- Source checkout, change-scope/routing, validation plan, and dependency audit: PASS.
+
+Earlier Hosted attempts found that libc exposes Apple QoS classes as `qos_class_t` enum variants, not root constants; the follow-up now compiles on the Apple Silicon release lane. A subsequent macOS Rust-suite attempt surfaced two time-sensitive test failures under full-suite load. The PDF test was isolated from host resource policy, and the thumbnail test now synchronizes entry/cancellation. The final exact-source Hosted run passed both platform Rust quality lanes and all performance lanes. No local extended performance rerun was done.
 
 ## Temporary-artifact closeout blocker
 
