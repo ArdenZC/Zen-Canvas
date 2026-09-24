@@ -33,7 +33,10 @@ impl Database {
         }
 
         let manager = SqliteConnectionManager::file(&path).with_init(configure_connection);
-        let pool = Pool::builder().max_size(8).build(manager)?;
+        let pool = Pool::builder()
+            .max_size(8)
+            .min_idle(Some(1))
+            .build(manager)?;
         {
             let conn = pool.get()?;
             migrate(&conn)?;
@@ -109,4 +112,135 @@ fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {
     conn.pragma_update(None, "mmap_size", 3_000_000_000_i64)?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDatabaseDirectory(PathBuf);
+
+    impl TestDatabaseDirectory {
+        fn new() -> Self {
+            let counter = NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed);
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos();
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(".tmp-tests")
+                .join("zb-01-pool-tests")
+                .join(format!("{}-{nonce}-{counter}", std::process::id()));
+            fs::create_dir_all(&path).expect("create test database directory");
+            Self(path)
+        }
+
+        fn database_path(&self) -> PathBuf {
+            self.0.join("database.sqlite3")
+        }
+    }
+
+    impl Drop for TestDatabaseDirectory {
+        fn drop(&mut self) {
+            let mut last_error = None;
+            for attempt in 0..20 {
+                match fs::remove_dir_all(&self.0) {
+                    Ok(()) => return,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+                    Err(error) => last_error = Some(error),
+                }
+                if attempt < 19 {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            if let Some(error) = last_error {
+                eprintln!(
+                    "failed to remove test database directory {:?}: {error}",
+                    self.0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn database_open_uses_minimum_idle_configuration_and_runs_migrations() {
+        let test_dir = TestDatabaseDirectory::new();
+        let db = Database::open(test_dir.database_path()).expect("open and migrate database");
+        let state = db.pool.state();
+
+        eprintln!(
+            "pool state after Database::open: connections={}, idle_connections={}, max_size={}, min_idle={:?}",
+            state.connections,
+            state.idle_connections,
+            db.pool.max_size(),
+            db.pool.min_idle()
+        );
+        assert_eq!(db.pool.max_size(), 8);
+        assert_eq!(db.pool.min_idle(), Some(1));
+
+        assert!((1..=2).contains(&state.connections));
+        assert_eq!(state.idle_connections, state.connections);
+        assert!(state.connections < db.pool.max_size());
+
+        let conn = db.conn().expect("get connection after migration");
+        let files_table_count = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'files'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("query migrated schema");
+        assert_eq!(files_table_count, 1);
+        let query_result = conn
+            .query_row("SELECT 1", [], |row| row.get::<_, i64>(0))
+            .expect("run ordinary query");
+        assert_eq!(query_result, 1);
+    }
+
+    #[test]
+    fn database_pool_grows_for_multiple_leases_and_reuses_returned_connections() {
+        let test_dir = TestDatabaseDirectory::new();
+        let db = Database::open(test_dir.database_path()).expect("open and migrate database");
+
+        let first = db.conn().expect("lease first connection");
+        let second = db.conn().expect("lease second connection");
+        let third = db.conn().expect("lease third connection");
+        let held_state = db.pool.state();
+
+        eprintln!(
+            "pool state with three leases held: connections={}, idle_connections={}, max_size={}, min_idle={:?}",
+            held_state.connections,
+            held_state.idle_connections,
+            db.pool.max_size(),
+            db.pool.min_idle()
+        );
+        assert_eq!(db.pool.max_size(), 8);
+        assert_eq!(db.pool.min_idle(), Some(1));
+        assert!(held_state.connections >= 3);
+        assert!(held_state.connections <= db.pool.max_size());
+        assert!(held_state.idle_connections < held_state.connections);
+
+        drop((first, second, third));
+        let returned_state = db.pool.state();
+        eprintln!(
+            "pool state after returning three leases: connections={}, idle_connections={}",
+            returned_state.connections, returned_state.idle_connections
+        );
+        assert!(returned_state.idle_connections >= 1);
+        assert!(returned_state.connections <= db.pool.max_size());
+
+        let conn = db.conn().expect("lease connection after returning leases");
+        let query_result = conn
+            .query_row("SELECT 42", [], |row| row.get::<_, i64>(0))
+            .expect("query using returned pool connection");
+        assert_eq!(query_result, 42);
+    }
 }
