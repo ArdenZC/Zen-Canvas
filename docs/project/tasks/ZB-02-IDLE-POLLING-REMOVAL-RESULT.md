@@ -9,9 +9,10 @@
 | Taskbook starting HEAD | `480bb5df138293765e33c28fca778b0b896385a8` |
 | Initial Track production HEAD with full local validation | `77058cded7f117164b824e262d7b4cb11eb517e7` |
 | Owner-review repair production HEAD | `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` |
-| Pushed repair candidate validated by Hosted CI | `d1466c4512f4cbed0b0d37d8142322e07dd1ec80` |
+| Final PR HEAD validated by Hosted CI | `439eed634bd081c303678ee63bac8e0111354007` |
+| Merge commit on master | `db885fd1ca19ba496a95d48f9f1b0046e458aa19` |
 
-All three scopes were integrated on this branch. The initial Track full local validation listed below applies only to `77058cded7f117164b824e262d7b4cb11eb517e7`. The owner-review repair at `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` has the focused validation recorded below. [PR #260 Hosted CI run 35985044270](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35985044270) completed successfully against pushed candidate `d1466c4512f4cbed0b0d37d8142322e07dd1ec80`; this Result status update is docs-only and does not change the production source.
+All three scopes were integrated on this branch. The initial Track full local validation listed below applies only to `77058cded7f117164b824e262d7b4cb11eb517e7`. The owner-review repair at `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` has the focused validation recorded below. [PR #260 Hosted CI run 35986073470](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35986073470) completed successfully against the exact final PR HEAD `439eed634bd081c303678ee63bac8e0111354007`, and PR #260 was then owner-approved and rebase-merged to master as `db885fd1ca19ba496a95d48f9f1b0046e458aa19`.
 
 ## Before and after
 
@@ -96,6 +97,7 @@ The hosted macOS lane was not executable on this Windows host during that initia
 
 - Two moderate npm advisories remain below the repository command's `high` threshold; no dependency files were changed.
 - Frontend build completed with the warnings recorded above.
-- PR #260 Hosted CI run `35985044270` passed the owner-review repair candidate, including Windows/macOS Rust quality, release compile, and the routed performance lanes. Packaging, dependency-audit, documentation-only, and Windows Preview Handler jobs were skipped under the selected change classification.
+- PR #260 Hosted CI run `35986073470` passed the exact final PR HEAD `439eed634bd081c303678ee63bac8e0111354007`, including Windows/macOS Rust quality, release compile, native macOS performance, all routed performance lanes, the final performance profile, and both platform Quality gates. Packaging, dependency-audit, documentation-only, and Windows Preview Handler jobs were skipped under the selected change classification.
+- Owner re-review disposition: **PASS**. PR #260 was rebase-merged to master as `db885fd1ca19ba496a95d48f9f1b0046e458aa19`.
 
-**READY FOR OWNER RE-REVIEW**
+**MERGED / OWNER REVIEW PASSED**
