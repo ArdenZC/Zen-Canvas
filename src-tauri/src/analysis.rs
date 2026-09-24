@@ -13,6 +13,9 @@ use crate::{
         StartAnalysisRunRequest,
     },
     fs_safety::capture_physical_identity,
+    scheduler::{
+        AcquireError, CancellationToken, ResourceHints, ResourceLease, WorkRequest, WorkScheduler,
+    },
     storage_analyzer::{self, CleanupActionKind, CleanupTier, StorageCandidate},
     window_auth::require_main_window,
 };
@@ -26,7 +29,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    thread,
 };
 use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 
@@ -138,7 +140,8 @@ impl AnalysisRunManager {
     }
 
     pub(crate) fn cancel(&self, run_id: &str) -> bool {
-        self.jobs
+        let canceled = self
+            .jobs
             .lock()
             .ok()
             .and_then(|registry| {
@@ -151,17 +154,26 @@ impl AnalysisRunManager {
                 flag.store(true, Ordering::Release);
                 true
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
+        if canceled {
+            WorkScheduler::global().cancel_session(run_id);
+        }
+        canceled
     }
 
     pub fn cancel_all(&self) -> usize {
-        let Ok(registry) = self.jobs.lock() else {
-            return 0;
+        let run_ids = {
+            let Ok(registry) = self.jobs.lock() else {
+                return 0;
+            };
+            for entry in registry.jobs.values() {
+                entry.token.store(true, Ordering::Release);
+            }
+            registry.jobs.keys().cloned().collect::<Vec<_>>()
         };
-        let mut canceled = 0;
-        for entry in registry.jobs.values() {
-            entry.token.store(true, Ordering::Release);
-            canceled += 1;
+        let canceled = run_ids.len();
+        for run_id in run_ids {
+            WorkScheduler::global().cancel_session(&run_id);
         }
         canceled
     }
@@ -576,16 +588,27 @@ fn run_analysis_run<R: Runtime>(
     let mut error_count = run.error_count;
 
     for detector in detectors {
-        while !crate::platform::macos::activity::allow_nonessential_background_work() {
-            if cancel_flag.load(Ordering::Acquire)
-                || db
-                    .is_analysis_cancel_requested(run_id)
-                    .map_err(|error| error.to_string())?
-            {
-                break;
-            }
-            thread::sleep(std::time::Duration::from_millis(250));
+        if cancel_flag.load(Ordering::Acquire)
+            || db
+                .is_analysis_cancel_requested(run_id)
+                .map_err(|error| error.to_string())?
+        {
+            break;
         }
+        let cancellation = CancellationToken::from_flag(Arc::clone(cancel_flag));
+        let _resource_lease = match acquire_analysis_resource_lease(
+            &WorkScheduler::global(),
+            run_id,
+            &detector.detector_id,
+            cancellation,
+        ) {
+            Ok(lease) => lease,
+            Err(AcquireError::Cancelled) if cancel_flag.load(Ordering::Acquire) => break,
+            Err(error) => return Err(error.to_string()),
+        };
+        let _qos_scope = crate::resource_governor::scope_thread_qos(
+            crate::file_workspace::WorkClass::Background,
+        );
         if cancel_flag.load(Ordering::Acquire)
             || db
                 .is_analysis_cancel_requested(run_id)
@@ -790,6 +813,27 @@ fn run_analysis_run<R: Runtime>(
         }
     }
     Ok(())
+}
+
+fn acquire_analysis_resource_lease(
+    scheduler: &WorkScheduler,
+    run_id: &str,
+    detector_id: &str,
+    cancellation: CancellationToken,
+) -> Result<ResourceLease, AcquireError> {
+    let request = WorkRequest::new(
+        format!("analysis-{run_id}-{detector_id}"),
+        crate::file_workspace::WorkClass::Background,
+        ResourceHints {
+            cpu: 1,
+            io: 1,
+            open_handles: 1,
+            ..ResourceHints::empty()
+        },
+    )
+    .with_session_id(run_id.to_string())
+    .with_cancellation(cancellation);
+    scheduler.acquire_with_backpressure(request)
 }
 
 fn duplicate_findings(
@@ -1464,6 +1508,7 @@ fn emit_detector<R: Runtime>(app: &AppHandle<R>, detector: &AnalysisDetectorDto)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scheduler::{PermissiveResourcePolicy, ResourceCapacities, SchedulerConfig};
     use rusqlite::params;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
@@ -1502,6 +1547,50 @@ mod tests {
         assert!(manager.cancel("reused-analysis"));
         drop(current);
         assert!(!manager.cancel("reused-analysis"));
+    }
+
+    #[test]
+    fn analysis_resource_wait_is_event_driven_and_cancellation_wakes_it() {
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        ));
+        let holder = scheduler
+            .try_acquire(WorkRequest::new(
+                "analysis-test-holder",
+                crate::file_workspace::WorkClass::Foreground,
+                ResourceHints::cpu_io(1, 1),
+            ))
+            .expect("hold shared admission capacity");
+        let cancellation = CancellationToken::new();
+        let cancellation_for_waiter = cancellation.clone();
+        let scheduler_for_waiter = Arc::clone(&scheduler);
+        let waiter = std::thread::spawn(move || {
+            acquire_analysis_resource_lease(
+                &scheduler_for_waiter,
+                "analysis-test-run",
+                LARGE_FILE_DETECTOR,
+                cancellation_for_waiter,
+            )
+        });
+        for _ in 0..10_000 {
+            if scheduler.snapshot().queued == 1 {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert_eq!(scheduler.snapshot().queued, 1);
+        std::thread::sleep(std::time::Duration::from_millis(130));
+        assert_eq!(scheduler.snapshot().total_timed_wait_wakeups, 0);
+
+        cancellation.cancel();
+        assert!(matches!(
+            waiter.join().expect("analysis admission waiter joins"),
+            Err(AcquireError::Cancelled)
+        ));
+        drop(holder);
+        assert_eq!(scheduler.snapshot().queued, 0);
     }
 
     fn test_path(prefix: &str) -> PathBuf {

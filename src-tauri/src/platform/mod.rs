@@ -5,3 +5,5 @@
 //! and restore authorities in place.
 
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;

@@ -20,6 +20,10 @@ use crate::{
         current_library_revision, resolve_scope, Database, DbError, FileLibraryScopeV2,
         LibraryScopeHealthDto,
     },
+    file_workspace::WorkClass,
+    scheduler::{
+        AcquireError, CancellationToken, ResourceHints, ResourceLease, WorkRequest, WorkScheduler,
+    },
     window_auth::require_main_window,
 };
 use blake3::Hasher;
@@ -38,7 +42,10 @@ use std::{
     collections::{HashMap, HashSet},
     io::{Cursor, Read},
     path::Path,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant, UNIX_EPOCH},
 };
 use tauri::{Runtime, State, WebviewWindow};
@@ -85,6 +92,136 @@ fn is_content_run_terminal_status(status: &str) -> bool {
 
 fn is_content_run_active_status(status: &str) -> bool {
     matches!(status, "building" | "ready" | "running" | "cancelling")
+}
+
+#[derive(Clone, Default)]
+pub struct ContentRunManager(Arc<Mutex<ContentRunRegistry>>);
+
+#[derive(Default)]
+struct ContentRunRegistry {
+    active: HashMap<String, ContentRunCancellation>,
+    next_generation: u64,
+}
+
+#[derive(Clone)]
+struct ContentRunCancellation {
+    generation: u64,
+    token: CancellationToken,
+}
+
+struct ContentRunCancellationGuard {
+    manager: ContentRunManager,
+    run_id: String,
+    generation: u64,
+    token: CancellationToken,
+}
+
+impl ContentRunCancellationGuard {
+    fn token(&self) -> CancellationToken {
+        self.token.clone()
+    }
+}
+
+impl Drop for ContentRunCancellationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut registry) = self.manager.0.lock() {
+            if registry
+                .active
+                .get(&self.run_id)
+                .is_some_and(|active| active.generation == self.generation)
+            {
+                registry.active.remove(&self.run_id);
+            }
+        }
+    }
+}
+
+impl ContentRunManager {
+    fn register(&self, run_id: &str) -> Result<ContentRunCancellationGuard, String> {
+        let mut registry = self
+            .0
+            .lock()
+            .map_err(|_| "Content run manager is unavailable.".to_string())?;
+        if registry.active.contains_key(run_id) {
+            return Err(format!("Content run already has a local owner: {run_id}"));
+        }
+        registry.next_generation = registry.next_generation.wrapping_add(1).max(1);
+        let generation = registry.next_generation;
+        let token = CancellationToken::new();
+        registry.active.insert(
+            run_id.to_string(),
+            ContentRunCancellation {
+                generation,
+                token: token.clone(),
+            },
+        );
+        Ok(ContentRunCancellationGuard {
+            manager: self.clone(),
+            run_id: run_id.to_string(),
+            generation,
+            token,
+        })
+    }
+
+    pub fn cancel(&self, run_id: &str) -> bool {
+        let token = self.0.lock().ok().and_then(|registry| {
+            registry
+                .active
+                .get(run_id.trim())
+                .map(|run| run.token.clone())
+        });
+        if let Some(token) = token {
+            token.cancel();
+            WorkScheduler::global().cancel_session(run_id.trim());
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn acquire_content_resource_lease(
+    scheduler: &WorkScheduler,
+    run_id: &str,
+    ordinal: usize,
+    cancellation: CancellationToken,
+) -> Result<ResourceLease, AcquireError> {
+    let request = WorkRequest::new(
+        format!("content-{run_id}-{ordinal}"),
+        WorkClass::Background,
+        ResourceHints {
+            cpu: 1,
+            io: 1,
+            open_handles: 1,
+            ..ResourceHints::empty()
+        },
+    )
+    .with_session_id(run_id.to_string())
+    .with_cancellation(cancellation);
+    scheduler.acquire_with_backpressure(request)
+}
+
+fn acquire_content_provider_resource_lease(
+    scheduler: &WorkScheduler,
+    run_id: &str,
+    artifact_id: &str,
+    cancellation: CancellationToken,
+) -> Result<ResourceLease, AcquireError> {
+    let artifact_key = blake3::hash(artifact_id.as_bytes()).to_hex();
+    let request = WorkRequest::new(
+        format!("content-provider-{run_id}-{}", &artifact_key[..16]),
+        WorkClass::Background,
+        ResourceHints {
+            cpu: 1,
+            io: 1,
+            open_handles: 1,
+            provider_network: 1,
+            ..ResourceHints::empty()
+        },
+    )
+    .with_session_id(run_id.to_string())
+    .with_cancellation(cancellation);
+    scheduler.acquire_with_backpressure(request)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -694,6 +831,22 @@ impl Database {
         &self,
         request: StartContentRunRequest,
     ) -> Result<ContentRunDto, DbError> {
+        self.start_content_run_inner(request, None)
+    }
+
+    pub fn start_content_run_with_manager(
+        &self,
+        request: StartContentRunRequest,
+        manager: &ContentRunManager,
+    ) -> Result<ContentRunDto, DbError> {
+        self.start_content_run_inner(request, Some(manager))
+    }
+
+    fn start_content_run_inner(
+        &self,
+        request: StartContentRunRequest,
+        manager: Option<&ContentRunManager>,
+    ) -> Result<ContentRunDto, DbError> {
         validate_start_request(&request)?;
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -759,6 +912,14 @@ impl Database {
             ));
         }
         let run_id = format!("content-run-{}", uuid::Uuid::new_v4());
+        let cancellation_guard = manager
+            .map(|manager| manager.register(&run_id))
+            .transpose()
+            .map_err(DbError::Validation)?;
+        let run_cancellation = cancellation_guard
+            .as_ref()
+            .map(ContentRunCancellationGuard::token)
+            .unwrap_or_default();
         let now = crate::db::current_unix_seconds();
         let scope_json = serde_json::to_string(&request.scope)?;
         tx.execute(
@@ -833,7 +994,12 @@ impl Database {
         // same durable item ledger, so an interrupted process leaves explicit
         // pending/failed rows for startup recovery rather than replaying a
         // hidden queue.
-        let run = self.process_content_run(&run_id, &request, snapshot.candidates)?;
+        let run = self.process_content_run_with_cancellation(
+            &run_id,
+            &request,
+            snapshot.candidates,
+            &run_cancellation,
+        )?;
         if provider_requested && matches!(run.status.as_str(), "completed" | "partially_completed")
         {
             let mut artifact_ids = Vec::new();
@@ -847,17 +1013,20 @@ impl Database {
                 }
             }
             if !artifact_ids.is_empty() {
-                self.understand_content_artifacts(UnderstandContentArtifactsRequest {
-                    version: CONTENT_VERSION,
-                    artifact_ids,
-                    expected_revisions,
-                    run_id: Some(run_id.clone()),
-                    expected_run_revision: self
-                        .get_content_run(&run_id)
-                        .ok()
-                        .map(|run| run.revision),
-                    confirmed: request.confirmed,
-                })?;
+                self.understand_content_artifacts_with_cancellation(
+                    UnderstandContentArtifactsRequest {
+                        version: CONTENT_VERSION,
+                        artifact_ids,
+                        expected_revisions,
+                        run_id: Some(run_id.clone()),
+                        expected_run_revision: self
+                            .get_content_run(&run_id)
+                            .ok()
+                            .map(|run| run.revision),
+                        confirmed: request.confirmed,
+                    },
+                    &run_cancellation,
+                )?;
             }
             return self.get_content_run(&run_id);
         }
@@ -1419,14 +1588,52 @@ impl Database {
         &self,
         request: UnderstandContentArtifactsRequest,
     ) -> Result<ContentUnderstandingResultDto, DbError> {
-        self.understand_content_artifacts_with_seams(request, None, None)
+        self.understand_content_artifacts_with_cancellation(request, &CancellationToken::new())
     }
 
+    pub fn understand_content_artifacts_with_manager(
+        &self,
+        request: UnderstandContentArtifactsRequest,
+        manager: &ContentRunManager,
+    ) -> Result<ContentUnderstandingResultDto, DbError> {
+        let run_id = request
+            .run_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| DbError::Validation("content_provider_run_required".into()))?;
+        let guard = manager.register(run_id).map_err(DbError::Validation)?;
+        self.understand_content_artifacts_with_cancellation(request, &guard.token())
+    }
+
+    fn understand_content_artifacts_with_cancellation(
+        &self,
+        request: UnderstandContentArtifactsRequest,
+        cancellation: &CancellationToken,
+    ) -> Result<ContentUnderstandingResultDto, DbError> {
+        self.understand_content_artifacts_with_controls(request, None, None, Some(cancellation))
+    }
+
+    #[cfg(test)]
     fn understand_content_artifacts_with_seams(
         &self,
         request: UnderstandContentArtifactsRequest,
         provider_override: Option<&dyn AIProvider>,
         before_provider_send: Option<&dyn Fn()>,
+    ) -> Result<ContentUnderstandingResultDto, DbError> {
+        self.understand_content_artifacts_with_controls(
+            request,
+            provider_override,
+            before_provider_send,
+            None,
+        )
+    }
+
+    fn understand_content_artifacts_with_controls(
+        &self,
+        request: UnderstandContentArtifactsRequest,
+        provider_override: Option<&dyn AIProvider>,
+        before_provider_send: Option<&dyn Fn()>,
+        cancellation: Option<&CancellationToken>,
     ) -> Result<ContentUnderstandingResultDto, DbError> {
         let run_id = request
             .run_id
@@ -1502,6 +1709,31 @@ impl Database {
                     first_reason.get_or_insert_with(|| "content_run_cancelled".into());
                     continue;
                 }
+                let cancellation_token = cancellation.cloned().unwrap_or_default();
+                let _resource_lease = match acquire_content_provider_resource_lease(
+                    &WorkScheduler::global(),
+                    run_id,
+                    artifact_id,
+                    cancellation_token,
+                ) {
+                    Ok(lease) => lease,
+                    Err(AcquireError::Cancelled) if self.provider_run_cancelled(run_id)? => {
+                        blocked += 1;
+                        first_reason.get_or_insert_with(|| "content_run_cancelled".into());
+                        break;
+                    }
+                    Err(AcquireError::Cancelled) => {
+                        return Err(DbError::Validation(
+                            "content_provider_resource_wait_cancelled".into(),
+                        ));
+                    }
+                    Err(error) => {
+                        return Err(DbError::Validation(format!(
+                            "content_provider_resource_admission_failed: {error}"
+                        )));
+                    }
+                };
+                let _qos_scope = crate::resource_governor::scope_thread_qos(WorkClass::Background);
                 let Some(item_claim) = self.claim_provider_item(run_id, artifact_id, &run_claim)?
                 else {
                     // A completed provider item is durable and must never replay.
@@ -2350,15 +2582,25 @@ impl Database {
         Ok(())
     }
 
-    fn process_content_run(
+    fn process_content_run_with_cancellation(
         &self,
         run_id: &str,
         request: &StartContentRunRequest,
         candidates: Vec<Candidate>,
+        cancellation: &CancellationToken,
     ) -> Result<ContentRunDto, DbError> {
-        self.process_content_run_with_pdf_hook(run_id, request, candidates, None, None)
+        self.process_content_run_with_pdf_controls(
+            run_id,
+            request,
+            candidates,
+            None,
+            None,
+            None,
+            Some(cancellation),
+        )
     }
 
+    #[cfg(test)]
     fn process_content_run_with_pdf_hook(
         &self,
         run_id: &str,
@@ -2373,6 +2615,7 @@ impl Database {
             candidates,
             pdf_work_hook,
             pdf_cancel,
+            None,
             None,
         )
     }
@@ -2393,9 +2636,14 @@ impl Database {
             pdf_work_hook,
             None,
             Some(deadline_after),
+            None,
         )
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the independent PDF test seams and optional run cancellation are kept explicit"
+    )]
     fn process_content_run_with_pdf_controls(
         &self,
         run_id: &str,
@@ -2404,19 +2652,52 @@ impl Database {
         pdf_work_hook: Option<&dyn Fn()>,
         pdf_cancel: Option<&AtomicBool>,
         pdf_deadline_after: Option<Duration>,
+        run_cancellation: Option<&CancellationToken>,
     ) -> Result<ContentRunDto, DbError> {
         let mut completed = 0_i64;
         let mut blocked = 0_i64;
         let mut failed = 0_i64;
         for (ordinal, candidate) in candidates.iter().enumerate() {
-            while !crate::platform::macos::activity::allow_nonessential_background_work() {
-                let run = self.get_content_run(run_id)?;
-                if run.cancel_requested || run.status == "cancelling" {
-                    self.finish_content_run(run_id, "cancelled", completed, blocked, failed, None)?;
-                    return self.get_content_run(run_id);
-                }
-                std::thread::sleep(Duration::from_millis(250));
+            let status = self
+                .get_content_run(run_id)
+                .map(|run| run.status)
+                .unwrap_or_else(|_| "running".into());
+            if status == "cancelling" {
+                self.finish_content_run(run_id, "cancelled", completed, blocked, failed, None)?;
+                return self.get_content_run(run_id);
             }
+            let cancellation = run_cancellation.cloned().unwrap_or_default();
+            let _resource_lease = match acquire_content_resource_lease(
+                &WorkScheduler::global(),
+                run_id,
+                ordinal,
+                cancellation,
+            ) {
+                Ok(lease) => lease,
+                Err(AcquireError::Cancelled) => {
+                    let run = self.get_content_run(run_id)?;
+                    if run.cancel_requested || run.status == "cancelling" {
+                        self.finish_content_run(
+                            run_id,
+                            "cancelled",
+                            completed,
+                            blocked,
+                            failed,
+                            None,
+                        )?;
+                        return self.get_content_run(run_id);
+                    }
+                    return Err(DbError::Validation(
+                        "content_resource_wait_cancelled".to_string(),
+                    ));
+                }
+                Err(error) => {
+                    return Err(DbError::Validation(format!(
+                        "content_resource_admission_failed: {error}"
+                    )));
+                }
+            };
+            let _qos_scope = crate::resource_governor::scope_thread_qos(WorkClass::Background);
             let status = self
                 .get_content_run(run_id)
                 .map(|run| run.status)
@@ -3581,9 +3862,102 @@ fn decode_cursor(value: &str) -> Result<(i64, String), DbError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scheduler::{PermissiveResourcePolicy, ResourceCapacities, SchedulerConfig};
     use std::io::Write;
     use std::sync::{atomic::AtomicUsize, Arc, Barrier};
     use zip::{write::SimpleFileOptions, ZipWriter};
+
+    #[test]
+    fn content_resource_wait_is_event_driven_and_cancellation_wakes_it() {
+        let scheduler = WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        );
+        let holder = scheduler
+            .try_acquire(WorkRequest::new(
+                "content-test-holder",
+                WorkClass::Foreground,
+                ResourceHints::cpu_io(1, 1),
+            ))
+            .expect("hold shared admission capacity");
+        let cancellation = CancellationToken::new();
+        let cancellation_for_waiter = cancellation.clone();
+        let scheduler_for_waiter = scheduler.clone();
+        let waiter = std::thread::spawn(move || {
+            acquire_content_resource_lease(
+                &scheduler_for_waiter,
+                "content-test-run",
+                0,
+                cancellation_for_waiter,
+            )
+        });
+        for _ in 0..10_000 {
+            if scheduler.snapshot().queued == 1 {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert_eq!(scheduler.snapshot().queued, 1);
+        std::thread::sleep(Duration::from_millis(130));
+        assert_eq!(scheduler.snapshot().total_timed_wait_wakeups, 0);
+
+        cancellation.cancel();
+        assert!(matches!(
+            waiter.join().expect("content admission waiter joins"),
+            Err(AcquireError::Cancelled)
+        ));
+        drop(holder);
+        assert_eq!(scheduler.snapshot().queued, 0);
+    }
+
+    #[test]
+    fn content_provider_wait_uses_shared_network_admission_and_cancellation() {
+        let scheduler = WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        );
+        let holder = scheduler
+            .try_acquire(WorkRequest::new(
+                "content-provider-holder",
+                WorkClass::Foreground,
+                ResourceHints {
+                    provider_network: 1,
+                    ..ResourceHints::empty()
+                },
+            ))
+            .expect("hold provider network admission");
+        let cancellation = CancellationToken::new();
+        let cancellation_for_waiter = cancellation.clone();
+        let scheduler_for_waiter = scheduler.clone();
+        let waiter = std::thread::spawn(move || {
+            acquire_content_provider_resource_lease(
+                &scheduler_for_waiter,
+                "content-provider-test-run",
+                "artifact-a",
+                cancellation_for_waiter,
+            )
+        });
+        for _ in 0..10_000 {
+            if scheduler.snapshot().queued == 1 {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert_eq!(scheduler.snapshot().queued, 1);
+        std::thread::sleep(Duration::from_millis(130));
+        assert_eq!(scheduler.snapshot().total_timed_wait_wakeups, 0);
+
+        cancellation.cancel();
+        assert!(matches!(
+            waiter.join().expect("provider waiter joins"),
+            Err(AcquireError::Cancelled)
+        ));
+        drop(holder);
+        assert_eq!(scheduler.snapshot().queued, 0);
+        assert_eq!(scheduler.snapshot().granted, ResourceHints::empty());
+    }
 
     fn active_lookup_db(label: &str) -> (Database, std::path::PathBuf) {
         let suffix = uuid::Uuid::new_v4();

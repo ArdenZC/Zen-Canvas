@@ -7,6 +7,7 @@ use crate::{
     },
     fs_safety::{capture_physical_identity, PhysicalFileIdentity, PhysicalIdentityError},
     ids::new_job_id,
+    scheduler::{AcquireError, CancellationToken, ResourceHints, WorkRequest, WorkScheduler},
     window_auth::require_main_window,
 };
 use serde::Serialize;
@@ -71,38 +72,57 @@ impl DedupeJobManager {
     }
 
     pub fn cancel(&self, job_id: &str) -> bool {
-        let Ok(state) = self.0.lock() else {
-            return false;
-        };
-        let Some(job) = state.jobs.get(job_id.trim()) else {
-            return false;
-        };
-        job.cancel_flag.store(true, Ordering::Release);
-        true
+        let job_id = job_id.trim();
+        let canceled = self
+            .0
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state.jobs.get(job_id).map(|job| {
+                    job.cancel_flag.store(true, Ordering::Release);
+                    true
+                })
+            })
+            .unwrap_or(false);
+        if canceled {
+            WorkScheduler::global().cancel_session(job_id);
+        }
+        canceled
     }
 
     pub fn cancel_for_scan(&self, scan_job_id: &str) -> bool {
-        let Ok(state) = self.0.lock() else {
+        let job_id = self.0.lock().ok().and_then(|state| {
+            state
+                .scan_to_dedupe
+                .get(scan_job_id.trim())
+                .filter(|job_id| state.jobs.contains_key(*job_id))
+                .cloned()
+        });
+        let Some(job_id) = job_id else {
             return false;
         };
-        let Some(job_id) = state.scan_to_dedupe.get(scan_job_id.trim()) else {
-            return false;
-        };
-        let Some(job) = state.jobs.get(job_id) else {
-            return false;
-        };
-        job.cancel_flag.store(true, Ordering::Release);
+        if let Ok(state) = self.0.lock() {
+            if let Some(job) = state.jobs.get(&job_id) {
+                job.cancel_flag.store(true, Ordering::Release);
+            }
+        }
+        WorkScheduler::global().cancel_session(&job_id);
         true
     }
 
     pub fn cancel_all(&self) -> usize {
-        let Ok(state) = self.0.lock() else {
-            return 0;
+        let job_ids = {
+            let Ok(state) = self.0.lock() else {
+                return 0;
+            };
+            for job in state.jobs.values() {
+                job.cancel_flag.store(true, Ordering::Release);
+            }
+            state.jobs.keys().cloned().collect::<Vec<_>>()
         };
-        let mut canceled = 0;
-        for job in state.jobs.values() {
-            job.cancel_flag.store(true, Ordering::Release);
-            canceled += 1;
+        let canceled = job_ids.len();
+        for job_id in job_ids {
+            WorkScheduler::global().cancel_session(&job_id);
         }
         canceled
     }
@@ -738,7 +758,7 @@ fn run_durable_dedupe_inner(
             })
             .collect::<Vec<_>>();
         let (results, invalid_worker_config) =
-            bounded_hash_subjects(tasks, Arc::clone(cancel_flag))?;
+            bounded_hash_subjects(tasks, Arc::clone(cancel_flag), &run.id)?;
         if invalid_worker_config {
             checkpoint.warning_count += 1;
             record_dedupe_warning(
@@ -1080,32 +1100,84 @@ fn hash_file_prehash_bytes(path: &Path, expected_size: i64) -> Result<(String, u
 fn bounded_hash_subjects(
     tasks: Vec<HashTask>,
     cancel_flag: Arc<AtomicBool>,
+    run_id: &str,
 ) -> Result<(Vec<HashResult>, bool), DedupeError> {
-    let detected = thread::available_parallelism()
-        .map(|value| value.get())
-        .unwrap_or(2);
+    if tasks.is_empty() {
+        return Ok((Vec::new(), false));
+    }
+    let scheduler = WorkScheduler::global();
+    let detected = scheduler.config().capacities.cpu as usize;
     let (workers, invalid_override) = dedupe_worker_count(
         detected,
         std::env::var("ZEN_CANVAS_DEDUPE_HASH_WORKERS")
             .ok()
             .as_deref(),
     );
-    #[cfg(target_os = "macos")]
-    let workers = {
-        let policy = crate::platform::macos::activity::policy_for(
-            crate::platform::macos::activity::MacActivitySnapshot::current(),
-            workers,
-            true,
-        );
-        if !policy.allow_nonessential_background_work {
-            return Err(DedupeError::Db(DbError::Validation(
-                "macos_activity_policy_paused".to_string(),
-            )));
+    let leases = match acquire_dedupe_hash_leases(&scheduler, run_id, &cancel_flag, workers) {
+        Ok(leases) => leases,
+        Err(AcquireError::Cancelled) if cancel_flag.load(Ordering::Acquire) => {
+            return Ok((Vec::new(), invalid_override));
         }
-        policy.max_parallelism
+        Err(error) => return Err(DedupeError::Db(DbError::Validation(error.to_string()))),
     };
-    let results = bounded_hash_subjects_with_workers(tasks, cancel_flag, workers)?;
+    if cancel_flag.load(Ordering::Acquire) {
+        return Ok((Vec::new(), invalid_override));
+    }
+    let _qos_scope =
+        crate::resource_governor::scope_thread_qos(crate::file_workspace::WorkClass::Background);
+    let results = bounded_hash_subjects_with_workers(tasks, cancel_flag, leases.len())?;
+    drop(leases);
     Ok((results, invalid_override))
+}
+
+fn acquire_dedupe_hash_leases(
+    scheduler: &WorkScheduler,
+    run_id: &str,
+    cancel_flag: &Arc<AtomicBool>,
+    workers: usize,
+) -> Result<Vec<crate::scheduler::ResourceLease>, AcquireError> {
+    let cancellation = CancellationToken::from_flag(Arc::clone(cancel_flag));
+    let first_request = dedupe_hash_resource_request(run_id, 0, cancellation.clone());
+    let first_lease = scheduler.acquire_with_backpressure(first_request)?;
+    let mut leases = Vec::with_capacity(workers.max(1));
+    leases.push(first_lease);
+    for index in 1..workers.max(1) {
+        if cancel_flag.load(Ordering::Acquire) {
+            break;
+        }
+        match scheduler.try_acquire(dedupe_hash_resource_request(
+            run_id,
+            index,
+            cancellation.clone(),
+        )) {
+            Ok(lease) => leases.push(lease),
+            Err(
+                AcquireError::WouldBlock | AcquireError::QueueFull | AcquireError::PolicyDenied,
+            ) => break,
+            Err(AcquireError::Cancelled) if cancel_flag.load(Ordering::Acquire) => break,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(leases)
+}
+
+fn dedupe_hash_resource_request(
+    run_id: &str,
+    worker_index: usize,
+    cancellation: CancellationToken,
+) -> WorkRequest {
+    WorkRequest::new(
+        format!("dedupe-{run_id}-hash-{worker_index}"),
+        crate::file_workspace::WorkClass::Background,
+        ResourceHints {
+            cpu: 1,
+            io: 1,
+            open_handles: 1,
+            ..ResourceHints::empty()
+        },
+    )
+    .with_session_id(run_id.to_string())
+    .with_cancellation(cancellation)
 }
 
 fn bounded_hash_subjects_with_workers(
@@ -1125,44 +1197,49 @@ fn bounded_hash_subjects_with_workers(
         let shared_rx = Arc::clone(&shared_rx);
         let result_tx = result_tx.clone();
         let cancel_flag = Arc::clone(&cancel_flag);
-        handles.push(thread::spawn(move || loop {
-            let task = {
-                let Ok(receiver) = shared_rx.lock() else {
+        handles.push(thread::spawn(move || {
+            let _ = crate::resource_governor::apply_thread_qos(
+                crate::file_workspace::WorkClass::Background,
+            );
+            loop {
+                let task = {
+                    let Ok(receiver) = shared_rx.lock() else {
+                        return;
+                    };
+                    receiver.recv()
+                };
+                let Ok(Some(task)) = task else { return };
+                // The flag is owned by the run and outlives the bounded worker set.
+                let cancelled = cancel_flag.load(Ordering::Acquire);
+                let (result, bytes_read) = if cancelled {
+                    (
+                        Err(DedupeError::Db(DbError::Validation(
+                            "cancelled".to_string(),
+                        ))),
+                        0,
+                    )
+                } else {
+                    let result = hash_subject_with_identity(
+                        &task.path,
+                        &task.expected_identity,
+                        cancel_flag.as_ref(),
+                    );
+                    let (result, bytes_read) = match result {
+                        Ok((hash, bytes_read)) => (Ok(hash), bytes_read),
+                        Err(error) => (Err(error), 0),
+                    };
+                    (result, bytes_read)
+                };
+                if result_tx
+                    .send(HashResult {
+                        subject_index: task.subject_index,
+                        result,
+                        bytes_read,
+                    })
+                    .is_err()
+                {
                     return;
-                };
-                receiver.recv()
-            };
-            let Ok(Some(task)) = task else { return };
-            // The flag is owned by the run and outlives the bounded worker set.
-            let cancelled = cancel_flag.load(Ordering::Acquire);
-            let (result, bytes_read) = if cancelled {
-                (
-                    Err(DedupeError::Db(DbError::Validation(
-                        "cancelled".to_string(),
-                    ))),
-                    0,
-                )
-            } else {
-                let result = hash_subject_with_identity(
-                    &task.path,
-                    &task.expected_identity,
-                    cancel_flag.as_ref(),
-                );
-                let (result, bytes_read) = match result {
-                    Ok((hash, bytes_read)) => (Ok(hash), bytes_read),
-                    Err(error) => (Err(error), 0),
-                };
-                (result, bytes_read)
-            };
-            if result_tx
-                .send(HashResult {
-                    subject_index: task.subject_index,
-                    result,
-                    bytes_read,
-                })
-                .is_err()
-            {
-                return;
+                }
             }
         }));
     }
@@ -1660,6 +1737,7 @@ fn open_content_file(path: &Path) -> Result<File, DedupeError> {
 #[cfg(test)]
 mod job_manager_tests {
     use super::*;
+    use crate::scheduler::{PermissiveResourcePolicy, ResourceCapacities, SchedulerConfig};
     use std::{fs, io::Write, path::PathBuf};
 
     #[test]
@@ -1716,6 +1794,71 @@ mod job_manager_tests {
         assert_eq!(dedupe_worker_count(8, Some("0")), (4, true));
         assert_eq!(dedupe_worker_count(8, Some("nine")), (4, true));
         assert_eq!(dedupe_worker_count(2, Some("8")), (2, false));
+    }
+
+    #[test]
+    fn dedupe_hash_workers_cannot_exceed_shared_scheduler_capacity() {
+        let scheduler = WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        );
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let leases =
+            acquire_dedupe_hash_leases(&scheduler, "dedupe-capacity-test", &cancel_flag, 4)
+                .expect("acquire bounded hash leases");
+        assert_eq!(leases.len(), 1);
+        assert_eq!(scheduler.snapshot().running_background, 1);
+        drop(leases);
+        assert_eq!(scheduler.snapshot().running, 0);
+        assert_eq!(scheduler.snapshot().granted, ResourceHints::empty());
+    }
+
+    #[test]
+    fn cancellation_releases_dedupe_while_waiting_for_shared_admission() {
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        ));
+        let holder = scheduler
+            .try_acquire(WorkRequest::new(
+                "dedupe-cancel-holder",
+                crate::file_workspace::WorkClass::Foreground,
+                ResourceHints::cpu_io(1, 1),
+            ))
+            .expect("hold shared scheduler capacity");
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let cancel_flag_for_waiter = Arc::clone(&cancel_flag);
+        let scheduler_for_waiter = Arc::clone(&scheduler);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            tx.send(acquire_dedupe_hash_leases(
+                &scheduler_for_waiter,
+                "dedupe-cancel-run",
+                &cancel_flag_for_waiter,
+                4,
+            ))
+            .expect("send dedupe admission result");
+        });
+        for _ in 0..10_000 {
+            if scheduler.snapshot().queued == 1 {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert_eq!(scheduler.snapshot().queued, 1);
+        cancel_flag.store(true, Ordering::Release);
+        assert_eq!(scheduler.cancel_session("dedupe-cancel-run"), 1);
+        assert!(matches!(
+            rx.recv_timeout(std::time::Duration::from_secs(1))
+                .expect("cancellation wakes dedupe admission"),
+            Err(AcquireError::Cancelled)
+        ));
+        waiter.join().expect("dedupe waiter joins");
+        drop(holder);
+        assert_eq!(scheduler.snapshot().queued, 0);
+        assert_eq!(scheduler.snapshot().running, 0);
     }
 
     #[test]
@@ -1896,6 +2039,7 @@ mod job_manager_tests {
                 expected_identity,
             }],
             Arc::new(AtomicBool::new(false)),
+            "dedupe-worker-test-run",
         )
         .expect("bounded worker result");
         let error = results
