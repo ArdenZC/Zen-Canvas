@@ -17,7 +17,7 @@ use crate::window_auth::require_main_window;
 use jwalk::{ClientState, DirEntry, Parallelism, WalkDir};
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::{
@@ -338,10 +338,12 @@ pub async fn start_managed_scan<R: Runtime>(
     if admission.created && !admission.runs.is_empty() {
         let guards = register_scan_guards(&jobs, &admission.runs)?;
         let session_id = admission.session.id.clone();
+        let jobs_for_task = jobs.clone();
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = run_managed_session(
                 app,
                 db,
+                jobs_for_task,
                 dedupe_jobs,
                 session_id,
                 admission.runs,
@@ -471,10 +473,12 @@ pub async fn retry_interrupted_scan<R: Runtime>(
     }
     if admission.created && !admission.runs.is_empty() {
         let guards = register_scan_guards(&jobs, &admission.runs)?;
+        let jobs_for_task = jobs.clone();
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = run_managed_session(
                 app,
                 db,
+                jobs_for_task,
                 dedupe_jobs,
                 admission.session.id,
                 admission.runs,
@@ -563,6 +567,7 @@ pub async fn scan_directory<R: Runtime>(
         run_managed_session(
             app,
             db.clone(),
+            jobs,
             dedupe_jobs,
             session_id,
             run_ids,
@@ -617,7 +622,39 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
     jobs: ScanJobManager,
     dedupe_jobs: DedupeJobManager,
 ) -> Result<usize, String> {
-    let roots = db.list_scan_roots().map_err(|error| error.to_string())?;
+    schedule_watcher_reconciliations_for_roots(app, db, jobs, dedupe_jobs, None)
+}
+
+pub(crate) fn schedule_watcher_reconciliation_roots<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+    root_ids: Vec<String>,
+) -> Result<usize, String> {
+    schedule_watcher_reconciliations_for_roots(app, db, jobs, dedupe_jobs, Some(root_ids))
+}
+
+fn schedule_watcher_reconciliations_for_roots<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+    root_ids: Option<Vec<String>>,
+) -> Result<usize, String> {
+    let roots = if let Some(root_ids) = root_ids {
+        let mut seen = HashSet::new();
+        root_ids
+            .into_iter()
+            .filter(|root_id| seen.insert(root_id.clone()))
+            .map(|root_id| {
+                db.get_scan_root_health(Some(&root_id), None)
+                    .map_err(|error| error.to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        db.list_scan_roots().map_err(|error| error.to_string())?
+    };
     let mut scheduled = 0;
     for root in roots
         .into_iter()
@@ -625,6 +662,7 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
     {
         let path = PathBuf::from(&root.normalized_path);
         if !path.exists() {
+            crate::watcher::cancel_reconciliation_retry(&app, &root.id);
             db.mark_watcher_root_missing(
                 &root.id,
                 "missing",
@@ -634,6 +672,7 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
             continue;
         }
         if !path.is_dir() {
+            crate::watcher::cancel_reconciliation_retry(&app, &root.id);
             db.mark_watcher_root_missing(
                 &root.id,
                 "permission_required",
@@ -646,6 +685,7 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
             && !root.watcher_rule_recovery_required
             && root.watcher_revision <= root.watcher_applied_revision
         {
+            crate::watcher::cancel_reconciliation_retry(&app, &root.id);
             continue;
         }
 
@@ -657,10 +697,27 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
             )
             .map_err(|error| error.to_string())?
         {
-            WatcherReconciliationAdmission::Start { request_key, .. } => request_key,
-            WatcherReconciliationAdmission::Active
-            | WatcherReconciliationAdmission::Backoff { .. } => continue,
+            WatcherReconciliationAdmission::Start { request_key, .. } => {
+                crate::watcher::cancel_reconciliation_retry(&app, &root.id);
+                request_key
+            }
+            WatcherReconciliationAdmission::Active => {
+                crate::watcher::cancel_reconciliation_retry(&app, &root.id);
+                continue;
+            }
+            WatcherReconciliationAdmission::Backoff { retry_at } => {
+                crate::watcher::schedule_reconciliation_retry(
+                    app.clone(),
+                    db.clone(),
+                    jobs.clone(),
+                    dedupe_jobs.clone(),
+                    root.id.clone(),
+                    retry_at,
+                );
+                continue;
+            }
             WatcherReconciliationAdmission::Exhausted { attempts } => {
+                crate::watcher::cancel_reconciliation_retry(&app, &root.id);
                 let rule_recovery_exhausted = root.watcher_rule_recovery_required
                     || root.watcher_last_error_code.as_deref() == Some("watcher_rule_failure")
                     || root.watcher_last_error_code.as_deref()
@@ -716,11 +773,13 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
         let run_ids = admission.runs.clone();
         let app_for_task = app.clone();
         let db_for_task = db.clone();
+        let jobs_for_task = jobs.clone();
         let dedupe_for_task = dedupe_jobs.clone();
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = run_managed_session(
                 app_for_task,
                 db_for_task,
+                jobs_for_task,
                 dedupe_for_task,
                 session_id,
                 run_ids,
@@ -912,6 +971,7 @@ where
         if let Err(error) = run_managed_session(
             app,
             db,
+            jobs,
             dedupe_jobs,
             worker_session_id,
             run_ids,
@@ -952,12 +1012,20 @@ fn scan_walk_parallelism(resource_lease: &ResourceLease) -> usize {
 fn run_managed_session<R: Runtime>(
     app: AppHandle<R>,
     db: Database,
+    jobs: ScanJobManager,
     dedupe_jobs: DedupeJobManager,
     session_id: String,
     runs: Vec<ScanRunDto>,
     mut guards: HashMap<String, ScanJobGuard>,
     legacy: Option<LegacyScanContext>,
 ) -> Result<(), ScanError> {
+    let watcher_root_ids = if legacy.is_none() {
+        runs.iter()
+            .map(|run| run.scan_root_id.clone())
+            .collect::<HashSet<_>>()
+    } else {
+        HashSet::new()
+    };
     for run in runs {
         let Some(guard) = guards.remove(&run.id) else {
             continue;
@@ -990,6 +1058,17 @@ fn run_managed_session<R: Runtime>(
             {
                 eprintln!("Managed scan run {} failed: {error}", run.id);
             }
+        }
+    }
+    if !watcher_root_ids.is_empty() {
+        if let Err(error) = schedule_watcher_reconciliation_roots(
+            app.clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            watcher_root_ids.into_iter().collect(),
+        ) {
+            eprintln!("Unable to schedule watcher reconciliation after scan completion: {error}");
         }
     }
     Ok(())
