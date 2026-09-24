@@ -1,16 +1,16 @@
 # ZB-03 — Runtime Resource Governance — Result
 
-Disposition: **BLOCKED**
+Disposition: **READY FOR OWNER REVIEW — LOCAL CLEANUP PENDING**
 
 ## Identity
 
 - Baseline: `master@ea942b433ea7ad68297f731972f5bda49c7318b8`
 - Taskbook commit: `b0f071be581cfe00e14edb2161eacc6ef375389c`
 - Branch: `perf/zb-03-runtime-resource-governance`
-- Integrated source HEAD: `907717169d1c7f3459d503c0f26baf22460183b6`
-- Final branch HEAD: this Result is a documentation-only successor to the production HEAD; its exact SHA is reported in the final closeout and is visible as the Draft PR source head.
+- Integrated source HEAD: `d30b4a1433d28f03309ec2367865cb469aaf5197`
+- Final branch HEAD: this Result is a documentation-only successor to production HEAD `d30b4a1433d28f03309ec2367865cb469aaf5197`; the exact pushed Result commit is the Draft PR source head and is reported in the final closeout.
 
-The ZB-03 implementation was integrated at `a93a2a67806b59db47af82b5cbba16992746d7c0`. macOS QoS enum binding was corrected at `f41fddaab1242abecae5bbf7783b80326400810d`. The `907717169d1c7f3459d503c0f26baf22460183b6` follow-up isolates PDF timeout test seams from host power policy and synchronizes the thumbnail cancellation fixture; production Content work continues to use the shared global WorkScheduler. The Result commit changes documentation only.
+The ZB-03 implementation was integrated at `a93a2a67806b59db47af82b5cbba16992746d7c0`. macOS QoS enum binding was corrected at `f41fddaab1242abecae5bbf7783b80326400810d`. The `907717169d1c7f3459d503c0f26baf22460183b6` follow-up isolates PDF timeout test seams from host power policy and synchronizes the thumbnail cancellation fixture. Production Content work continues to use the shared global WorkScheduler. Closeout production commit `d30b4a1433d28f03309ec2367865cb469aaf5197` moves Dedupe Background QoS from the lease-holding coordinator to the actual hash worker threads and adds a thread-identity seam test. The Result commit changes documentation only.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ Unknown pressure remains bounded and does not affect durable truth.
 
 - Removed the unconditional 50 ms scheduler wait loop. Waits now use condition-variable notifications, caller deadlines, or documented slow rechecks for known policy-blocked work and unobservable external cancellation.
 - Managed Scan uses its existing scheduler adapter and blocks for admission rather than retrying every 25 ms.
-- Dedupe hashing derives worker bounds from shared scheduler capacity, acquires one lease per hash worker, and applies the same effective governor capacity. Its durable run authority and cancellation contract remain unchanged. The remaining `available_parallelism()` call in Dedupe is test-only benchmark comparison code.
+- Dedupe hashing derives worker bounds from shared scheduler capacity, acquires one lease per hash worker, and applies the same effective governor capacity. Background QoS is applied when each actual hash worker starts, not on the coordinating thread. Its durable run authority, lease count, worker count, hashing semantics, and cancellation contract remain unchanged. The remaining `available_parallelism()` call in Dedupe is test-only benchmark comparison code.
 - Analysis detectors acquire Background leases from WorkScheduler; run cancellation signals the scheduler. Storage/Cleanup candidate analysis is already dispatched through this Analysis authority, so its non-destructive scan is covered by the same lease.
 - Content extraction and Content Understanding provider requests both acquire WorkScheduler leases. Provider-network capacity is reserved before durable provider-item claim. Existing ContentRun/provider ledgers are unchanged; cancellation wakes resource waits.
 - Managed AI checks shared policy and acquires a lease before claiming durable pending work. SQLite remains its only durable queue. Disabled/idle AI remains event-driven; the 5-second fallback applies only when eligible durable work is known to be blocked and native policy notifications are unavailable.
@@ -51,6 +51,7 @@ Unknown pressure remains bounded and does not affect durable truth.
 
 - Windows requests thread-local execution-speed throttling with `SetThreadInformation` for Background work and restores the setting at the worker boundary.
 - macOS requests `QOS_CLASS_BACKGROUND` with `pthread_set_qos_class_self_np` and restores the default at the end of scoped work.
+- Dedupe calls the existing Background QoS helper at the top of each spawned hash-worker closure; the coordinator does not establish a QoS scope for those workers.
 - QoS is best-effort and non-fatal. It is limited to Background workers; no process-wide QoS change was added.
 
 ## Removed polling and remaining timers
@@ -107,6 +108,9 @@ No frontend, schema, lockfile, STATUS, or ROADMAP changes were made.
 - macOS lifecycle policy-event state test passed; this Windows host does not provide native macOS execution evidence.
 - `cargo fmt --check`, desktop-runtime binary `cargo check`, and narrow desktop-runtime Clippy passed.
 - After Hosted CI exposed host-load-sensitive tests, the PDF midflight test seams received a local permissive WorkScheduler and the thumbnail repeated-cancellation test received an entered/release barrier. Focused checks then passed: `content::tests::pdf_midflight` (3 passed), `file_workspace::thumbnail::tests::lifecycle::repeated_request_cancel_cycles_return_to_steady_state` (1 passed), `cargo fmt --check`, and desktop-runtime all-targets Clippy with `-D warnings`.
+- Dedupe QoS worker-boundary repair at production HEAD `d30b4a1433d28f03309ec2367865cb469aaf5197`: `cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib dedupe::job_manager_tests` passed (10 passed, 1 pre-existing benchmark ignored), including `hash_worker_qos_seam_runs_once_on_each_worker_thread` and one/multi-worker hash parity.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`: PASS.
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings`: PASS.
 
 ## Final local validation
 
@@ -128,30 +132,43 @@ The linked worktree initially had no `node_modules`; `npm ci` restored the commi
 
 The extended profile passed Search, Scan/Schema, Library/Content, Intelligence, Workspace Foundation, and Preview Platform suites. The managed-scan pressure benchmark reported a soft target miss for foreground first-page wait (`2594 ms`, exceeding its `2x idle` target); its test passed, and the same run's hard pressure/admission/cancellation/release checks passed. This is recorded for owner review without broadening ZB-03.
 
-After the local full run, the macOS QoS compile repair and test-fixture isolation were validated with focused checks only. The final exact-source Windows/macOS integration proof is Hosted CI run `36005127859` on `907717169d1c7f3459d503c0f26baf22460183b6` below; the extended performance suite was not repeated locally.
+After the local full run, the macOS QoS compile repair and test-fixture isolation were validated with focused checks only. Hosted CI run `36005127859` validated source HEAD `907717169d1c7f3459d503c0f26baf22460183b6`; the closeout repair was then validated by run `36024619774` on production HEAD `d30b4a1433d28f03309ec2367865cb469aaf5197`. The extended performance suite was not repeated locally.
 
 Security audit returned success at the repository's `high` npm threshold. `npm audit` reported two **moderate** transitive Vitest / `@vitest/mocker` advisories. Cargo audit completed with the repository's 8 allowed warnings, including unmaintained crates, one glib unsoundness advisory, and a yanked crate. No crate was added or upgraded; both Cargo lockfiles are unchanged. The existing `windows-sys` dependency only gained its `Win32_System_Power` feature.
 
 ## Hosted CI
 
-Draft PR [#262](https://github.com/ArdenZC/Zen-Canvas/pull/262) is open and remains Draft. Hosted CI run [36005127859](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36005127859), bound to source HEAD `907717169d1c7f3459d503c0f26baf22460183b6`, completed successfully:
+Draft PR [#262](https://github.com/ArdenZC/Zen-Canvas/pull/262) is open and remains Draft. The initial final-source integration run [36005127859](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36005127859), bound to source HEAD `907717169d1c7f3459d503c0f26baf22460183b6`, completed successfully. After the Dedupe QoS boundary repair, Hosted CI run [36024619774](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36024619774), bound to production HEAD `d30b4a1433d28f03309ec2367865cb469aaf5197`, also completed successfully:
 
-- Windows and macOS release compile, Rust quality, and Quality aggregate: PASS.
+- Windows and macOS release compile, Rust quality, and Quality aggregates: PASS.
 - Native macOS performance and all six routed performance lanes (Search, Scan & Schema, Library & Content, Intelligence, Workspace Foundation, Preview Platform): PASS.
 - Source checkout, change-scope/routing, validation plan, and dependency audit: PASS.
 
-Earlier Hosted attempts found that libc exposes Apple QoS classes as `qos_class_t` enum variants, not root constants; the follow-up now compiles on the Apple Silicon release lane. A subsequent macOS Rust-suite attempt surfaced two time-sensitive test failures under full-suite load. The PDF test was isolated from host resource policy, and the thumbnail test now synchronizes entry/cancellation. The final exact-source Hosted run passed both platform Rust quality lanes and all performance lanes. No local extended performance rerun was done.
+Earlier Hosted attempts found that libc exposes Apple QoS classes as `qos_class_t` enum variants, not root constants; the follow-up now compiles on the Apple Silicon release lane. A subsequent macOS Rust-suite attempt surfaced two time-sensitive test failures under full-suite load. The PDF test was isolated from host resource policy, and the thumbnail test now synchronizes entry/cancellation. Both platform Rust quality lanes and all performance lanes passed on the latest production source. No local extended performance rerun was done.
 
-## Temporary-artifact closeout blocker
+## Local task hygiene / closeout pending
 
-Generated validation artifacts remain because the local command policy rejected the requested `Remove-Item` of task-created fixture symlinks with the response `blocked by policy`. No deletion occurred. Read-only inspection classified the remaining paths as task-owned:
+Generated validation artifacts remain because the earlier local command policy rejected the requested `Remove-Item` of task-created fixture symlinks with the response `blocked by policy`. No deletion occurred; no alternate or recursive deletion method was attempted. The following post-validation inventory was read-only; byte totals count regular files and symlink targets were not traversed:
 
-- Worktree `.tmp-tests`: approximately 700 MB, including 8 symlink fixtures created by the file-operation tests. One fixture symlink targets `C:\Windows`; the link itself is test data and the target was not modified.
-- Worktree `.tmp-performance-fixtures`: approximately 608 MB, generated by the extended profile.
-- Worktree `.performance-artifacts`: approximately 197 MB, generated by the extended profile.
-- `F:\_codex_tmp\zb03-runtime-governance-20260924`: approximately 878 MB of task-scoped test temporary data.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests`: 3,399 files / 700,442,749 bytes; 8 symbolic links below.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-performance-fixtures`: 5 files / 608,470,124 bytes; no reparse points.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.performance-artifacts`: 20 files / 197,054,393 bytes; no reparse points.
+- `F:\_codex_tmp\zb03-runtime-governance-20260924`: 114 files / 877,762,067 bytes; no reparse points.
 
-The shared `F:\CargoTarget`, worktree `node_modules`, and common checkout were preserved. Project closeout requires these task-owned temporary artifacts to be removed; the local policy rejection leaves that requirement unresolved and keeps this Result **BLOCKED** pending an allowed cleanup path. No alternate deletion route was used.
+Exact reparse points under `.tmp-tests`:
+
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19424-0-1790251988514815900\link.txt` → `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19424-0-1790251988514815900\target.txt`.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19424-19-1790251989225107100\source-link.txt` → `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19424-19-1790251989225107100\target.txt`.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19424-20-1790251989232290000\linked-parent` → `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19424-20-1790251989232290000\real-parent`.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19424-73-1790251991522213700\protected-link` → `C:\Windows`.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19720-0-1790252159011182600\link.txt` → `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19720-0-1790252159011182600\target.txt`.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19720-19-1790252159786130700\source-link.txt` → `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19720-19-1790252159786130700\target.txt`.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19720-20-1790252159790113700\linked-parent` → `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19720-20-1790252159790113700\real-parent`.
+- `F:\Coding\Zen-Canvas-zb-03-runtime-resource-governance\.tmp-tests\zen-canvas-file-op-test-19720-73-1790252161865103700\protected-link` → `C:\Windows`.
+
+The two links to `C:\Windows` were not followed or modified. `node_modules` was not modified. The common checkout `F:\Coding\Zen-Canvas` remains on `master` at `9895079a4ebb1e810b8c42d6a74b24ba147c6645` with clean Git status. The shared `F:\CargoTarget` was preserved and not cleaned, but was used as `CARGO_TARGET_DIR` by the focused Rust test and Clippy commands, which wrote/reused validation build outputs there.
+
+Owner manual cleanup remains pending for these four task-owned roots under the local safety policy. This is a **LOCAL TASK HYGIENE / CLOSEOUT BLOCKER**, not a product correctness or implementation blocker. The production and Result commits have a clean tracked working tree; no cleanup workaround was used.
 
 ## Scope and authority confirmation
 
