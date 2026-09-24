@@ -212,7 +212,12 @@ fn dispose_revokes_pending_owners_and_clears_session_memory() {
 #[test]
 fn repeated_request_cancel_cycles_return_to_steady_state() {
     let gate = Arc::new(FakeGate::new("v1"));
-    let renderer = Arc::new(FakeRenderer::new(false));
+    let wait = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let entered = Arc::new(AtomicBool::new(false));
+    let mut renderer = FakeRenderer::new(false);
+    renderer.wait = Some(Arc::clone(&wait));
+    renderer.entered = Some(Arc::clone(&entered));
+    let renderer = Arc::new(renderer);
     let service = service(
         Arc::clone(&gate),
         renderer,
@@ -220,6 +225,8 @@ fn repeated_request_cancel_cycles_return_to_steady_state() {
         ThumbnailServiceConfig::default(),
     );
     for index in 0..40 {
+        *lock(&wait.0) = false;
+        entered.store(false, Ordering::Release);
         let task = service
             .request(ThumbnailRequest::new(
                 format!("request-{index}"),
@@ -228,10 +235,13 @@ fn repeated_request_cancel_cycles_return_to_steady_state() {
                 WorkClass::Interactive,
             ))
             .expect("request");
+        wait_until(&entered);
         if index % 2 == 0 {
             assert!(task.cancel());
+            release_wait(&wait);
             assert_eq!(task.join().unwrap_err(), ThumbnailError::Cancelled);
         } else {
+            release_wait(&wait);
             task.join().expect("request result");
         }
     }

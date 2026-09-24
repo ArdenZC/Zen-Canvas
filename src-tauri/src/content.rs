@@ -83,6 +83,14 @@ const PDF_MAX_TEMP_BUFFER_BYTES: usize = 1024 * 1024;
 const OFFICE_MAX_XML_DEPTH: i32 = 1024;
 const OFFICE_MAX_TEXT_BYTES: usize = 4 * 1024 * 1024;
 
+#[cfg(test)]
+fn content_test_scheduler() -> Arc<WorkScheduler> {
+    Arc::new(WorkScheduler::new(
+        crate::scheduler::SchedulerConfig::default()
+            .with_policy(Arc::new(crate::scheduler::PermissiveResourcePolicy)),
+    ))
+}
+
 fn is_content_run_terminal_status(status: &str) -> bool {
     matches!(
         status,
@@ -2597,6 +2605,7 @@ impl Database {
             None,
             None,
             Some(cancellation),
+            None,
         )
     }
 
@@ -2609,6 +2618,7 @@ impl Database {
         pdf_work_hook: Option<&dyn Fn()>,
         pdf_cancel: Option<&AtomicBool>,
     ) -> Result<ContentRunDto, DbError> {
+        let scheduler = content_test_scheduler();
         self.process_content_run_with_pdf_controls(
             run_id,
             request,
@@ -2617,6 +2627,7 @@ impl Database {
             pdf_cancel,
             None,
             None,
+            Some(scheduler),
         )
     }
 
@@ -2629,6 +2640,7 @@ impl Database {
         pdf_work_hook: Option<&dyn Fn()>,
         deadline_after: Duration,
     ) -> Result<ContentRunDto, DbError> {
+        let scheduler = content_test_scheduler();
         self.process_content_run_with_pdf_controls(
             run_id,
             request,
@@ -2637,12 +2649,13 @@ impl Database {
             None,
             Some(deadline_after),
             None,
+            Some(scheduler),
         )
     }
 
     #[allow(
         clippy::too_many_arguments,
-        reason = "the independent PDF test seams and optional run cancellation are kept explicit"
+        reason = "PDF test seams, cancellation, and optional test scheduler are kept explicit"
     )]
     fn process_content_run_with_pdf_controls(
         &self,
@@ -2653,6 +2666,7 @@ impl Database {
         pdf_cancel: Option<&AtomicBool>,
         pdf_deadline_after: Option<Duration>,
         run_cancellation: Option<&CancellationToken>,
+        resource_scheduler: Option<Arc<WorkScheduler>>,
     ) -> Result<ContentRunDto, DbError> {
         let mut completed = 0_i64;
         let mut blocked = 0_i64;
@@ -2667,36 +2681,35 @@ impl Database {
                 return self.get_content_run(run_id);
             }
             let cancellation = run_cancellation.cloned().unwrap_or_default();
-            let _resource_lease = match acquire_content_resource_lease(
-                &WorkScheduler::global(),
-                run_id,
-                ordinal,
-                cancellation,
-            ) {
-                Ok(lease) => lease,
-                Err(AcquireError::Cancelled) => {
-                    let run = self.get_content_run(run_id)?;
-                    if run.cancel_requested || run.status == "cancelling" {
-                        self.finish_content_run(
-                            run_id,
-                            "cancelled",
-                            completed,
-                            blocked,
-                            failed,
-                            None,
-                        )?;
-                        return self.get_content_run(run_id);
+            let scheduler = resource_scheduler
+                .clone()
+                .unwrap_or_else(WorkScheduler::global);
+            let _resource_lease =
+                match acquire_content_resource_lease(&scheduler, run_id, ordinal, cancellation) {
+                    Ok(lease) => lease,
+                    Err(AcquireError::Cancelled) => {
+                        let run = self.get_content_run(run_id)?;
+                        if run.cancel_requested || run.status == "cancelling" {
+                            self.finish_content_run(
+                                run_id,
+                                "cancelled",
+                                completed,
+                                blocked,
+                                failed,
+                                None,
+                            )?;
+                            return self.get_content_run(run_id);
+                        }
+                        return Err(DbError::Validation(
+                            "content_resource_wait_cancelled".to_string(),
+                        ));
                     }
-                    return Err(DbError::Validation(
-                        "content_resource_wait_cancelled".to_string(),
-                    ));
-                }
-                Err(error) => {
-                    return Err(DbError::Validation(format!(
-                        "content_resource_admission_failed: {error}"
-                    )));
-                }
-            };
+                    Err(error) => {
+                        return Err(DbError::Validation(format!(
+                            "content_resource_admission_failed: {error}"
+                        )));
+                    }
+                };
             let _qos_scope = crate::resource_governor::scope_thread_qos(WorkClass::Background);
             let status = self
                 .get_content_run(run_id)
