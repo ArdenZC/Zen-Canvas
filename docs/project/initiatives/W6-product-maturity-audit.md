@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B-R2 SELF-STATE GATES PASS; WINDOWS RC1 RELEASE QUALIFICATION FAIL / BLOCKED ON B02/B03 UNVERIFIED; OWNER REVIEW REQUIRED; RC2 NOT AUTHORIZED; W6-10C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**
+Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED; W6-10C DEFERRED / UNVERIFIED — OWNER SKIPPED; FULL SUPPORTED-PLATFORM PASS NOT CLAIMED; PUBLICATION DEFERRED**
 
 Owner: Zen Canvas
 
@@ -172,11 +172,11 @@ The Windows evidence captured at that baseline remains valid functional/native r
 - Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](../tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. Full supported-platform native PASS is **NOT CLAIMED**.
 - Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS** on `master@164608f90b8233303fefcf9660822daea0ecb857`.
-- W6-10A is **COMPLETE / CLOSED / MERGED**. Historical RC1 Windows qualification is **FAIL / BLOCKED**. Closed Issue #251 proved the exact RC1 reaches a stable usable Shell from a true clean profile and reproduced the failure only with retained pre-release/dev state. R2 passed all RC1 self-state gates, but blocking B02 SmartScreen and B03 Unknown Publisher/UAC remain **UNVERIFIED**, so the Windows release qualification is **FAIL / BLOCKED** and awaits Owner review. See [R2 result](../tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md). Owner retained RC1 and did not authorize RC2. W6-10C remains **ELIGIBLE / NOT ACTIVE**; publication remains deferred.
+- W6-10A is **COMPLETE / CLOSED / MERGED**. Windows R2 passed all RC1 self-state gates, but W6-10B remains **BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED** because B02 SmartScreen and B03 Unknown Publisher/UAC are UNVERIFIED on available hosts. RC1 remains immutable and RC2 is not authorized. W6-10C is **DEFERRED / UNVERIFIED — OWNER SKIPPED** because no real supported Apple Silicon Mac host is available; Issue #255 is closed/not planned and PR #256 is closed without merge. Full supported-platform PASS remains **NOT CLAIMED**. Publication remains deferred.
 
 ### W6-10 — Release Re-entry
 
-**W6-10B-R2 RESULT READY FOR OWNER REVIEW — qualification FAIL / BLOCKED on B02/B03 UNVERIFIED; RC1 retained; RC2 not authorized; W6-10A remains COMPLETE / CLOSED.**
+**NO ACTIVE W6-10 IMPLEMENTATION TASK — Windows awaits a valid security-presentation evidence host; macOS W6-10C is DEFERRED / UNVERIFIED — OWNER SKIPPED; RC1 retained; RC2 not authorized; publication deferred.**
 
 Qualification authority:
 
@@ -188,7 +188,7 @@ Qualification authority:
 
 RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION** at source `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, candidate version `0.1.40`. Full Validation run `35702434460` and Release Build run `35704683429` are **SUCCESS**. Issue #245 is **CLOSED**, PR #246 is **MERGED** to `master@07bb2ea546ea4469b8aa143f22f47b0da66a3286`, and merge-after CI `35709481851` is **SUCCESS**. The `v0.1.40` tag and GitHub Release remain absent. The workflow-dispatch helper branch `rc/w6-10-0.1.40-rc1` points to the immutable RC1 source and was not moved.
 
-W6-10A is **COMPLETE / CLOSED / MERGED**. W6-10B RC1 historical qualification completed **FAIL / BLOCKED**. Issue #251 diagnosis established **RC1 CLEAN-PROFILE STARTUP PASS** and retained-state correlation without proving a specific persisted-state defect. Because there is no prior public Zen Canvas release/tag to support as an upgrade boundary, Owner accepts the retained pre-release/dev profile incompatibility as a non-blocking first-release residual, contingent on RC1 passing clean-profile close/relaunch and reinstall using state created by RC1 itself. RC2 is not authorized. W6-10C remains **ELIGIBLE / NOT ACTIVE**.
+W6-10A is **COMPLETE / CLOSED / MERGED**. W6-10B RC1 historical qualification completed **FAIL / BLOCKED**; subsequent diagnosis and R2 prove clean-profile and RC1-generated-state startup/relaunch/reinstall gates PASS, but SmartScreen/UAC evidence remains UNVERIFIED due host constraints. RC2 is not authorized. W6-10C is **DEFERRED / UNVERIFIED — OWNER SKIPPED** because no real supported Mac host is available. Under the current Windows + macOS support policy, full supported-platform release acceptance cannot be claimed.
 
 R2 passed the exact RC1 clean-profile self-state gates, including normal close/relaunch and uninstall/reinstall with RC1-generated state. The release-blocking SmartScreen and Unknown Publisher/UAC rows (B02/B03) were **UNVERIFIED** on this host, so the broader Windows matrix stopped and the overall qualification remains **FAIL / BLOCKED**. The pre-release/dev profile incompatibility is not accepted as a non-blocking residual from this result; no underlying root cause is claimed fixed. Owner review/disposition is required. See the [W6-10B-R2 result](../tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md).
 
