@@ -339,17 +339,14 @@ pub async fn start_managed_scan<R: Runtime>(
         let guards = register_scan_guards(&jobs, &admission.runs)?;
         let session_id = admission.session.id.clone();
         let jobs_for_task = jobs.clone();
+        let work = ManagedSessionWork {
+            session_id,
+            runs: admission.runs,
+            guards,
+            legacy: None,
+        };
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(error) = run_managed_session(
-                app,
-                db,
-                jobs_for_task,
-                dedupe_jobs,
-                session_id,
-                admission.runs,
-                guards,
-                None,
-            ) {
+            if let Err(error) = run_managed_session(app, db, jobs_for_task, dedupe_jobs, work) {
                 eprintln!("Managed scan session failed: {error}");
             }
         });
@@ -474,17 +471,14 @@ pub async fn retry_interrupted_scan<R: Runtime>(
     if admission.created && !admission.runs.is_empty() {
         let guards = register_scan_guards(&jobs, &admission.runs)?;
         let jobs_for_task = jobs.clone();
+        let work = ManagedSessionWork {
+            session_id: admission.session.id,
+            runs: admission.runs,
+            guards,
+            legacy: None,
+        };
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(error) = run_managed_session(
-                app,
-                db,
-                jobs_for_task,
-                dedupe_jobs,
-                admission.session.id,
-                admission.runs,
-                guards,
-                None,
-            ) {
+            if let Err(error) = run_managed_session(app, db, jobs_for_task, dedupe_jobs, work) {
                 eprintln!("Retried scan session failed: {error}");
             }
         });
@@ -569,10 +563,12 @@ pub async fn scan_directory<R: Runtime>(
             db.clone(),
             jobs,
             dedupe_jobs,
-            session_id,
-            run_ids,
-            HashMap::from([(run_id.clone(), guard)]),
-            Some(legacy),
+            ManagedSessionWork {
+                session_id,
+                runs: run_ids,
+                guards: HashMap::from([(run_id.clone(), guard)]),
+                legacy: Some(legacy),
+            },
         )
         .map_err(|error| error.to_string())?;
         let record = db
@@ -775,16 +771,19 @@ fn schedule_watcher_reconciliations_for_roots<R: Runtime>(
         let db_for_task = db.clone();
         let jobs_for_task = jobs.clone();
         let dedupe_for_task = dedupe_jobs.clone();
+        let work = ManagedSessionWork {
+            session_id,
+            runs: run_ids,
+            guards,
+            legacy: None,
+        };
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = run_managed_session(
                 app_for_task,
                 db_for_task,
                 jobs_for_task,
                 dedupe_for_task,
-                session_id,
-                run_ids,
-                guards,
-                None,
+                work,
             ) {
                 eprintln!("Watcher reconciliation session failed: {error}");
             }
@@ -851,6 +850,13 @@ where
 struct LegacyScanContext {
     job_kind: String,
     include_entries: bool,
+}
+
+struct ManagedSessionWork {
+    session_id: String,
+    runs: Vec<ScanRunDto>,
+    guards: HashMap<String, ScanJobGuard>,
+    legacy: Option<LegacyScanContext>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -967,17 +973,14 @@ where
         include_entries: true,
     };
     let worker_session_id = session_id.clone();
+    let work = ManagedSessionWork {
+        session_id: worker_session_id,
+        runs: run_ids,
+        guards,
+        legacy: Some(legacy),
+    };
     let worker = std::thread::spawn(move || {
-        if let Err(error) = run_managed_session(
-            app,
-            db,
-            jobs,
-            dedupe_jobs,
-            worker_session_id,
-            run_ids,
-            guards,
-            Some(legacy),
-        ) {
+        if let Err(error) = run_managed_session(app, db, jobs, dedupe_jobs, work) {
             eprintln!("Performance managed scan session failed: {error}");
         }
     });
@@ -1014,11 +1017,14 @@ fn run_managed_session<R: Runtime>(
     db: Database,
     jobs: ScanJobManager,
     dedupe_jobs: DedupeJobManager,
-    session_id: String,
-    runs: Vec<ScanRunDto>,
-    mut guards: HashMap<String, ScanJobGuard>,
-    legacy: Option<LegacyScanContext>,
+    work: ManagedSessionWork,
 ) -> Result<(), ScanError> {
+    let ManagedSessionWork {
+        session_id,
+        runs,
+        mut guards,
+        legacy,
+    } = work;
     let watcher_root_ids = if legacy.is_none() {
         runs.iter()
             .map(|run| run.scan_root_id.clone())

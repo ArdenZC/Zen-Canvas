@@ -112,10 +112,13 @@ enum WatcherInput {
     Stop,
 }
 
+type ReconciliationRetryMap = HashMap<String, (i64, mpsc::Sender<()>)>;
+type SharedReconciliationRetries = Arc<Mutex<ReconciliationRetryMap>>;
+
 pub struct FileWatcherManager {
     session: Mutex<Option<WatcherSession>>,
     reload_lock: Mutex<()>,
-    reconciliation_retries: Arc<Mutex<HashMap<String, (i64, mpsc::Sender<()>)>>>,
+    reconciliation_retries: SharedReconciliationRetries,
 }
 
 impl Default for FileWatcherManager {
