@@ -1,23 +1,24 @@
 # ZB-02 — Idle Polling Removal — Result
 
-**Disposition: READY FOR OWNER REVIEW**
+**Disposition: OWNER-REVIEW REPAIR PUSH PENDING**
 
 | Item | Identity |
 | --- | --- |
 | Branch | `perf/zb-02-idle-polling-removal` |
 | Baseline | `master@f6a4785b3532b8b5e4fa9d428efdc51961e83bf7` |
 | Taskbook starting HEAD | `480bb5df138293765e33c28fca778b0b896385a8` |
-| Production HEAD validated | `77058cded7f117164b824e262d7b4cb11eb517e7` |
+| Initial Track production HEAD with full local validation | `77058cded7f117164b824e262d7b4cb11eb517e7` |
+| Owner-review repair production HEAD | `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` |
 
-All three scopes were integrated on this branch. The production validation listed below applies to the production HEAD above; this result document is a docs-only closeout successor.
+All three scopes were integrated on this branch. The initial Track full local validation listed below applies only to `77058cded7f117164b824e262d7b4cb11eb517e7`. The owner-review repair at `fcd5ad872d492b129d5d5f830b9138de5d73c5bb` has the focused validation recorded below; PR #260 Hosted CI is the new full integration validation for the pushed repair.
 
 ## Before and after
 
 | Source and code owner | Before | After and wake mechanism | Remaining timeout |
 | --- | --- | --- | --- |
-| Managed AI — `src-tauri/src/global_index/managed_worker_hardened.rs` (`ManagedAiWorker` / `run_worker`), with eligibility producers in `ai/settings.rs`, `global_index/{repository,managed_scope,legacy_queue}.rs`, and `db/queries/organization/mod.rs` | Worker woke about every 250 ms, rechecked policy/settings, and probed the durable queue while idle. | Capacity-one in-memory wake signal coalesces eligibility changes; producers signal after durable queue/eligibility changes, startup recovery is picked up, child completion wakes refill, and shutdown explicitly wakes the worker. SQLite remains the queue authority. True idle blocks without a timeout. | 5-second bounded recheck only when eligible work is known to be pending but temporarily blocked by the macOS activity policy. It does not run in true idle. |
+| Managed AI — `src-tauri/src/global_index/managed_worker_hardened.rs` (`ManagedAiWorker` / `run_worker`), with eligibility producers in `ai/settings.rs`, `global_index/{repository,managed_scope,legacy_queue}.rs`, and `db/queries/organization/mod.rs` | Worker woke about every 250 ms, rechecked policy/settings, and probed the durable queue while idle. The first Track implementation also signaled after every committed Global Index batch. | Capacity-one in-memory wake signal coalesces eligibility changes. A shared atomic interest flag gates ordinary work wakes: after reading durable settings, the worker arms them only while AI is enabled and disarms them while disabled. Unconditional control wakes are reserved for settings/policy/lifecycle re-evaluation. Enqueue helpers report whether eligible pending work was created/reactivated; a Global Index batch sends an ordinary wake only after commit and only when at least one such job exists. No-scope, directory, blocked-policy-only, and already-current/completed cases do not wake. Startup recovery is picked up, child completion wakes refill, and shutdown explicitly wakes the worker. SQLite remains the sole durable queue authority. True idle blocks without a timeout. | 5-second bounded recheck only when eligible work is known to be pending but temporarily blocked by the macOS activity policy. It does not run in true idle. |
 | Managed File Watcher — `src-tauri/src/watcher.rs` (bounded input worker and reconciliation scheduler), with scan completion signaling in `scanner.rs` | Idle receive timeouts and a one-second all-roots reconciliation loop periodically woke the worker and queried roots. | Worker blocks on its bounded channel. Filesystem events wake it and reconcile affected roots; settings/root lifecycle and scan completion explicitly schedule reload/reconciliation. Overflow and notify failures retain durable reconciliation state. Stop/lifecycle signals wake or cancel waits. | 150 ms coalescing only after a real filesystem event. Reconciliation-error retries are bounded at 250 ms, 500 ms, 1 s, and 2 s; rule recovery retries are 250 ms and 500 ms. Per-root durable retry waits are one-shot and cancellable. No idle reconciliation timer remains. |
-| Overview — `src/views/scanner/ScannerView.tsx` (`refreshIfVisible` and event subscriptions) | A recurring 5-second technical-status interval refreshed the mounted Overview. | No recurring interval. Refresh occurs on visible activation/mount, watcher-health signature changes, terminal managed scan/analysis events, and analysis-findings-published events. Hidden-page events are ignored; unmount invalidates pending refreshes and unregisters listeners. | None. |
+| Overview — `src/views/scanner/ScannerView.tsx` (`refreshIfVisible` and event subscriptions) | A recurring 5-second technical-status interval refreshed the mounted Overview. | Existing event-driven refresh remains for watcher-health signature changes, terminal managed scan/analysis events, and analysis-findings-published events. Mount/visible activation refreshes immediately. A visible-only 60-second safety interval covers displayed authorities without complete event sources, including Global Index status and Content Run changes. Hidden pages schedule no safety refresh; hidden→visible refreshes immediately and rearms it; unmount clears the interval and listeners. | 60-second visible-only safety refresh, temporary until every displayed durable authority has an event source. |
 
 ## Remaining operation timers
 
@@ -27,21 +28,25 @@ The following adjacent timers remain operation-scoped and are not Overview or wa
 - `scanner.rs` retries a managed resource lease every 25 ms only while an active scan is queued and waiting for a lease. Scan progress is batched at 200 ms while scan work is producing progress.
 - Scan rule recovery uses at most two delays (250 ms and 500 ms); watcher retry bounds are listed above. These are failure-triggered retries, not recurring idle work.
 - The existing Global Index coordinator 2-second runtime loop remains unchanged and out of scope for this Track. The active Content Understanding view's 2-second progress refresh is also outside the Overview status surface and was not changed.
+- Overview retains a temporary 60-second visible-only safety refresh because Global Index status and Content Run changes do not yet have complete event sources for all displayed health data. It is cleared while hidden and when Overview unmounts; visible activation refreshes immediately. This fallback can be removed after the relevant event architecture is complete.
 
 ## Focused checkpoint evidence
 
 | Scope | Focused validation |
 | --- | --- |
-| Managed AI | `cargo test --manifest-path src-tauri/Cargo.toml --lib wake` — 5 passed. The deterministic check-to-wait wake test `queued_work_wakes_idle_worker_and_child_completion_refills_queue` passed after the test-only readiness handshake was added. |
+| Managed AI | Initial Track: `cargo test --manifest-path src-tauri/Cargo.toml --lib wake` — 5 passed. The deterministic check-to-wait wake test `queued_work_wakes_idle_worker_and_child_completion_refills_queue` passed after the test-only readiness handshake was added. |
 | Watcher | `cargo test --manifest-path src-tauri/Cargo.toml --lib --features performance-test-tauri watcher::tests` — 27 passed. |
 | Overview | `npm test -- --run tests/overviewHealthIntegration.test.tsx` — 33 passed; `npm run typecheck` — passed. |
 | Integration adjustment | After Clippy identified a scan-work argument grouping issue and watcher retry-map type complexity, `cargo test --manifest-path src-tauri/Cargo.toml --lib scanner::tests` — 15 passed, and the focused watcher suite — 27 passed. |
+| Owner-review repair — Managed AI / Global Index / Managed Scope | `cargo test --manifest-path src-tauri/Cargo.toml --lib wake -- --test-threads=1` — 8 passed. Covers disabled worker ignoring 32 unrelated Global Index batches, disabled→enabled control wake processing durable pending work, work-wake gating/coalescing, only eligible new/reactivated Global Index jobs waking, and managed-scope/policy wake behavior. |
+| Owner-review repair — Overview | `npm test -- --run tests/overviewHealthIntegration.test.tsx` — 34 passed using fake timers. Covers mount refresh, event refresh, visible 60-second fallback, hidden suppression, hidden→visible immediate refresh, and unmount timer/listener cleanup. `npm run typecheck` — passed. |
+| Owner-review repair — Rust formatting / touched-code lint | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` — passed. `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --all-features -- -D warnings` — passed. |
 
 The AI wake integration test initially exposed a SQLite `DatabaseBusy` race in its check-to-wait setup. A test-only readiness handshake now signals at that exact boundary; the targeted test and final full suites pass. Production wake behavior is unchanged by the handshake.
 
-## Final Track validation
+## Initial Track full validation (prior production HEAD)
 
-All final Track commands were run after the three scopes were integrated, against production HEAD `77058cded7f117164b824e262d7b4cb11eb517e7`.
+All commands below ran after the three scopes were integrated, against production HEAD `77058cded7f117164b824e262d7b4cb11eb517e7`. They are historical evidence for that exact production commit and were not rerun for the owner-review repair. The repair's new full integration validation is PR #260 Hosted CI after the repair push.
 
 | Validation | Result |
 | --- | --- |
@@ -92,4 +97,4 @@ The hosted macOS lane was not executable on this Windows host and remains for th
 - Frontend build completed with the warnings recorded above.
 - Hosted macOS validation remains pending the PR CI environment.
 
-**READY FOR OWNER REVIEW**
+**OWNER-REVIEW REPAIR — HOSTED CI PENDING**
