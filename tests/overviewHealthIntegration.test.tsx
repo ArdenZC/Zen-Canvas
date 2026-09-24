@@ -21,7 +21,19 @@ const apiMocks = vi.hoisted(() => ({
   listAnalysisRuns: vi.fn(),
   listContentRuns: vi.fn(),
   getContentScopePolicy: vi.fn(),
-  listOrganizationPlans: vi.fn()
+  listOrganizationPlans: vi.fn(),
+  onWatcherReconciliationStatus: vi.fn(),
+  onManagedScanEvent: vi.fn(),
+  onAnalysisRunUpdated: vi.fn(),
+  onAnalysisFindingsPublished: vi.fn()
+}));
+
+const eventMocks = vi.hoisted(() => ({
+  watcher: null as ((event: any) => void) | null,
+  managedScan: null as ((event: any) => void) | null,
+  analysisRun: null as ((event: any) => void) | null,
+  analysisFindings: null as ((event: any) => void) | null,
+  unregistered: [] as string[]
 }));
 
 vi.mock("../src/api/tauriApi", () => ({ tauriApi: apiMocks }));
@@ -170,8 +182,33 @@ function resetStores() {
   useOrganizationPlanStore.setState({ activePlan: null, plans: [] });
 }
 
+function configureEventListeners() {
+  eventMocks.watcher = null;
+  eventMocks.managedScan = null;
+  eventMocks.analysisRun = null;
+  eventMocks.analysisFindings = null;
+  eventMocks.unregistered.length = 0;
+  apiMocks.onWatcherReconciliationStatus.mockImplementation(async (handler: (event: any) => void) => {
+    eventMocks.watcher = handler;
+    return () => eventMocks.unregistered.push("watcher");
+  });
+  apiMocks.onManagedScanEvent.mockImplementation(async (handler: (event: any) => void) => {
+    eventMocks.managedScan = handler;
+    return () => eventMocks.unregistered.push("scan");
+  });
+  apiMocks.onAnalysisRunUpdated.mockImplementation(async (handler: (event: any) => void) => {
+    eventMocks.analysisRun = handler;
+    return () => eventMocks.unregistered.push("analysis");
+  });
+  apiMocks.onAnalysisFindingsPublished.mockImplementation(async (handler: (event: any) => void) => {
+    eventMocks.analysisFindings = handler;
+    return () => eventMocks.unregistered.push("findings");
+  });
+}
+
 let root: Root;
 let container: HTMLDivElement;
+let visibilityStateDescriptor: PropertyDescriptor | undefined;
 
 async function flush() {
   for (let index = 0; index < 4; index += 1) {
@@ -224,12 +261,20 @@ describe("Overview durable health integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetStores();
+    configureEventListeners();
+    visibilityStateDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
   });
 
   afterEach(() => {
     act(() => root?.unmount());
     container?.remove();
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    if (visibilityStateDescriptor) {
+      Object.defineProperty(document, "visibilityState", visibilityStateDescriptor);
+    } else {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
   });
 
   it("shows search settings for Global Index no_source", async () => {
@@ -237,6 +282,52 @@ describe("Overview durable health integration", () => {
     await renderOverview();
     expect(priorityTitle()).toBe("还没有可搜索的位置");
     expect(container.querySelector('[data-overview-primary="true"]')?.textContent).toContain("检查搜索来源");
+  });
+
+  it("refreshes on activation and authoritative changes without an interval, then releases listeners", async () => {
+    configureHealth({ roots: [{ id: "root-a", enabled: true }] });
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    await renderOverview();
+
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(1);
+    expect(intervalSpy).not.toHaveBeenCalled();
+    expect(apiMocks.onWatcherReconciliationStatus).toHaveBeenCalledTimes(1);
+    expect(apiMocks.onManagedScanEvent).toHaveBeenCalledTimes(1);
+    expect(apiMocks.onAnalysisRunUpdated).toHaveBeenCalledTimes(1);
+    expect(apiMocks.onAnalysisFindingsPublished).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      eventMocks.watcher?.({
+        scanRootId: "root-a",
+        pending: true,
+        needsReconciliation: true,
+        healthStatus: "reconciliation_required",
+        activeRunId: null,
+        lastErrorCode: null,
+        lastErrorMessage: null
+      });
+    });
+    await flush();
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await flush();
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(2);
+
+    await act(async () => eventMocks.managedScan?.({ status: "completed" }));
+    await flush();
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(3);
+
+    act(() => root.unmount());
+    await flush();
+    expect(eventMocks.unregistered.sort()).toEqual(["analysis", "findings", "scan", "watcher"]);
+    await act(async () => eventMocks.analysisRun?.({ status: "completed" }));
+    await flush();
+    expect(apiMocks.getGlobalIndexStatus).toHaveBeenCalledTimes(3);
+    intervalSpy.mockRestore();
   });
 
   it("shows the synchronization entry for watcher reconciliation", async () => {
@@ -332,7 +423,6 @@ describe("Overview durable health integration", () => {
   });
 
   it("does not let an older policy refresh overwrite the latest coverage", async () => {
-    vi.useFakeTimers();
     const firstPolicy = deferred<ContentScopePolicy>();
     const secondPolicy = deferred<ContentScopePolicy>();
     configureHealth({ roots: [{ id: "root-a", enabled: true }] });
@@ -349,7 +439,16 @@ describe("Overview durable health integration", () => {
     await act(async () => { await Promise.resolve(); });
     expect(apiMocks.getContentScopePolicy).toHaveBeenCalledTimes(1);
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    await act(async () => eventMocks.watcher?.({
+      scanRootId: "root-a",
+      pending: true,
+      needsReconciliation: true,
+      healthStatus: "reconciliation_required",
+      activeRunId: null,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }));
+    await flush();
     expect(apiMocks.getContentScopePolicy).toHaveBeenCalledTimes(2);
 
     secondPolicy.resolve(contentPolicy("root-a", true));
