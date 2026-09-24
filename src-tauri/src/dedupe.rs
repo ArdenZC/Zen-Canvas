@@ -1123,8 +1123,6 @@ fn bounded_hash_subjects(
     if cancel_flag.load(Ordering::Acquire) {
         return Ok((Vec::new(), invalid_override));
     }
-    let _qos_scope =
-        crate::resource_governor::scope_thread_qos(crate::file_workspace::WorkClass::Background);
     let results = bounded_hash_subjects_with_workers(tasks, cancel_flag, leases.len())?;
     drop(leases);
     Ok((results, invalid_override))
@@ -1185,6 +1183,22 @@ fn bounded_hash_subjects_with_workers(
     cancel_flag: Arc<AtomicBool>,
     workers: usize,
 ) -> Result<Vec<HashResult>, DedupeError> {
+    bounded_hash_subjects_with_workers_and_qos(tasks, cancel_flag, workers, || {
+        let _ = crate::resource_governor::apply_thread_qos(
+            crate::file_workspace::WorkClass::Background,
+        );
+    })
+}
+
+fn bounded_hash_subjects_with_workers_and_qos<F>(
+    tasks: Vec<HashTask>,
+    cancel_flag: Arc<AtomicBool>,
+    workers: usize,
+    apply_worker_qos: F,
+) -> Result<Vec<HashResult>, DedupeError>
+where
+    F: Fn() + Send + Sync + 'static,
+{
     let workers = workers.max(1);
     if tasks.is_empty() {
         return Ok(Vec::new());
@@ -1192,15 +1206,15 @@ fn bounded_hash_subjects_with_workers(
     let (task_tx, task_rx) = sync_channel::<Option<HashTask>>(workers.saturating_mul(2).max(1));
     let (result_tx, result_rx) = std::sync::mpsc::channel::<HashResult>();
     let shared_rx = Arc::new(Mutex::new(task_rx));
+    let apply_worker_qos = Arc::new(apply_worker_qos);
     let mut handles = Vec::with_capacity(workers);
     for _ in 0..workers {
         let shared_rx = Arc::clone(&shared_rx);
         let result_tx = result_tx.clone();
         let cancel_flag = Arc::clone(&cancel_flag);
+        let apply_worker_qos = Arc::clone(&apply_worker_qos);
         handles.push(thread::spawn(move || {
-            let _ = crate::resource_governor::apply_thread_qos(
-                crate::file_workspace::WorkClass::Background,
-            );
+            apply_worker_qos();
             loop {
                 let task = {
                     let Ok(receiver) = shared_rx.lock() else {
@@ -1812,6 +1826,46 @@ mod job_manager_tests {
         drop(leases);
         assert_eq!(scheduler.snapshot().running, 0);
         assert_eq!(scheduler.snapshot().granted, ResourceHints::empty());
+    }
+
+    #[test]
+    fn hash_worker_qos_seam_runs_once_on_each_worker_thread() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let expected_identity = capture_physical_identity(&path).expect("manifest identity");
+        let coordinator_thread = thread::current().id();
+        let worker_count = 3;
+        let qos_calls = Arc::new(Mutex::new(Vec::with_capacity(worker_count)));
+        let qos_calls_for_workers = Arc::clone(&qos_calls);
+
+        let results = bounded_hash_subjects_with_workers_and_qos(
+            vec![HashTask {
+                subject_index: 0,
+                path,
+                expected_identity,
+            }],
+            Arc::new(AtomicBool::new(false)),
+            worker_count,
+            move || {
+                qos_calls_for_workers
+                    .lock()
+                    .expect("QoS call list lock")
+                    .push(thread::current().id());
+            },
+        )
+        .expect("hash worker result");
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].result.is_ok());
+        let worker_threads = qos_calls.lock().expect("QoS call list lock").clone();
+        assert_eq!(worker_threads.len(), worker_count);
+        assert!(worker_threads
+            .iter()
+            .all(|worker| worker != &coordinator_thread));
+        for (index, worker) in worker_threads.iter().enumerate() {
+            assert!(worker_threads[..index]
+                .iter()
+                .all(|previous| previous != worker));
+        }
     }
 
     #[test]
