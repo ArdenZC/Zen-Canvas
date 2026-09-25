@@ -601,6 +601,11 @@ jobs:
           $taskRoot = [IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP "zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"))
           $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
           if (-not $taskRoot.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) { throw "refusing cleanup outside RUNNER_TEMP: $taskRoot" }
+          $qualificationVhdPath = [IO.Path]::GetFullPath((Join-Path $taskRoot "qualification-volume.vhdx"))
+          $qualificationVhdOwnerMarker = Join-Path $taskRoot "qualification-volume-created-by-task.txt"
+          $qualificationVhdLetterMarker = Join-Path $taskRoot "qualification-volume-drive-letter.txt"
+          $ownsQualificationVhd = $false
+          $qualificationVhdLetter = $null
           $ownershipMarker = Join-Path $taskRoot "service-created-by-qualification.txt"
           $ownsService = (Test-Path -LiteralPath $ownershipMarker) -and ((Get-Content -LiteralPath $ownershipMarker -Raw).Trim().Equals($candidate, [StringComparison]::OrdinalIgnoreCase))
           $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
@@ -621,15 +626,41 @@ jobs:
               }
             }
           }
+          if (Test-Path -LiteralPath $qualificationVhdOwnerMarker) {
+            $recordedVhdPath = [IO.Path]::GetFullPath((Get-Content -LiteralPath $qualificationVhdOwnerMarker -Raw).Trim())
+            if (-not $recordedVhdPath.Equals($qualificationVhdPath, [StringComparison]::OrdinalIgnoreCase)) { throw "refusing cleanup of non-task-owned qualification VHD: $recordedVhdPath" }
+            if (-not (Test-Path -LiteralPath $qualificationVhdPath)) { throw "task-owned qualification VHD marker exists without its image: $qualificationVhdPath" }
+            $ownsQualificationVhd = $true
+            if (Test-Path -LiteralPath $qualificationVhdLetterMarker) {
+              $qualificationVhdLetter = (Get-Content -LiteralPath $qualificationVhdLetterMarker -Raw).Trim().ToUpperInvariant()
+              if ($qualificationVhdLetter -notmatch '^[A-Z]$') { throw "invalid task-owned qualification drive letter: $qualificationVhdLetter" }
+            }
+            $qualificationImage = Get-DiskImage -ImagePath $qualificationVhdPath -ErrorAction Stop
+            if ($qualificationImage.Attached) {
+              Dismount-DiskImage -ImagePath $qualificationVhdPath -Confirm:$false | Out-Null
+            }
+            $detachDeadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+              $qualificationImage = Get-DiskImage -ImagePath $qualificationVhdPath -ErrorAction Stop
+              if (-not $qualificationImage.Attached) { break }
+              Start-Sleep -Milliseconds 200
+            } while ([DateTime]::UtcNow -lt $detachDeadline)
+            if ($qualificationImage.Attached) { throw "task-owned qualification VHD remains attached: $qualificationVhdPath" }
+            if ($qualificationVhdLetter) {
+              $mountedVolume = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($qualificationVhdLetter):'" -ErrorAction SilentlyContinue
+              if ($mountedVolume) { throw "task-owned qualification drive letter remains mounted: $qualificationVhdLetter`:" }
+            }
+          } elseif (Test-Path -LiteralPath $qualificationVhdPath) {
+            throw "refusing to delete an unmarked qualification VHD: $qualificationVhdPath"
+          }
           $fixtureMarker = Join-Path $taskRoot "fixture-root-created-by-qualification.txt"
           if (Test-Path -LiteralPath $fixtureMarker) {
             $fixtureRoot = [IO.Path]::GetFullPath((Get-Content -LiteralPath $fixtureMarker -Raw).Trim())
             $allowedFixtureRoots = @((Join-Path $taskRoot "fixtures"))
-            if ($env:LOCALAPPDATA) { $allowedFixtureRoots += Join-Path $env:LOCALAPPDATA "Temp\zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\fixtures" }
-            if ($env:USERPROFILE) { $allowedFixtureRoots += Join-Path $env:USERPROFILE "AppData\Local\Temp\zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\fixtures" }
+            if ($ownsQualificationVhd -and $qualificationVhdLetter) { $allowedFixtureRoots += "$($qualificationVhdLetter):\fixtures" }
             $ownsFixtureRoot = @($allowedFixtureRoots | Where-Object { [IO.Path]::GetFullPath($_).Equals($fixtureRoot, [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
             if (-not $ownsFixtureRoot) { throw "leaving unexpected qualification fixture root untouched: $fixtureRoot" }
-            if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
+            if (-not ($ownsQualificationVhd -and $qualificationVhdLetter) -and (Test-Path -LiteralPath $fixtureRoot)) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
           }
           if (Test-Path -LiteralPath $taskRoot) { Remove-Item -LiteralPath $taskRoot -Recurse -Force }
 

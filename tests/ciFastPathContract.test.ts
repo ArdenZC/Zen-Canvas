@@ -10,6 +10,7 @@ const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
 const releaseWorkflow = readWorkflow(".github/workflows/release-build.yml");
 const classifierSource = readFileSync("scripts/classifyCiChanges.mjs", "utf8");
 const globalIndexServiceQualification = readFileSync("scripts/qualifyWindowsGlobalIndexService.ps1", "utf8");
+const globalIndexProbeSource = readFileSync("src-tauri/native-qa/global_index_probe.rs", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   scripts: Record<string, string>;
 };
@@ -412,7 +413,7 @@ describe("CI final performance remediation contract", () => {
     expect(releaseWorkflow).toContain("node scripts/verifyWindowsNsisPreviewResource.mjs");
   });
 
-  it("routes exact-image Global Index service qualification only through the relevant Windows CI lane", () => {
+  it("qualifies the exact Global Index service on an isolated task-owned NTFS and USN volume", () => {
     expect(classifierSource).toContain("windows_global_index_service_qualification_changed");
     const qualification = section(
       interactiveWorkflow,
@@ -433,6 +434,19 @@ describe("CI final performance remediation contract", () => {
     expect(interactiveWorkflow).toContain("GLOBAL_INDEX_SERVICE_EXPECTED");
     expect(interactiveWorkflow).toContain("check_expected \"$GLOBAL_INDEX_SERVICE_EXPECTED\" \"$GLOBAL_INDEX_SERVICE\" windows-global-index-service-qualification");
 
+    expect(globalIndexServiceQualification).toContain('"create vdisk file=`"$qualificationVhdPath`" maximum=512 type=expandable"');
+    expect(globalIndexServiceQualification).toContain("fsutil.exe usn createjournal m=16777216 a=2097152");
+    expect(globalIndexServiceQualification).toContain("qualificationVolumeKind = \"task-owned-vhdx\"");
+    expect(globalIndexServiceQualification).toContain("Initialize-QualificationProfile");
+    expect(globalIndexServiceQualification).toContain("expectedQualificationSourceId");
+    expect(globalIndexServiceQualification).toContain("enabledSourceCountAfterDiscovery");
+    expect(globalIndexServiceQualification).not.toContain("$originalLocalAppData");
+    expect(globalIndexServiceQualification).not.toContain("$originalUserProfile");
+    expect(globalIndexProbeSource).toContain("--prepare-profile");
+    expect(globalIndexProbeSource).toContain("source.volume.enabled = is_target");
+    expect(globalIndexProbeSource).toContain("database.upsert_global_volume(&source.volume)?");
+    expect(globalIndexProbeSource).toContain("enabled_sources.len() != 1");
+
     const fixtureCreated = globalIndexServiceQualification.indexOf("created before the Global Index baseline");
     const journalProbe = globalIndexServiceQualification.indexOf("fsutil.exe usn queryjournal");
     const preexistingGuard = globalIndexServiceQualification.indexOf("refusing to replace or manage a pre-existing");
@@ -443,9 +457,11 @@ describe("CI final performance remediation contract", () => {
     expect(preexistingGuard).toBeGreaterThanOrEqual(0);
     expect(serviceCreated).toBeGreaterThan(fixtureCreated);
     expect(serviceCreated).toBeGreaterThan(preexistingGuard);
+    expect(globalIndexServiceQualification.indexOf("    New-QualificationVolume")).toBeLessThan(fixtureCreated);
+    expect(globalIndexServiceQualification.indexOf("    Initialize-QualificationProfile")).toBeLessThan(serviceCreated);
     expect(globalIndexServiceQualification).toContain("sameImage");
     expect(globalIndexServiceQualification).toContain("baselineEntryCount");
-    expect(globalIndexServiceQualification).toContain("$baselineTimeoutMinutes = 35");
+    expect(globalIndexServiceQualification).toContain("$baselineTimeoutMinutes = 5");
     expect(globalIndexServiceQualification).toContain("baselineWaitMs");
     expect(globalIndexServiceQualification).toContain("baselineFixtureSearchFound");
     const baselinePollingStart = globalIndexServiceQualification.indexOf("$baselineDeadline =");
@@ -470,9 +486,14 @@ describe("CI final performance remediation contract", () => {
     expect(globalIndexServiceQualification).toContain("service-created-by-qualification.txt");
     expect(globalIndexServiceQualification).toContain("usnJournalProbes");
     expect(globalIndexServiceQualification).toContain("fixtureRootRemoved");
-    expect(globalIndexServiceQualification).not.toContain("fsutil.exe usn createjournal");
+    expect(globalIndexServiceQualification).toContain("qualificationVolumeDetached");
+    expect(globalIndexServiceQualification).toContain("qualificationVhdRemoved");
     expect(qualification).toContain("fixture-root-created-by-qualification.txt");
     expect(qualification).toContain("leaving unexpected qualification fixture root untouched");
+    expect(qualification).toContain("qualification-volume-created-by-task.txt");
+    expect(qualification).toContain("qualification-volume-drive-letter.txt");
+    expect(qualification).toContain("Dismount-DiskImage -ImagePath $qualificationVhdPath");
+    expect(qualification.indexOf("Stop-Process -Id $process.ProcessId -Force")).toBeLessThan(qualification.indexOf("Dismount-DiskImage -ImagePath $qualificationVhdPath"));
   });
 
   it("pins actions and keeps packaging and quality checks authoritative", () => {

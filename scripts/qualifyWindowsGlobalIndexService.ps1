@@ -9,15 +9,17 @@ Set-StrictMode -Version Latest
 
 $serviceName = "ZenCanvasGlobalIndex"
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
-$originalLocalAppData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { [IO.Path]::GetFullPath($env:LOCALAPPDATA) } else { $null }
-$originalUserProfile = if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) { [IO.Path]::GetFullPath($env:USERPROFILE) } else { $null }
 $taskId = "zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $runnerTemp $taskId))
 $profileRoot = Join-Path $taskRoot "profile"
 $fixtureRootMarker = Join-Path $taskRoot "fixture-root-created-by-qualification.txt"
+$qualificationVhdPath = Join-Path $taskRoot "qualification-volume.vhdx"
+$qualificationVhdOwnerMarker = Join-Path $taskRoot "qualification-volume-created-by-task.txt"
+$qualificationVhdLetterMarker = Join-Path $taskRoot "qualification-volume-drive-letter.txt"
 $fixtureRoot = $null
 $fixtureCleanupBoundary = $null
 $fixtureVolume = $null
+$fixtureDriveLetter = $null
 $tracePath = Join-Path $taskRoot "global-index-trace.log"
 $CandidateExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CandidateExe).Path)
 $ProbeExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProbeExe).Path)
@@ -41,6 +43,15 @@ $script:evidence = [ordered]@{
     serviceCurrentExe = $null
     clientCurrentExe = $null
     sameImage = $false
+    qualificationVolumeKind = "task-owned-vhdx"
+    qualificationVolumeLetter = $null
+    expectedQualificationSourceId = $null
+    enabledSourceCountBeforeIndex = $null
+    enabledSourceCountAfterDiscovery = $null
+    qualificationVolumeJournalCreated = $false
+    qualificationVolumeDetached = $false
+    qualificationVhdRemoved = $false
+    diskpartOperations = @()
     fixedNtfsSource = $null
     fixedNtfsMountPath = $null
     provider = $null
@@ -67,6 +78,7 @@ $script:evidence = [ordered]@{
         serviceDeleted = $false
         candidateProcessesTerminated = $false
         fixtureRootRemoved = $false
+        qualificationVolumeDetached = $false
         taskProfileRemoved = $false
         details = @()
     }
@@ -76,6 +88,8 @@ $script:probeProcess = $null
 $script:clientProcessId = $null
 $script:serviceProcessId = $null
 $script:serviceCreatedByTask = $false
+$script:qualificationVhdCreated = $false
+$script:qualificationVhdAttached = $false
 $script:failureMessage = $null
 $script:cleanupFailure = $false
 $script:baselineStartedAt = $null
@@ -89,6 +103,163 @@ function Invoke-ServiceControl([string[]]$Arguments) {
         output = $output
     }
     return [pscustomobject]@{ ExitCode = $exitCode; Output = $output }
+}
+
+function Invoke-DiskPartScript([string]$Name, [string[]]$Commands) {
+    $scriptPath = Join-Path $taskRoot "diskpart-$Name.txt"
+    Set-Content -LiteralPath $scriptPath -Value $Commands -Encoding ascii
+    $output = (& diskpart.exe /s $scriptPath 2>&1 | Out-String).Trim()
+    $exitCode = $LASTEXITCODE
+    $script:evidence.diskpartOperations += [ordered]@{
+        name = $Name
+        exitCode = $exitCode
+        output = $output
+    }
+    if ($exitCode -ne 0 -or $output -match '(?im)(DiskPart has encountered an error|Virtual Disk Service error|The system failed to|could not be)') {
+        throw "DiskPart $Name failed (exit=$exitCode): $output"
+    }
+    return $output
+}
+
+function Test-QualificationVhdAttached {
+    if (-not (Test-Path -LiteralPath $qualificationVhdPath)) { return $false }
+    if (-not (Get-Command Get-DiskImage -ErrorAction SilentlyContinue)) {
+        throw "Get-DiskImage is unavailable; refusing to infer task VHD attachment state"
+    }
+    $image = Get-DiskImage -ImagePath $qualificationVhdPath -ErrorAction Stop
+    return [bool]$image.Attached
+}
+
+function Get-FreeQualificationDriveLetter {
+    $usedLetters = @([IO.DriveInfo]::GetDrives() | ForEach-Object {
+        $_.Name.Substring(0, 1).ToUpperInvariant()
+    })
+    foreach ($candidate in @('Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'S', 'R', 'Q', 'P', 'O', 'N', 'M', 'L', 'K', 'J', 'I', 'H', 'G', 'F', 'E')) {
+        if ($usedLetters -notcontains $candidate) { return $candidate }
+    }
+    throw "no unused drive letter is available for the task-owned qualification VHD"
+}
+
+function New-QualificationVolume {
+    if (Test-Path -LiteralPath $qualificationVhdPath) {
+        throw "refusing to replace a pre-existing qualification VHD: $qualificationVhdPath"
+    }
+    $script:fixtureDriveLetter = Get-FreeQualificationDriveLetter
+    $script:evidence.qualificationVolumeLetter = "$($script:fixtureDriveLetter):"
+    $script:evidence.fixtureVolume = $script:evidence.qualificationVolumeLetter
+
+    try {
+        [void](Invoke-DiskPartScript "create-vhd" @(
+            "create vdisk file=`"$qualificationVhdPath`" maximum=512 type=expandable",
+            "exit"
+        ))
+    } finally {
+        if (Test-Path -LiteralPath $qualificationVhdPath) {
+            $script:qualificationVhdCreated = $true
+            Set-Content -LiteralPath $qualificationVhdOwnerMarker -Value $qualificationVhdPath -NoNewline
+        }
+    }
+    if (-not (Test-Path -LiteralPath $qualificationVhdPath)) {
+        throw "DiskPart reported VHD creation without producing the task-owned image"
+    }
+
+    try {
+        [void](Invoke-DiskPartScript "format-vhd" @(
+            "select vdisk file=`"$qualificationVhdPath`"",
+            "attach vdisk",
+            "create partition primary",
+            "format fs=ntfs quick label=ZB05QA",
+            "assign letter=$($script:fixtureDriveLetter)",
+            "exit"
+        ))
+    } finally {
+        if (Test-QualificationVhdAttached) { $script:qualificationVhdAttached = $true }
+    }
+    if (-not $script:qualificationVhdAttached) {
+        throw "task-owned qualification VHD did not remain attached after formatting"
+    }
+
+    $script:fixtureVolume = "$($script:fixtureDriveLetter):"
+    $fixtureDriveRoot = "$($script:fixtureVolume)\"
+    $logicalDisk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($script:fixtureVolume)'" -ErrorAction SilentlyContinue
+    if ($null -eq $logicalDisk -or $logicalDisk.FileSystem -ine "NTFS" -or $logicalDisk.DriveType -ne 3) {
+        $filesystem = if ($logicalDisk) { $logicalDisk.FileSystem } else { "missing" }
+        $driveType = if ($logicalDisk) { $logicalDisk.DriveType } else { "missing" }
+        throw "qualification VHD is not a mounted fixed NTFS volume: drive=$($script:fixtureVolume) filesystem=$filesystem driveType=$driveType"
+    }
+    Set-Content -LiteralPath $qualificationVhdLetterMarker -Value $script:fixtureDriveLetter -NoNewline
+
+    $journalBefore = (& fsutil.exe usn queryjournal $script:fixtureVolume 2>&1 | Out-String).Trim()
+    $journalBeforeExitCode = $LASTEXITCODE
+    $journalCreateOutput = $null
+    $journalCreateExitCode = $null
+    if ($journalBeforeExitCode -ne 0) {
+        $journalCreateOutput = (& fsutil.exe usn createjournal m=16777216 a=2097152 $script:fixtureVolume 2>&1 | Out-String).Trim()
+        $journalCreateExitCode = $LASTEXITCODE
+        if ($journalCreateExitCode -ne 0) {
+            throw "could not create a USN journal on the task-owned qualification volume: $journalCreateOutput"
+        }
+        $script:evidence.qualificationVolumeJournalCreated = $true
+    }
+    $journalAfter = (& fsutil.exe usn queryjournal $script:fixtureVolume 2>&1 | Out-String).Trim()
+    $journalAfterExitCode = $LASTEXITCODE
+    $script:evidence.usnJournalProbes += [ordered]@{
+        volume = $script:fixtureVolume
+        filesystem = $logicalDisk.FileSystem
+        driveType = $logicalDisk.DriveType
+        queryBeforeExitCode = $journalBeforeExitCode
+        queryBeforeOutput = $journalBefore
+        createExitCode = $journalCreateExitCode
+        createOutput = $journalCreateOutput
+        queryAfterExitCode = $journalAfterExitCode
+        queryAfterOutput = $journalAfter
+    }
+    if ($journalAfterExitCode -ne 0) {
+        throw "task-owned qualification volume does not have an active USN journal: $journalAfter"
+    }
+
+    $script:fixtureRoot = [IO.Path]::GetFullPath((Join-Path $fixtureDriveRoot "fixtures"))
+    $script:fixtureCleanupBoundary = $fixtureDriveRoot
+    if (-not $script:fixtureRoot.StartsWith($script:fixtureCleanupBoundary, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "refusing to create qualification fixture outside the task-owned VHD volume: $($script:fixtureRoot)"
+    }
+    $script:evidence.fixtureRoot = $script:fixtureRoot
+    Set-Content -LiteralPath $fixtureRootMarker -Value $script:fixtureRoot -NoNewline
+    New-Item -ItemType Directory -Path $script:fixtureRoot -Force | Out-Null
+}
+
+function Initialize-QualificationProfile {
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $ProbeExe
+    $startInfo.WorkingDirectory = (Get-Location).Path
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add("--prepare-profile")
+    $startInfo.ArgumentList.Add($profileRoot)
+    $startInfo.ArgumentList.Add($script:fixtureVolume)
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) { throw "failed to prepare the isolated qualification profile with $ProbeExe" }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit(30000)) {
+        $process.Kill($true)
+        $process.WaitForExit(5000)
+        throw "qualification profile source isolation did not complete within 30 seconds"
+    }
+    $output = $stdoutTask.Result.Trim()
+    $errorOutput = $stderrTask.Result.Trim()
+    if ($process.ExitCode -ne 0) {
+        throw "qualification profile source isolation failed (exit=$($process.ExitCode)): $errorOutput"
+    }
+    $prepared = $output | ConvertFrom-Json
+    if (-not $prepared.prepared -or $prepared.enabledSourceCount -ne 1 -or -not $prepared.targetMountPath.Equals("$($script:fixtureVolume)\", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "qualification profile did not isolate exactly the task-owned source: $output"
+    }
+    $script:evidence.enabledSourceCountBeforeIndex = [int]$prepared.enabledSourceCount
+    $script:evidence.expectedQualificationSourceId = [string]$prepared.targetSourceId
 }
 
 function Get-TraceLines {
@@ -178,14 +349,6 @@ function Get-ProcessImage([int]$ProcessId) {
     return [IO.Path]::GetFullPath($process.ExecutablePath)
 }
 
-function Get-DriveId([string]$Path) {
-    $root = [IO.Path]::GetPathRoot($Path)
-    if ([string]::IsNullOrWhiteSpace($root) -or $root.Length -lt 2 -or $root[1] -ne ':') {
-        throw "expected a drive-letter path for hosted qualification: $Path"
-    }
-    return $root.Substring(0, 2)
-}
-
 function Stop-Probe {
     if ($null -eq $script:probeProcess) { return }
     try {
@@ -221,75 +384,16 @@ try {
     }
     $script:evidence.candidateSha256 = (Get-FileHash -LiteralPath $CandidateExe -Algorithm SHA256).Hash
 
+    $preexistingService = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    if ($preexistingService) {
+        throw "refusing to replace or manage a pre-existing $serviceName service: $($preexistingService.PathName)"
+    }
+
+    if (Test-Path -LiteralPath $taskRoot) {
+        throw "refusing to reuse an existing qualification task root: $taskRoot"
+    }
     New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
-
-    $fixtureLocations = @(
-        [pscustomobject]@{
-            Volume = Get-DriveId $runnerTemp
-            Root = Join-Path $taskRoot "fixtures"
-            Boundary = $runnerTemp
-        }
-    )
-    if ($originalLocalAppData) {
-        $localDataBoundary = $originalLocalAppData.TrimEnd('\') + '\'
-        $fixtureLocations += [pscustomobject]@{
-            Volume = Get-DriveId $originalLocalAppData
-            Root = Join-Path $originalLocalAppData ("Temp\$taskId\fixtures")
-            Boundary = $localDataBoundary
-        }
-    }
-    if ($originalUserProfile) {
-        $userProfileBoundary = $originalUserProfile.TrimEnd('\') + '\'
-        $fixtureLocations += [pscustomobject]@{
-            Volume = Get-DriveId $originalUserProfile
-            Root = Join-Path $originalUserProfile ("AppData\Local\Temp\$taskId\fixtures")
-            Boundary = $userProfileBoundary
-        }
-    }
-
-    $selectedFixtureLocation = $null
-    $probedVolumes = @{}
-    foreach ($location in $fixtureLocations) {
-        if ($probedVolumes.ContainsKey($location.Volume)) { continue }
-        $probedVolumes[$location.Volume] = $true
-        $logicalDisk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($location.Volume)'" -ErrorAction SilentlyContinue
-        if ($null -eq $logicalDisk -or $logicalDisk.FileSystem -ine "NTFS" -or $logicalDisk.DriveType -ne 3) {
-            $script:evidence.usnJournalProbes += [ordered]@{
-                volume = $location.Volume
-                filesystem = if ($logicalDisk) { $logicalDisk.FileSystem } else { $null }
-                driveType = if ($logicalDisk) { $logicalDisk.DriveType } else { $null }
-                exitCode = $null
-                output = "not a fixed NTFS volume"
-            }
-            continue
-        }
-        $journalOutput = (& fsutil.exe usn queryjournal $location.Volume 2>&1 | Out-String).Trim()
-        $journalExitCode = $LASTEXITCODE
-        $script:evidence.usnJournalProbes += [ordered]@{
-            volume = $location.Volume
-            filesystem = $logicalDisk.FileSystem
-            driveType = $logicalDisk.DriveType
-            exitCode = $journalExitCode
-            output = $journalOutput
-        }
-        if ($journalExitCode -eq 0) {
-            $selectedFixtureLocation = $location
-            break
-        }
-    }
-    if ($null -eq $selectedFixtureLocation) {
-        throw "no writable-path candidate is on a fixed NTFS volume with an active USN journal; probes=$($script:evidence.usnJournalProbes | ConvertTo-Json -Compress -Depth 5)"
-    }
-    $fixtureRoot = [IO.Path]::GetFullPath($selectedFixtureLocation.Root)
-    $fixtureCleanupBoundary = $selectedFixtureLocation.Boundary
-    $fixtureVolume = $selectedFixtureLocation.Volume
-    if (-not $fixtureRoot.StartsWith($fixtureCleanupBoundary, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "refusing to create qualification fixture outside its task-owned boundary: $fixtureRoot"
-    }
-    $script:evidence.fixtureRoot = $fixtureRoot
-    $script:evidence.fixtureVolume = $fixtureVolume
-    Set-Content -LiteralPath $fixtureRootMarker -Value $fixtureRoot -NoNewline
-    New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+    New-QualificationVolume
 
     $preexistingToken = "zb05qapreexisting$([Guid]::NewGuid().ToString('N'))"
     $preexistingName = "$preexistingToken.txt"
@@ -308,11 +412,9 @@ try {
     New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force | Out-Null
     New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 
+    Initialize-QualificationProfile
+
     $serviceImagePath = '"' + $CandidateExe + '" --index-service'
-    $preexistingService = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
-    if ($preexistingService) {
-        throw "refusing to replace or manage a pre-existing $serviceName service: $($preexistingService.PathName)"
-    }
     $create = Invoke-ServiceControl @("create", $serviceName, "binPath=", $serviceImagePath, "start=", "demand", "obj=", "LocalSystem")
     if ($create.ExitCode -ne 0) {
         throw "CreateService failed; exact SCM output (exit=$($create.ExitCode)): $($create.Output)"
@@ -374,10 +476,9 @@ try {
     }
 
     Start-QualificationProbe
-    # The disposable hosted runner scans its existing fixed volumes in order;
-    # its preinstalled C: source can take longer than a small developer volume.
-    # Keep this real-source qualification bounded while allowing it to finish.
-    $baselineTimeoutMinutes = 35
+    # The pre-seeded task profile enables only the disposable NTFS VHD source,
+    # so this bounds an actual provider baseline without scanning runner C:.
+    $baselineTimeoutMinutes = 5
     $script:baselineStartedAt = [DateTime]::UtcNow
     $baselineDeadline = $script:baselineStartedAt.AddMinutes($baselineTimeoutMinutes)
     $nextBaselineProgressSeconds = 60
@@ -386,6 +487,16 @@ try {
     do {
         if ($client.HasExited) { throw "background client exited before baseline completion with code $($client.ExitCode)" }
         $baselineSnapshot = Get-ProbeSnapshot
+        if ($baselineSnapshot.volumes.Count -gt 0) {
+            $enabledSources = @($baselineSnapshot.volumes | Where-Object { $_.enabled })
+            $script:evidence.enabledSourceCountAfterDiscovery = $enabledSources.Count
+            if ($enabledSources.Count -ne 1) {
+                throw "candidate did not preserve the isolated task-owned source selection: enabled=$($enabledSources.Count) fixture=$($script:fixtureVolume)"
+            }
+            if (-not $enabledSources[0].mountPath.Equals("$($script:fixtureVolume)\", [StringComparison]::OrdinalIgnoreCase) -or $enabledSources[0].id -cne $script:evidence.expectedQualificationSourceId) {
+                throw "candidate source identity differs from the pre-seeded task volume: enabledMount=$($enabledSources[0].mountPath) enabledId=$($enabledSources[0].id) expectedMount=$($script:fixtureVolume) expectedId=$($script:evidence.expectedQualificationSourceId)"
+            }
+        }
         $eligibleSources = @($baselineSnapshot.volumes | Where-Object {
             $_.enabled -and $_.filesystemType -ieq "NTFS" -and $_.driveKind -ieq "fixed" -and $_.provider -ceq "windows_mft_usn" -and $preexistingPath.StartsWith($_.mountPath, [StringComparison]::OrdinalIgnoreCase)
         })
@@ -590,8 +701,58 @@ try {
             $script:cleanupFailure = $true
             $script:evidence.cleanup.details += "task fixture root remains: $fixtureRoot"
         }
+
+        if ($script:qualificationVhdCreated) {
+            $vhdOwner = if (Test-Path -LiteralPath $qualificationVhdOwnerMarker) {
+                (Get-Content -LiteralPath $qualificationVhdOwnerMarker -Raw).Trim()
+            } else {
+                $null
+            }
+            if (-not $vhdOwner -or -not $vhdOwner.Equals($qualificationVhdPath, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "refusing to detach or remove VHD without its matching task ownership marker: $qualificationVhdPath"
+            }
+            if (Test-QualificationVhdAttached) {
+                [void](Invoke-DiskPartScript "detach-vhd" @(
+                    "select vdisk file=`"$qualificationVhdPath`"",
+                    "detach vdisk",
+                    "exit"
+                ))
+            }
+            if (Test-QualificationVhdAttached) {
+                throw "task-owned qualification VHD remains attached after DiskPart detach"
+            }
+            $detachDeadline = [DateTime]::UtcNow.AddSeconds(10)
+            $mountedVolume = $null
+            do {
+                $mountedVolume = if ($script:fixtureDriveLetter) {
+                    Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($script:fixtureVolume)'" -ErrorAction SilentlyContinue
+                } else {
+                    $null
+                }
+                if (-not $mountedVolume) { break }
+                Start-Sleep -Milliseconds 200
+            } while ([DateTime]::UtcNow -lt $detachDeadline)
+            if ($mountedVolume) {
+                throw "task-owned qualification drive letter remains mounted after VHD detach: $($script:fixtureVolume)"
+            }
+            $script:qualificationVhdAttached = $false
+            $script:evidence.qualificationVolumeDetached = $true
+            $script:evidence.cleanup.qualificationVolumeDetached = $true
+        } else {
+            if (Test-Path -LiteralPath $qualificationVhdPath) {
+                throw "refusing to remove an unmarked qualification VHD: $qualificationVhdPath"
+            }
+            $script:evidence.qualificationVolumeDetached = $true
+            $script:evidence.cleanup.qualificationVolumeDetached = $true
+        }
+
         if (Test-Path -LiteralPath $taskRoot) {
             Remove-Item -LiteralPath $taskRoot -Recurse -Force
+        }
+        $script:evidence.qualificationVhdRemoved = -not (Test-Path -LiteralPath $qualificationVhdPath)
+        if (-not $script:evidence.qualificationVhdRemoved) {
+            $script:cleanupFailure = $true
+            $script:evidence.cleanup.details += "task-owned qualification VHD remains: $qualificationVhdPath"
         }
         $script:evidence.cleanup.taskProfileRemoved = -not (Test-Path -LiteralPath $taskRoot)
         if (-not $script:evidence.cleanup.taskProfileRemoved) {
