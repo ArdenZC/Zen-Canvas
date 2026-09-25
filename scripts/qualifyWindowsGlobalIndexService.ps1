@@ -380,7 +380,7 @@ try {
     $baselineSnapshot = $null
     do {
         if ($client.HasExited) { throw "background client exited before baseline completion with code $($client.ExitCode)" }
-        $baselineSnapshot = Get-ProbeSnapshot $preexistingToken
+        $baselineSnapshot = Get-ProbeSnapshot
         $eligibleSources = @($baselineSnapshot.volumes | Where-Object {
             $_.enabled -and $_.filesystemType -ieq "NTFS" -and $_.driveKind -ieq "fixed" -and $_.provider -ceq "windows_mft_usn" -and $preexistingPath.StartsWith($_.mountPath, [StringComparison]::OrdinalIgnoreCase)
         })
@@ -416,6 +416,9 @@ try {
     if ([long]$baselineSource.entryCount -le 0) {
         throw "native MFT baseline is incomplete: fixed NTFS source reached ready with entry_count=$($baselineSource.entryCount)"
     }
+    # Keep the pre-existing fixture search off the hot baseline polling path.
+    # Search the fixture once after the non-empty baseline is complete.
+    $baselineSnapshot = Get-ProbeSnapshot $preexistingToken
     $baselineTrace = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $baselineTrace.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) {

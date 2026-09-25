@@ -448,6 +448,14 @@ describe("CI final performance remediation contract", () => {
     expect(globalIndexServiceQualification).toContain("$baselineTimeoutMinutes = 35");
     expect(globalIndexServiceQualification).toContain("baselineWaitMs");
     expect(globalIndexServiceQualification).toContain("baselineFixtureSearchFound");
+    const baselinePollingStart = globalIndexServiceQualification.indexOf("$baselineDeadline =");
+    const baselinePollingEnd = globalIndexServiceQualification.indexOf("$script:evidence.baselineWaitMs =");
+    const baselinePolling = globalIndexServiceQualification.slice(baselinePollingStart, baselinePollingEnd);
+    expect(baselinePolling).toContain("$baselineSnapshot = Get-ProbeSnapshot");
+    expect(baselinePolling).not.toContain("Get-ProbeSnapshot $preexistingToken");
+    const completedBaselineGuard = globalIndexServiceQualification.indexOf("if ([long]$baselineSource.entryCount -le 0)");
+    const preexistingSearch = globalIndexServiceQualification.indexOf("$baselineSnapshot = Get-ProbeSnapshot $preexistingToken");
+    expect(preexistingSearch).toBeGreaterThan(completedBaselineGuard);
     expect(globalIndexServiceQualification).toContain("createLatencyMs");
     expect(globalIndexServiceQualification).toContain("renameLatencyMs");
     expect(globalIndexServiceQualification).toContain("deleteLatencyMs");
