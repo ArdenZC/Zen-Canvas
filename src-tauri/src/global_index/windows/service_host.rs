@@ -896,6 +896,16 @@ mod tests {
     }
 
     #[test]
+    fn service_runtime_uses_the_shared_direct_mft_provider() {
+        let runtime = ServiceRuntime::new();
+
+        assert_eq!(
+            runtime.provider.status().expect("direct provider status"),
+            "windows_mft_usn"
+        );
+    }
+
+    #[test]
     fn source_id_is_extracted_only_from_index_commands() {
         assert_eq!(source_id(&IndexServiceCommand::Status), "");
         assert_eq!(

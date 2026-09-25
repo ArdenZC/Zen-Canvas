@@ -41,6 +41,21 @@ pub(crate) struct MftRecord {
 pub(crate) struct MftJournalState {
     pub(crate) journal_id: u64,
     pub(crate) next_usn: i64,
+    pub(crate) baseline: MftBaselineStats,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MftBaselineStats {
+    pub(crate) staged_records: u64,
+    pub(crate) resolved_entries: u64,
+    pub(crate) emitted_entries: u64,
+    pub(crate) checkpoint_usn: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct MftEntryStreamStats {
+    resolved_entries: u64,
+    emitted_entries: u64,
 }
 
 pub(crate) fn enumerate_volume(
@@ -70,11 +85,11 @@ fn enumerate_with_handle(
     ));
     let result = (|| {
         let mut staging = open_staging_database(&staging_path)?;
-        stage_mft_records(&mut staging, handle, journal.NextUsn, cancel)?;
+        let staged_records = stage_mft_records(&mut staging, handle, journal.NextUsn, cancel)?;
         let directories = load_staged_directories(&staging)?;
         let (directory_paths, parent_paths) =
             resolve_directory_paths(&source.volume.mount_path, &directories);
-        stream_staged_entries(
+        let stream = stream_staged_entries(
             source,
             &staging,
             &directory_paths,
@@ -82,6 +97,13 @@ fn enumerate_with_handle(
             sink,
             cancel,
         )?;
+        let baseline = MftBaselineStats {
+            staged_records,
+            resolved_entries: stream.resolved_entries,
+            emitted_entries: stream.emitted_entries,
+            checkpoint_usn: journal.NextUsn,
+        };
+        validate_initial_baseline(baseline)?;
         sink.checkpoint(
             &source.volume.id,
             Some(&journal.UsnJournalID.to_string()),
@@ -90,6 +112,7 @@ fn enumerate_with_handle(
         Ok(MftJournalState {
             journal_id: journal.UsnJournalID,
             next_usn: journal.NextUsn,
+            baseline,
         })
     })();
     let _ = std::fs::remove_file(&staging_path);
@@ -129,8 +152,9 @@ fn stage_mft_records(
     handle: HANDLE,
     high_usn: i64,
     cancel: &AtomicBool,
-) -> Result<(), GlobalIndexError> {
+) -> Result<u64, GlobalIndexError> {
     let mut cursor = 0u64;
+    let mut staged_records = 0u64;
     loop {
         if cancel.load(Ordering::Acquire) {
             return Err(GlobalIndexError::Paused);
@@ -163,6 +187,7 @@ fn stage_mft_records(
         let transaction = staging.transaction().map_err(|error| {
             GlobalIndexError::Provider(format!("mft_staging_transaction_failed: {error}"))
         })?;
+        staged_records = staged_records.saturating_add(records.len() as u64);
         {
             let mut insert = transaction
                 .prepare_cached(
@@ -191,7 +216,7 @@ fn stage_mft_records(
         })?;
         cursor = next_cursor;
     }
-    Ok(())
+    Ok(staged_records)
 }
 
 fn load_staged_directories(staging: &Connection) -> Result<Vec<MftRecord>, GlobalIndexError> {
@@ -268,9 +293,10 @@ fn stream_staged_entries(
     parent_paths: &HashMap<String, String>,
     sink: &mut dyn GlobalIndexSink,
     cancel: &AtomicBool,
-) -> Result<(), GlobalIndexError> {
+) -> Result<MftEntryStreamStats, GlobalIndexError> {
     let mut last_sequence = 0i64;
     let mut batch = Vec::with_capacity(512);
+    let mut stats = MftEntryStreamStats::default();
     loop {
         if cancel.load(Ordering::Acquire) {
             return Err(GlobalIndexError::Paused);
@@ -318,6 +344,7 @@ fn stream_staged_entries(
                 // MFT record. A later USN update or rebuild can reconcile it.
                 continue;
             };
+            stats.resolved_entries = stats.resolved_entries.saturating_add(1);
             let extension = if is_directory {
                 String::new()
             } else {
@@ -355,13 +382,30 @@ fn stream_staged_entries(
                 last_seen_at: crate::global_index::models::unix_now(),
             });
             if batch.len() >= 512 {
-                sink.write_batch(&batch)?;
+                stats.emitted_entries = stats
+                    .emitted_entries
+                    .saturating_add(sink.write_batch(&batch)? as u64);
                 batch.clear();
             }
         }
     }
     if !batch.is_empty() {
-        sink.write_batch(&batch)?;
+        stats.emitted_entries = stats
+            .emitted_entries
+            .saturating_add(sink.write_batch(&batch)? as u64);
+    }
+    Ok(stats)
+}
+
+fn validate_initial_baseline(stats: MftBaselineStats) -> Result<(), GlobalIndexError> {
+    if stats.emitted_entries == 0 {
+        return Err(GlobalIndexError::Provider(format!(
+            "windows_mft_baseline_empty: staged_records={} resolved_entries={} emitted_entries={} checkpoint_usn={}",
+            stats.staged_records,
+            stats.resolved_entries,
+            stats.emitted_entries,
+            stats.checkpoint_usn
+        )));
     }
     Ok(())
 }
@@ -499,7 +543,8 @@ pub(crate) fn mft_integrity_error(message: impl Into<String>) -> GlobalIndexErro
 }
 
 pub(crate) fn is_integrity_error(error: &GlobalIndexError) -> bool {
-    error.to_string().contains("mft_integrity:")
+    let message = error.to_string();
+    message.contains("mft_integrity:") || message.contains("windows_mft_baseline_empty:")
 }
 
 fn join_windows_path(parent: &str, name: &str) -> String {
@@ -802,5 +847,34 @@ mod tests {
         let error = parse_mft_page(&[0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3])
             .expect_err("non-zero truncated tail must fail closed");
         assert!(is_integrity_error(&error));
+    }
+
+    #[test]
+    fn initial_baseline_with_emitted_searchable_entries_succeeds() {
+        let stats = MftBaselineStats {
+            staged_records: 3,
+            resolved_entries: 2,
+            emitted_entries: 2,
+            checkpoint_usn: 417,
+        };
+
+        validate_initial_baseline(stats).expect("non-empty baseline is complete");
+    }
+
+    #[test]
+    fn zero_entry_initial_baseline_is_a_stable_integrity_failure() {
+        let stats = MftBaselineStats {
+            staged_records: 12,
+            resolved_entries: 0,
+            emitted_entries: 0,
+            checkpoint_usn: 8192,
+        };
+
+        let error = validate_initial_baseline(stats).expect_err("empty baseline is incomplete");
+
+        assert!(is_integrity_error(&error));
+        assert!(error.to_string().contains(
+            "windows_mft_baseline_empty: staged_records=12 resolved_entries=0 emitted_entries=0 checkpoint_usn=8192"
+        ));
     }
 }

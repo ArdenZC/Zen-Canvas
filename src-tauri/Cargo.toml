@@ -18,6 +18,11 @@ name = "macos-native-preview-lifecycle"
 path = "native-qa/macos_native_preview_lifecycle.rs"
 required-features = ["native-qa"]
 
+[[bin]]
+name = "zb05-global-index-qa"
+path = "native-qa/global_index_probe.rs"
+required-features = ["native-qa"]
+
 [features]
 default = []
 ai-debug = []

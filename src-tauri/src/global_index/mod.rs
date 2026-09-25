@@ -5,6 +5,7 @@ pub mod managed_scope;
 #[path = "managed_worker_hardened.rs"]
 pub mod managed_worker;
 pub mod models;
+pub(crate) mod qa_trace;
 mod repository;
 pub mod search;
 pub(crate) mod wake;

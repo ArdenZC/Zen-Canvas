@@ -393,12 +393,14 @@ fn run_index(
             // pending and is delivered by the next wait, including the
             // catch-up-to-idle boundary.
             let _ = wake.wait(&cancel, Some(Duration::ZERO));
+            super::qa_trace::record("coordinator_cycle");
             previous_topology = Some(run_index_cycle(provider.as_ref(), &db, &cancel, &wake)?);
             if cancel.load(Ordering::Acquire) {
                 break;
             }
         }
 
+        super::qa_trace::record("coordinator_wait");
         match wake.wait(&cancel, provider.topology_audit_interval()) {
             GlobalIndexWaitResult::Notified(_) => run_cycle = true,
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,
@@ -1389,7 +1391,9 @@ mod tests {
     #[test]
     #[ignore = "bounded native smoke; isolated database, wake-only watcher, and direct MFT/USN fallback for test-binary identity"]
     fn windows_native_change_signal_search_smoke() {
-        use crate::global_index::models::{INDEX_STATUS_READY, PROVIDER_WINDOWS_MFT_USN};
+        use crate::global_index::models::{
+            INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED, PROVIDER_WINDOWS_MFT_USN,
+        };
 
         const BASELINE_TIMEOUT: Duration = Duration::from_secs(8 * 60);
         const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1415,6 +1419,15 @@ mod tests {
             .expect("candidate fixture must be on an enabled fixed NTFS source");
         let source_id = source.volume.id.clone();
         let source_mount = source.volume.mount_path.clone();
+        let run_id = format!("{}-{}", std::process::id(), unix_now());
+        let baseline_name = format!("zb05-native-baseline-{run_id}.txt");
+        let baseline_path = smoke_root.join(&baseline_name);
+        run.own_file(baseline_path.clone());
+        fs::write(
+            &baseline_path,
+            b"pre-existing task-owned baseline fixture\n",
+        )
+        .expect("create task-owned fixture before native baseline");
 
         // Restrict this isolated candidate profile to the one fixture volume.
         // The real/default per-volume policy is untouched in the installed
@@ -1458,8 +1471,24 @@ mod tests {
                 current.index_status, INDEX_STATUS_ERROR,
                 "native service reported a source error"
             );
+            assert_ne!(
+                current.index_status, INDEX_STATUS_REBUILD_REQUIRED,
+                "native MFT baseline is incomplete and requires rebuild"
+            );
             thread::sleep(Duration::from_millis(100));
         };
+        assert!(
+            ready_source.entry_count > 0,
+            "ready fixed NTFS baseline must emit searchable entries"
+        );
+        assert!(
+            run.database()
+                .search_global_entries(&baseline_name, 20, 0)
+                .expect("search pre-existing baseline fixture")
+                .iter()
+                .any(|entry| Path::new(&entry.path) == baseline_path),
+            "pre-existing fixture must be searchable from the initial MFT baseline"
+        );
         let candidate_status = run
             .database()
             .global_index_status()
@@ -1471,12 +1500,10 @@ mod tests {
             "ready" | "partial"
         ));
 
-        let run_id = format!("{}-{}", std::process::id(), unix_now());
         let original_name = format!("zb05-native-create-{run_id}.txt");
         let renamed_name = format!("zb05-native-rename-{run_id}.txt");
-        // Use the volume root so the event's parent identity is known even if
-        // this non-installed test process cannot obtain a complete privileged
-        // MFT baseline. The unique task-owned files are removed by the guard.
+        // The direct-provider smoke uses its pre-existing fixture above to
+        // require a complete initial baseline before testing native wakes.
         let original_path = Path::new(&source_mount).join(&original_name);
         let renamed_path = Path::new(&source_mount).join(&renamed_name);
         let baseline_ready_ms = baseline_started.elapsed().as_millis();
@@ -1694,5 +1721,102 @@ mod tests {
             source.last_incremental_sync_at,
             source.updated_at,
         )
+    }
+
+    struct EmptyMftBaselineProvider {
+        source: GlobalSourceDescriptor,
+    }
+
+    impl GlobalIndexProvider for EmptyMftBaselineProvider {
+        fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+            Ok(vec![self.source.clone()])
+        }
+
+        fn start_initial_index(
+            &self,
+            source: &GlobalSourceDescriptor,
+            sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            const ERROR: &str = "windows_mft_baseline_empty: staged_records=0 resolved_entries=0 emitted_entries=0 checkpoint_usn=123";
+            sink.set_source_state(
+                &source.volume.id,
+                INDEX_STATUS_REBUILD_REQUIRED,
+                Some(ERROR),
+            )?;
+            Err(GlobalIndexError::Provider(ERROR.to_string()))
+        }
+
+        fn resume_incremental_sync(
+            &self,
+            _source: &GlobalSourceDescriptor,
+            _sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            unreachable!("initial source has no completed baseline")
+        }
+
+        fn pause(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn status(&self) -> Result<String, GlobalIndexError> {
+            Ok("test".to_string())
+        }
+
+        fn shutdown(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn coordinator_preserves_rebuild_required_after_empty_mft_baseline() {
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("open test database");
+        let source = GlobalSourceDescriptor {
+            volume: GlobalVolume {
+                id: "gv_empty_mft_baseline".to_string(),
+                platform: "windows".to_string(),
+                stable_volume_id: "empty-mft-baseline".to_string(),
+                display_name: "C".to_string(),
+                mount_path: "C:\\".to_string(),
+                filesystem_type: "ntfs".to_string(),
+                drive_kind: "fixed".to_string(),
+                enabled: true,
+                provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+                index_status: INDEX_STATUS_DISCOVERED.to_string(),
+                last_error: None,
+                journal_id: None,
+                journal_cursor: None,
+                last_full_index_at: None,
+                last_incremental_sync_at: None,
+                entry_count: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        };
+        db.upsert_global_volume(&source.volume)
+            .expect("seed fixed NTFS source");
+        let provider = EmptyMftBaselineProvider { source };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let wake = GlobalIndexWakeSlot::default();
+
+        run_index_cycle(&provider, &db, &cancel, &wake)
+            .expect("provider error is recorded on the durable source");
+
+        let stored = db
+            .get_global_volume("gv_empty_mft_baseline")
+            .expect("read durable source")
+            .expect("source remains present");
+        assert_eq!(stored.index_status, INDEX_STATUS_REBUILD_REQUIRED);
+        assert!(stored
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("windows_mft_baseline_empty")));
+        assert_ne!(stored.index_status, INDEX_STATUS_READY);
+        assert!(stored.last_full_index_at.is_none());
+
+        drop(db);
+        drop(path);
     }
 }

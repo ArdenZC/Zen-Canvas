@@ -63,28 +63,8 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
         let _qos = crate::resource_governor::scope_thread_qos(
             crate::file_workspace::WorkClass::Background,
         );
-        match mft::enumerate_volume(source, sink, cancel) {
-            Ok(_) => Ok(()),
-            Err(GlobalIndexError::Paused) => Err(GlobalIndexError::Paused),
-            Err(error) if mft::is_integrity_error(&error) => {
-                let message = error.to_string();
-                sink.set_source_state(
-                    &source.volume.id,
-                    INDEX_STATUS_REBUILD_REQUIRED,
-                    Some(&message),
-                )?;
-                Err(error)
-            }
-            Err(error) => {
-                let message = error.to_string();
-                sink.set_source_state(
-                    &source.volume.id,
-                    INDEX_STATUS_PERMISSION_REQUIRED,
-                    Some(&message),
-                )?;
-                Err(error)
-            }
-        }
+        let result = mft::enumerate_volume(source, sink, cancel);
+        finish_initial_mft_result(&source.volume.id, sink, result)
     }
 
     fn resume_incremental_sync(
@@ -144,6 +124,27 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
 
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         Ok(())
+    }
+}
+
+fn finish_initial_mft_result(
+    volume_id: &str,
+    sink: &mut dyn GlobalIndexSink,
+    result: Result<mft::MftJournalState, GlobalIndexError>,
+) -> Result<(), GlobalIndexError> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(GlobalIndexError::Paused) => Err(GlobalIndexError::Paused),
+        Err(error) if mft::is_integrity_error(&error) => {
+            let message = error.to_string();
+            sink.set_source_state(volume_id, INDEX_STATUS_REBUILD_REQUIRED, Some(&message))?;
+            Err(error)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            sink.set_source_state(volume_id, INDEX_STATUS_PERMISSION_REQUIRED, Some(&message))?;
+            Err(error)
+        }
     }
 }
 
@@ -386,6 +387,9 @@ impl WindowsGlobalIndexProvider {
         let response = service::call_index_service_stream(request, |client, event| {
             Self::apply_event(sink, client, event)
         })?;
+        if response.ok {
+            super::qa_trace::record("windows_service_route_ok");
+        }
         self.service_connected();
         if response.ok {
             Ok(Ok(()))
@@ -564,7 +568,91 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::global_index::models::GlobalVolume;
+    use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
+
+    #[derive(Default)]
+    struct SourceStateSink {
+        status: Option<String>,
+        error: Option<String>,
+    }
+
+    impl GlobalIndexSink for SourceStateSink {
+        fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
+            Ok(entries.len())
+        }
+
+        fn mark_entry_stale(&mut self, _entry_id: &str) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn checkpoint(
+            &mut self,
+            _volume_id: &str,
+            _journal_id: Option<&str>,
+            _journal_cursor: Option<&str>,
+        ) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn set_source_state(
+            &mut self,
+            _volume_id: &str,
+            status: &str,
+            error: Option<&str>,
+        ) -> Result<(), GlobalIndexError> {
+            self.status = Some(status.to_string());
+            self.error = error.map(str::to_string);
+            Ok(())
+        }
+
+        fn set_source_provider(
+            &mut self,
+            _volume_id: &str,
+            _provider: &str,
+        ) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn resolve_parent_path(
+            &mut self,
+            _volume_id: &str,
+            _parent_platform_file_id: &str,
+        ) -> Result<Option<String>, GlobalIndexError> {
+            Ok(None)
+        }
+
+        fn find_entry_by_identity(
+            &mut self,
+            _volume_id: &str,
+            _platform_file_id: &str,
+            _parent_platform_file_id: &str,
+            _name: &str,
+        ) -> Result<Option<GlobalEntry>, GlobalIndexError> {
+            Ok(None)
+        }
+
+        fn mark_volume_entries_stale(&mut self, _volume_id: &str) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn empty_initial_mft_baseline_marks_direct_provider_rebuild_required() {
+        let mut sink = SourceStateSink::default();
+        let error = GlobalIndexError::Provider(
+            "windows_mft_baseline_empty: staged_records=0 resolved_entries=0 emitted_entries=0 checkpoint_usn=0"
+                .to_string(),
+        );
+
+        let returned = finish_initial_mft_result("volume", &mut sink, Err(error));
+
+        assert!(returned.is_err());
+        assert_eq!(sink.status.as_deref(), Some(INDEX_STATUS_REBUILD_REQUIRED));
+        assert!(sink
+            .error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("provider error: windows_mft_baseline_empty:")));
+    }
 
     #[test]
     fn direct_provider_status_does_not_claim_service_transport() {

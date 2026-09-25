@@ -9,6 +9,7 @@ const interactiveWorkflow = readWorkflow(".github/workflows/ci.yml");
 const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
 const releaseWorkflow = readWorkflow(".github/workflows/release-build.yml");
 const classifierSource = readFileSync("scripts/classifyCiChanges.mjs", "utf8");
+const globalIndexServiceQualification = readFileSync("scripts/qualifyWindowsGlobalIndexService.ps1", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   scripts: Record<string, string>;
 };
@@ -409,6 +410,46 @@ describe("CI final performance remediation contract", () => {
     expect(fullWorkflow).toContain("WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}");
     expect(releaseWorkflow).toContain("name: Verify Windows Preview resource path and servicing smoke");
     expect(releaseWorkflow).toContain("node scripts/verifyWindowsNsisPreviewResource.mjs");
+  });
+
+  it("routes exact-image Global Index service qualification only through the relevant Windows CI lane", () => {
+    expect(classifierSource).toContain("windows_global_index_service_qualification_changed");
+    const qualification = section(
+      interactiveWorkflow,
+      "windows-global-index-service-qualification",
+      "rust-macos",
+    );
+    expect(qualification).toContain("needs.change-scope.outputs.windows_global_index_service_qualification_changed == 'true'");
+    expect(qualification).toContain("runs-on: windows-latest");
+    expect(qualification).toContain("npm ci");
+    expect(qualification).toContain("npm run build:frontend");
+    expect(qualification).toContain("--features \"desktop-runtime native-qa\" --bin zen-canvas");
+    expect(qualification).toContain("--bin zb05-global-index-qa");
+    expect(qualification).toContain("scripts/qualifyWindowsGlobalIndexService.ps1");
+    expect(qualification).toContain("if: ${{ always() }}");
+    expect(interactiveWorkflow).toContain("windows-global-index-service-qualification.result");
+    expect(interactiveWorkflow).toContain("needs.windows-global-index-service-qualification");
+    expect(interactiveWorkflow).toContain("GLOBAL_INDEX_SERVICE_EXPECTED");
+    expect(interactiveWorkflow).toContain("check_expected \"$GLOBAL_INDEX_SERVICE_EXPECTED\" \"$GLOBAL_INDEX_SERVICE\" windows-global-index-service-qualification");
+
+    const fixtureCreated = globalIndexServiceQualification.indexOf("created before the Global Index baseline");
+    const preexistingGuard = globalIndexServiceQualification.indexOf("refusing to replace or manage a pre-existing");
+    const serviceCreated = globalIndexServiceQualification.indexOf('Invoke-ServiceControl @("create", $serviceName');
+    expect(fixtureCreated).toBeGreaterThanOrEqual(0);
+    expect(preexistingGuard).toBeGreaterThanOrEqual(0);
+    expect(serviceCreated).toBeGreaterThan(fixtureCreated);
+    expect(serviceCreated).toBeGreaterThan(preexistingGuard);
+    expect(globalIndexServiceQualification).toContain("sameImage");
+    expect(globalIndexServiceQualification).toContain("baselineEntryCount");
+    expect(globalIndexServiceQualification).toContain("baselineFixtureSearchFound");
+    expect(globalIndexServiceQualification).toContain("createLatencyMs");
+    expect(globalIndexServiceQualification).toContain("renameLatencyMs");
+    expect(globalIndexServiceQualification).toContain("deleteLatencyMs");
+    expect(globalIndexServiceQualification).toContain("settledCoordinatorCycleDelta");
+    expect(globalIndexServiceQualification).toContain("settledCoordinatorWaitDelta");
+    expect(globalIndexServiceQualification).toContain("finally {");
+    expect(globalIndexServiceQualification).toContain("CreateService failed; exact SCM output");
+    expect(globalIndexServiceQualification).toContain("service-created-by-qualification.txt");
   });
 
   it("pins actions and keeps packaging and quality checks authoritative", () => {
