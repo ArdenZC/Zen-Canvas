@@ -421,6 +421,7 @@ describe("CI final performance remediation contract", () => {
     );
     expect(qualification).toContain("needs.change-scope.outputs.windows_global_index_service_qualification_changed == 'true'");
     expect(qualification).toContain("runs-on: windows-latest");
+    expect(qualification).toContain("timeout-minutes: 60");
     expect(qualification).toContain("npm ci");
     expect(qualification).toContain("npm run build:frontend");
     expect(qualification).toContain("--features \"desktop-runtime native-qa\" --bin zen-canvas");
@@ -444,6 +445,8 @@ describe("CI final performance remediation contract", () => {
     expect(serviceCreated).toBeGreaterThan(preexistingGuard);
     expect(globalIndexServiceQualification).toContain("sameImage");
     expect(globalIndexServiceQualification).toContain("baselineEntryCount");
+    expect(globalIndexServiceQualification).toContain("$baselineTimeoutMinutes = 35");
+    expect(globalIndexServiceQualification).toContain("baselineWaitMs");
     expect(globalIndexServiceQualification).toContain("baselineFixtureSearchFound");
     expect(globalIndexServiceQualification).toContain("createLatencyMs");
     expect(globalIndexServiceQualification).toContain("renameLatencyMs");

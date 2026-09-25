@@ -47,6 +47,7 @@ $script:evidence = [ordered]@{
     sourceStatus = $null
     sourceLastError = $null
     baselineEntryCount = $null
+    baselineWaitMs = $null
     fixtureRoot = $null
     fixtureVolume = $null
     usnJournalProbes = @()
@@ -77,6 +78,7 @@ $script:serviceProcessId = $null
 $script:serviceCreatedByTask = $false
 $script:failureMessage = $null
 $script:cleanupFailure = $false
+$script:baselineStartedAt = $null
 
 function Invoke-ServiceControl([string[]]$Arguments) {
     $output = (& sc.exe @Arguments 2>&1 | Out-String).Trim()
@@ -367,7 +369,13 @@ try {
     }
 
     Start-QualificationProbe
-    $baselineDeadline = [DateTime]::UtcNow.AddMinutes(15)
+    # The disposable hosted runner scans its existing fixed volumes in order;
+    # its preinstalled C: source can take longer than a small developer volume.
+    # Keep this real-source qualification bounded while allowing it to finish.
+    $baselineTimeoutMinutes = 35
+    $script:baselineStartedAt = [DateTime]::UtcNow
+    $baselineDeadline = $script:baselineStartedAt.AddMinutes($baselineTimeoutMinutes)
+    $nextBaselineProgressSeconds = 60
     $baselineSource = $null
     $baselineSnapshot = $null
     do {
@@ -389,11 +397,21 @@ try {
             }
             if ($baselineSource.status -eq "ready" -and $null -ne $baselineSource.lastFullIndexAt) { break }
         }
+        $baselineElapsedSeconds = [int]([DateTime]::UtcNow - $script:baselineStartedAt).TotalSeconds
+        if ($baselineElapsedSeconds -ge $nextBaselineProgressSeconds) {
+            $progressSource = if ($baselineSource) { $baselineSource.id } else { "undiscovered" }
+            $progressPath = if ($baselineSource) { $baselineSource.mountPath } else { "unknown" }
+            $progressStatus = if ($baselineSource) { $baselineSource.status } else { "unknown" }
+            $progressEntries = if ($baselineSource) { $baselineSource.entryCount } else { 0 }
+            Write-Host "MFT baseline pending: source=$progressSource mount=$progressPath status=$progressStatus entry_count=$progressEntries elapsed_seconds=$baselineElapsedSeconds"
+            $nextBaselineProgressSeconds += 60
+        }
         Start-Sleep -Milliseconds 500
     } while ([DateTime]::UtcNow -lt $baselineDeadline)
+    $script:evidence.baselineWaitMs = [long]([DateTime]::UtcNow - $script:baselineStartedAt).TotalMilliseconds
     if ($null -eq $baselineSource -or $baselineSource.status -ne "ready" -or $null -eq $baselineSource.lastFullIndexAt) {
         $status = if ($baselineSource) { "status=$($baselineSource.status) error=$($baselineSource.lastError) entry_count=$($baselineSource.entryCount)" } else { "enabled fixed NTFS source was not discovered" }
-        throw "native MFT baseline did not become ready within 15 minutes: $status"
+        throw "native MFT baseline did not become ready within $baselineTimeoutMinutes minutes: $status"
     }
     if ([long]$baselineSource.entryCount -le 0) {
         throw "native MFT baseline is incomplete: fixed NTFS source reached ready with entry_count=$($baselineSource.entryCount)"
@@ -472,6 +490,9 @@ try {
     $script:failureMessage = $_.Exception.ToString()
     $script:evidence.failure = $script:failureMessage
 } finally {
+    if ($null -ne $script:baselineStartedAt -and $null -eq $script:evidence.baselineWaitMs) {
+        $script:evidence.baselineWaitMs = [long]([DateTime]::UtcNow - $script:baselineStartedAt).TotalMilliseconds
+    }
     Stop-Probe
 
     try {

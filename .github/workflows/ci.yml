@@ -543,7 +543,7 @@ jobs:
     needs: [change-scope]
     if: ${{ needs.change-scope.outputs.windows_global_index_service_qualification_changed == 'true' }}
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - name: Checkout exact PR source or pushed commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
