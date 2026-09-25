@@ -288,7 +288,8 @@ try {
     New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
 
     $preexistingToken = "zb05qapreexisting$([Guid]::NewGuid().ToString('N'))"
-    $preexistingPath = Join-Path $fixtureRoot "$preexistingToken.txt"
+    $preexistingName = "$preexistingToken.txt"
+    $preexistingPath = Join-Path $fixtureRoot $preexistingName
     New-Item -ItemType File -Path $preexistingPath | Out-Null
     Set-Content -LiteralPath $preexistingPath -Value "created before the Global Index baseline" -NoNewline
     $script:evidence.baselineFixturePath = $preexistingPath
@@ -418,7 +419,7 @@ try {
     }
     # Keep the pre-existing fixture search off the hot baseline polling path.
     # Search the fixture once after the non-empty baseline is complete.
-    $baselineSnapshot = Get-ProbeSnapshot $preexistingToken
+    $baselineSnapshot = Get-ProbeSnapshot $preexistingName
     $baselineTrace = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $baselineTrace.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) {

@@ -453,8 +453,9 @@ describe("CI final performance remediation contract", () => {
     const baselinePolling = globalIndexServiceQualification.slice(baselinePollingStart, baselinePollingEnd);
     expect(baselinePolling).toContain("$baselineSnapshot = Get-ProbeSnapshot");
     expect(baselinePolling).not.toContain("Get-ProbeSnapshot $preexistingToken");
+    expect(globalIndexServiceQualification).toContain('$preexistingName = "$preexistingToken.txt"');
     const completedBaselineGuard = globalIndexServiceQualification.indexOf("if ([long]$baselineSource.entryCount -le 0)");
-    const preexistingSearch = globalIndexServiceQualification.indexOf("$baselineSnapshot = Get-ProbeSnapshot $preexistingToken");
+    const preexistingSearch = globalIndexServiceQualification.indexOf("$baselineSnapshot = Get-ProbeSnapshot $preexistingName");
     expect(preexistingSearch).toBeGreaterThan(completedBaselineGuard);
     expect(globalIndexServiceQualification).toContain("createLatencyMs");
     expect(globalIndexServiceQualification).toContain("renameLatencyMs");
