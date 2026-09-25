@@ -134,6 +134,14 @@ fn fsevent_requires_full_reconcile(flags: FSEventStreamEventFlags) -> bool {
         != 0
 }
 
+fn record_startup_failure(
+    pending: &Mutex<PendingUpdates>,
+    wake: &GlobalIndexWakeSlot,
+    error: &'static str,
+) {
+    super::record_async_watcher_error(pending, wake, error);
+}
+
 fn run_fsevents(
     root: &str,
     pending: Arc<Mutex<PendingUpdates>>,
@@ -144,26 +152,20 @@ fn run_fsevents(
     since_event_id: Option<u64>,
 ) {
     let Ok(path) = CString::new(root) else {
-        if let Ok(mut pending) = pending.lock() {
-            pending.last_error = Some("macos_fsevents_root_not_utf8".to_string());
-        }
+        record_startup_failure(&pending, &wake, "macos_fsevents_root_not_utf8");
         return;
     };
     unsafe {
         let path_ref =
             CFStringCreateWithCString(kCFAllocatorDefault, path.as_ptr(), kCFStringEncodingUTF8);
         if path_ref.is_null() {
-            if let Ok(mut pending) = pending.lock() {
-                pending.last_error = Some("macos_fsevents_stream_unavailable".to_string());
-            }
+            record_startup_failure(&pending, &wake, "macos_fsevents_stream_unavailable");
             return;
         }
         let paths = CFArrayCreateMutable(kCFAllocatorDefault, 1, &kCFTypeArrayCallBacks);
         if paths.is_null() {
             CFRelease(path_ref);
-            if let Ok(mut pending) = pending.lock() {
-                pending.last_error = Some("macos_fsevents_stream_unavailable".to_string());
-            }
+            record_startup_failure(&pending, &wake, "macos_fsevents_stream_unavailable");
             return;
         }
         CFArrayAppendValue(paths, path_ref);
@@ -194,18 +196,24 @@ fn run_fsevents(
         );
         CFRelease(paths);
         if stream.is_null() {
-            if let Ok(mut pending) = (&*context.info.cast::<FseventInfo>()).pending.lock() {
-                pending.last_error = Some("macos_fsevents_stream_unavailable".to_string());
-            }
+            let info = &*context.info.cast::<FseventInfo>();
+            record_startup_failure(
+                &info.pending,
+                &info.wake,
+                "macos_fsevents_stream_unavailable",
+            );
             drop(Box::from_raw(context.info.cast::<FseventInfo>()));
             return;
         }
         let run_loop = CFRunLoopGetCurrent();
         FSEventStreamScheduleWithRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
         if FSEventStreamStart(stream) == 0 {
-            if let Ok(mut pending) = (&*context.info.cast::<FseventInfo>()).pending.lock() {
-                pending.last_error = Some("macos_fsevents_stream_start_failed".to_string());
-            }
+            let info = &*context.info.cast::<FseventInfo>();
+            record_startup_failure(
+                &info.pending,
+                &info.wake,
+                "macos_fsevents_stream_start_failed",
+            );
             FSEventStreamUnscheduleFromRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
             FSEventStreamInvalidate(stream);
             FSEventStreamRelease(stream);
@@ -229,7 +237,9 @@ fn run_fsevents(
 
 #[cfg(test)]
 mod tests {
-    use super::{fsevent_callback, fsevent_requires_full_reconcile, FseventInfo};
+    use super::{
+        fsevent_callback, fsevent_requires_full_reconcile, record_startup_failure, FseventInfo,
+    };
     use crate::global_index::wake::GlobalIndexWakeSlot;
     use fsevent_sys::{
         kFSEventStreamEventFlagEventIdsWrapped, kFSEventStreamEventFlagKernelDropped,
@@ -342,5 +352,34 @@ mod tests {
         assert!(!pending.full_reconcile);
         assert_eq!(pending.last_event_id, None);
         assert_eq!(wake.snapshot().notifications, 0);
+    }
+
+    #[test]
+    fn async_initialization_errors_record_and_coalesce_provider_wakes() {
+        let pending = Mutex::new(super::super::PendingUpdates::default());
+        let wake = GlobalIndexWakeSlot::default();
+        let errors = [
+            "macos_fsevents_root_not_utf8",
+            "macos_fsevents_stream_unavailable",
+            "macos_fsevents_stream_unavailable",
+            "macos_fsevents_stream_unavailable",
+            "macos_fsevents_stream_start_failed",
+        ];
+
+        for error in errors {
+            record_startup_failure(&pending, &wake, error);
+            assert_eq!(
+                pending
+                    .lock()
+                    .expect("pending updates")
+                    .last_error
+                    .as_deref(),
+                Some(error)
+            );
+        }
+
+        let snapshot = wake.snapshot();
+        assert_eq!(snapshot.notifications, errors.len() as u64);
+        assert_eq!(snapshot.coalesced, errors.len() as u64 - 1);
     }
 }

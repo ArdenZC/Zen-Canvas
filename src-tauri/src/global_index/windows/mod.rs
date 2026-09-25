@@ -163,6 +163,10 @@ pub struct WindowsGlobalIndexProvider {
     force_direct: bool,
     #[cfg(test)]
     smoke_ignored_wake_root: Option<PathBuf>,
+    #[cfg(test)]
+    fake_change_watchers: bool,
+    #[cfg(test)]
+    test_watcher_start_count: std::sync::atomic::AtomicUsize,
 }
 
 impl WindowsGlobalIndexProvider {
@@ -187,6 +191,10 @@ impl WindowsGlobalIndexProvider {
             force_direct: false,
             #[cfg(test)]
             smoke_ignored_wake_root: None,
+            #[cfg(test)]
+            fake_change_watchers: false,
+            #[cfg(test)]
+            test_watcher_start_count: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -204,7 +212,20 @@ impl WindowsGlobalIndexProvider {
             change_watchers: Mutex::new(HashMap::new()),
             force_direct: true,
             smoke_ignored_wake_root: Some(ignored_wake_root),
+            fake_change_watchers: false,
+            test_watcher_start_count: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    #[cfg(test)]
+    fn with_fake_change_watchers() -> Self {
+        let mut provider = Self::with_wake(
+            std::sync::Arc::new(GlobalIndexWakeSlot::default()),
+            PathBuf::new(),
+        );
+        provider.force_direct = true;
+        provider.fake_change_watchers = true;
+        provider
     }
 
     fn ensure_native_change_watcher(
@@ -217,21 +238,27 @@ impl WindowsGlobalIndexProvider {
         let mut watchers = self.change_watchers.lock().map_err(|_| {
             GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".to_string())
         })?;
-        if let Some(watcher) = watchers.get(&source.volume.id) {
-            return if watcher.has_failed() {
-                Err(GlobalIndexError::Provider(
-                    "windows_global_index_change_watcher_failed".to_string(),
-                ))
-            } else {
-                Ok(())
-            };
+        if watchers
+            .get(&source.volume.id)
+            .is_some_and(fallback::ChangeSignalWatcher::has_failed)
+        {
+            // A watcher error is only a wake hint failure. Drop its native
+            // handle so this request can install a fresh hint source and
+            // continue through the existing service/direct USN authority.
+            watchers.remove(&source.volume.id);
+        }
+        if watchers.contains_key(&source.volume.id) {
+            return Ok(());
         }
         let ignored_database_path = self
             .database_path
             .is_absolute()
             .then(|| self.database_path.clone());
         #[cfg(test)]
-        let watcher = if let Some(ignored_root) = &self.smoke_ignored_wake_root {
+        let watcher = if self.fake_change_watchers {
+            self.test_watcher_start_count.fetch_add(1, Ordering::AcqRel);
+            fallback::ChangeSignalWatcher::new_for_test()
+        } else if let Some(ignored_root) = &self.smoke_ignored_wake_root {
             fallback::ChangeSignalWatcher::start_ignoring_test_root(
                 Path::new(&source.volume.mount_path),
                 self.wake.clone(),
@@ -570,6 +597,31 @@ mod tests {
     use super::*;
     use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
 
+    fn windows_source() -> GlobalSourceDescriptor {
+        GlobalSourceDescriptor {
+            volume: GlobalVolume {
+                id: "volume".to_string(),
+                platform: "windows".to_string(),
+                stable_volume_id: "stable".to_string(),
+                display_name: "C".to_string(),
+                mount_path: "C:\\".to_string(),
+                filesystem_type: "ntfs".to_string(),
+                drive_kind: "fixed".to_string(),
+                enabled: true,
+                provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+                index_status: "ready".to_string(),
+                last_error: None,
+                journal_id: Some("journal".to_string()),
+                journal_cursor: Some("42".to_string()),
+                last_full_index_at: Some(1),
+                last_incremental_sync_at: Some(2),
+                entry_count: 3,
+                created_at: 0,
+                updated_at: 0,
+            },
+        }
+    }
+
     #[derive(Default)]
     struct SourceStateSink {
         status: Option<String>,
@@ -662,6 +714,79 @@ mod tests {
                 .expect("direct status"),
             "windows_mft_usn"
         );
+    }
+
+    #[test]
+    fn failed_change_watcher_is_replaced_and_source_request_continues() {
+        let provider = WindowsGlobalIndexProvider::with_fake_change_watchers();
+        let source = windows_source();
+        provider
+            .ensure_native_change_watcher(&source)
+            .expect("create initial watcher");
+        assert_eq!(provider.test_watcher_start_count.load(Ordering::Acquire), 1);
+
+        provider
+            .ensure_native_change_watcher(&source)
+            .expect("reuse healthy watcher");
+        assert_eq!(provider.test_watcher_start_count.load(Ordering::Acquire), 1);
+
+        provider
+            .change_watchers
+            .lock()
+            .expect("watcher map")
+            .get(&source.volume.id)
+            .expect("current watcher")
+            .mark_failed_for_test();
+
+        let request = WindowsGlobalIndexProvider::source_request(
+            IndexServiceCommand::ResumeIncrementalSync {
+                source_id: source.volume.id.clone(),
+            },
+            &source,
+        );
+        let mut sink = SourceStateSink::default();
+        let mut reached_direct_provider = false;
+        provider
+            .run_source_request(&request, &source, &mut sink, |_direct, _sink| {
+                reached_direct_provider = true;
+                Ok(())
+            })
+            .expect("request continues after watcher replacement");
+
+        assert!(reached_direct_provider, "USN provider path was not reached");
+        assert_eq!(provider.test_watcher_start_count.load(Ordering::Acquire), 2);
+        assert!(provider
+            .change_watchers
+            .lock()
+            .expect("watcher map")
+            .get(&source.volume.id)
+            .is_some_and(|watcher| !watcher.has_failed()));
+    }
+
+    #[test]
+    fn source_disable_and_watcher_cleanup_helpers_drop_native_handles() {
+        let provider = WindowsGlobalIndexProvider::with_fake_change_watchers();
+        let source = windows_source();
+        provider
+            .ensure_native_change_watcher(&source)
+            .expect("create watcher");
+
+        provider.source_enabled_changed(&source.volume.id, false);
+        assert!(provider
+            .change_watchers
+            .lock()
+            .expect("watcher map")
+            .is_empty());
+
+        provider
+            .ensure_native_change_watcher(&source)
+            .expect("recreate watcher");
+        provider.clear_native_change_watchers();
+        assert!(provider
+            .change_watchers
+            .lock()
+            .expect("watcher map")
+            .is_empty());
     }
 
     #[test]

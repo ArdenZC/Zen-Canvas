@@ -255,9 +255,7 @@ fn run_update_watcher(
         )
     };
     if !query.startQuery() {
-        if let Ok(mut pending) = pending.lock() {
-            pending.last_error = Some("macos_spotlight_realtime_updates_unavailable".to_string());
-        }
+        record_realtime_start_failure(pending, wake);
         let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
         let observer_object: &AnyObject = protocol_object.as_ref();
         unsafe { center.removeObserver(observer_object) };
@@ -274,6 +272,14 @@ fn run_update_watcher(
     let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
     let observer_object: &AnyObject = protocol_object.as_ref();
     unsafe { center.removeObserver(observer_object) };
+}
+
+fn record_realtime_start_failure(pending: &Mutex<PendingUpdates>, wake: &GlobalIndexWakeSlot) {
+    super::record_async_watcher_error(
+        pending,
+        wake,
+        "macos_spotlight_realtime_updates_unavailable",
+    );
 }
 
 fn new_local_computer_query() -> Retained<NSMetadataQuery> {
@@ -531,11 +537,12 @@ fn path_from_object(object: &AnyObject) -> Option<String> {
 mod tests {
     use super::super::super::models::normalize_path;
     use super::{
-        classify_spotlight_update, mac_file_identity, stream_local_computer_entries,
-        SpotlightUpdateAction,
+        classify_spotlight_update, mac_file_identity, record_realtime_start_failure,
+        stream_local_computer_entries, SpotlightUpdateAction,
     };
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn macos_paths_use_platform_normalization() {
@@ -566,6 +573,24 @@ mod tests {
         assert_eq!(
             classify_spotlight_update(true, true),
             SpotlightUpdateAction::Reconcile
+        );
+    }
+
+    #[test]
+    fn realtime_start_failure_uses_shared_error_and_wake_invariant() {
+        let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
+        let wake = Arc::new(crate::global_index::wake::GlobalIndexWakeSlot::default());
+
+        record_realtime_start_failure(&pending, &wake);
+
+        assert_eq!(wake.snapshot().notifications, 1);
+        assert_eq!(
+            pending
+                .lock()
+                .expect("pending updates")
+                .last_error
+                .as_deref(),
+            Some("macos_spotlight_realtime_updates_unavailable")
         );
     }
 
