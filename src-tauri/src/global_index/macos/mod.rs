@@ -724,9 +724,10 @@ mod tests {
             );
 
             let mut sink = RecordingSink::default();
-            let error = provider
-                .take_pending_or_report_error("volume", &mut sink)
-                .expect_err("pending watcher error must be reported");
+            let error = match provider.take_pending_or_report_error("volume", &mut sink) {
+                Err(error) => error,
+                Ok(_) => panic!("pending watcher error must be reported"),
+            };
             assert!(error.to_string().contains(error_code));
             assert_eq!(
                 sink.statuses.last().map(|value| value.1.as_str()),
