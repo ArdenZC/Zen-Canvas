@@ -1,15 +1,16 @@
 # ZB-04 — On-demand UI Runtime — Result
 
-Disposition: **BLOCKED — OWNER REVIEW EVIDENCE / LOCAL TASK HYGIENE PENDING**
+Disposition: **PENDING HOSTED CI — NATIVE UI TOOL LIMITATION ACCEPTED / LOCAL TASK HYGIENE PENDING**
 
 ## Identity
 
 - Baseline: `master@20def056aa5e6a3c5ae089d11033ddc2030bf041`
 - Taskbook commit: `c3839c83063dd26f192ab31a5e3e8a108f85ba5d`
 - Branch: `perf/zb-04-on-demand-ui-runtime`
-- Production HEAD: `1ad81469d18c24aebb4ddb35a2e4b32cbea4ceb8`
+- Production HEAD: `a6d0e5aacbf0c20a354448746b9a198d82106282` — resident `ExitRequested` repair and lifecycle diagnostics; tree `e079074721b1544b4998783966661efb209f411e`.
 - Validation/configuration HEAD: `d39cbdf655b2f8262c4365cf89567b330e8d1fce` (test/config-only successor; production sources are unchanged)
-- Final branch HEAD: this Result is a documentation-only successor to validation HEAD `d39cbdf655b2f8262c4365cf89567b330e8d1fce`; the exact pushed Result commit is the Draft PR source head and is reported in the final closeout.
+- Repair source parent: `a119f2caf97236e5f64c25259c356baa54ffec86`.
+- Final branch HEAD: this Result is a documentation-only successor to Production HEAD `a6d0e5a`; the exact pushed Result commit is the Draft PR source head and is reported in the final closeout.
 
 ## Main lifecycle
 
@@ -42,9 +43,33 @@ Resident state still contains the native process/core, tray and hotkey, Database
 
 ## WebView/process and latency evidence
 
-The implementation logs startup mode/window labels and WebView-window counts, Main/Search creation/destruction counts, and create-to-ready latency when each frontend marks its generation/session ready. These are measurement seams, not evidence that a native candidate was exercised.
+The native candidate was built from source tree `e079074721b1544b4998783966661efb209f411e`, now committed as Production HEAD `a6d0e5a`. Candidate identity:
 
-Native candidate process/WebView counts and Search cold-create, Main cold-create and reopen latency were **not measured** on this host. Preflight found the installed `zen-canvas.exe --index-service` resident and no candidate Main UI process. The installed service and candidate use the same fixed Global Index IPC pipe/database authority; starting the development candidate could communicate with the installed service. The candidate was therefore not started, and no before/after or latency number is claimed. Hosted CI status is recorded below; CI compile/test results do not substitute for native interactive latency evidence.
+- Executable: `D:\_codex_tmp\zb04-native-repair\target\debug\zen-canvas.exe`
+- SHA-256: `B1D7EA39D402280EEF21FA3A8809651DD0FB701E6B2BDDDC3F76BE2456458845`
+- Isolated identifier: `com.startlan.zencanvas.zb04native`
+- Isolated profile paths: `C:\Users\77588\AppData\Roaming\com.startlan.zencanvas.zb04native` and `C:\Users\77588\AppData\Local\com.startlan.zencanvas.zb04native`; these are distinct from the installed product identifier `com.startlan.zencanvas`.
+
+Native evidence recorded for this task-local debug candidate (diagnostic measurements, with no frozen performance threshold):
+
+| Scenario | Native observation |
+| --- | --- |
+| Background resident startup | `startup_mode=background`, Main 0, Search 0, WebView windows 0. |
+| Search lifecycle | Resident → Search cold create/ready → Escape → Search destroy; the resident PID remained alive and WebView-window count returned to 0. First Search cold create was about 503 ms; a second create was about 461 ms. |
+| Last Search window destruction | `ExitRequested code=None` was prevented; the resident remained alive. |
+| Manual second instance | First resident logged raw args `args=["D:\\_codex_tmp\\zb04-native-repair\\target\\debug\\zen-canvas.exe"]`, selected `ActivateMain`, created Main generation 1 with one WebView, and reached ready. Main create-to-ready was 634.2647 ms. The second PID had exited at 1 s, 5 s and 15 s. |
+
+The candidate log additionally records startup mode/window counts, single-instance received args/action/result, Main generation/WebView count, Search activation stages and readiness request/ack stages. Diagnostics do not log user file paths, API keys, file contents or sensitive navigation payloads. The native resident and single-instance evidence came from the isolated candidate; the only remaining `zen-canvas.exe --index-service` process observed was the installed Global Index service and it was not modified.
+
+The allowed native UI tool did not enumerate the candidate Main window. Therefore these scenarios remain **NOT DIRECTLY NATIVE-AUTOMATED ON THIS HOST**, not PASS or FAIL:
+
+- Search → Main activation performed through Search UI by click or keyboard;
+- Main close-to-background and tray reopen;
+- explicit Quit click;
+- background second launch after a Main-close cycle;
+- Main reopen latency.
+
+Owner accepts the current evidence boundary: the automated lifecycle contracts below combined with the directly observed native resident/Search/single-instance/Main-ready evidence. The unavailable UI automation is a **NATIVE QA TOOL LIMITATION**, not a proven product lifecycle defect. No alternate UI-control route or click-specific product code was added.
 
 Routed extended performance evidence was run once at production HEAD `1ad81469d18c24aebb4ddb35a2e4b32cbea4ceb8`:
 
@@ -148,7 +173,7 @@ The full frontend suite first encountered generated Rust fixture files under `.t
 
 ## Hosted CI
 
-Draft PR [#264](https://github.com/ArdenZC/Zen-Canvas/pull/264) is open and remains Draft. Hosted CI run [36049624697](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36049624697) passed all required jobs against PR source HEAD `e93ffc7f5d34e55115f7eedf28a2b3f9390cbaa4`:
+Draft PR [#264](https://github.com/ArdenZC/Zen-Canvas/pull/264) is open and remains Draft. The latest pre-repair integration run [36051507555](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36051507555) passed on source HEAD `a119f2caf97236e5f64c25259c356baa54ffec86`. The earlier run [36049624697](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36049624697) passed on `e93ffc7f5d34e55115f7eedf28a2b3f9390cbaa4`:
 
 - Windows and macOS Rust quality, release compile, and quality aggregates: PASS.
 - Frontend tests/build/browser quality and dependency audit: PASS.
@@ -156,9 +181,9 @@ Draft PR [#264](https://github.com/ArdenZC/Zen-Canvas/pull/264) is open and rema
 - Native Apple Silicon macOS performance: PASS.
 - Source checkout/evidence, change-scope/routing, validation plan, and package metadata: PASS.
 
-The Result update below is a documentation-only successor to that exact CI-validated source tree; no production code or tests changed after the hosted run. CI compilation/performance does not exercise the installed candidate's Main/Search create/close lifecycle, so the native UI process/latency measurements above remain unmeasured.
+The post-repair Hosted CI run for the final Result source head is pending. The repair received the focused checks below; no local full suite, extended performance or full security validation was repeated. Hosted CI remains the final Windows/macOS integration proof. CI does not substitute for the native UI evidence boundary described above.
 
-## Local task hygiene / closeout blocker
+## Local task hygiene / closeout pending
 
 The local safety policy previously rejected direct `Remove-Item` cleanup attempts for the task-created `.tmp-tests` symlinks and worktree `node_modules` Junction. No alternate deletion method or recursive cleanup was used. Read-only inspection confirms:
 
@@ -171,11 +196,22 @@ The local safety policy previously rejected direct `Remove-Item` cleanup attempt
 - `F:\Coding\Zen-Canvas-zb-04-on-demand-ui-runtime\node_modules` remains a Junction to task-owned `F:\_codex_tmp\zb04-validation-deps\node_modules`.
 - `.performance-artifacts`, `.performance-cache`, `.performance-temp`, and build output `dist` remain. Read-only recursive scans found no reparse points in those roots.
 
-This is a **LOCAL TASK HYGIENE / CLOSEOUT BLOCKER**, not a product implementation failure. The shared `F:\CargoTarget` was used for builds and remains intact. The common checkout `F:\Coding\Zen-Canvas` was not modified. No operation traversed or changed `C:\Windows`.
+These are retained task-owned local artifacts and are **LOCAL TASK HYGIENE PENDING**, not a product implementation blocker. Per owner direction, no further cleanup attempt or alternate deletion path was used. The D: candidate build/log root `D:\_codex_tmp\zb04-native-repair` and isolated profile directories listed above are retained pending owner-approved local cleanup. The shared `F:\CargoTarget` remains intact. The common checkout `F:\Coding\Zen-Canvas` was not modified. No operation traversed or changed `C:\Windows`.
+
+## Owner-review repair
+
+The repair commit `a6d0e5aacbf0c20a354448746b9a198d82106282` changes only `src-tauri/src/app_control.rs` and `src-tauri/src/main.rs`:
+
+- `ExitRequested { code: None }` maps to `StayResident` and calls `api.prevent_exit()`; it does not run resident shutdown. An explicit exit code maps to normal shutdown and permits exit.
+- Narrow diagnostics remain for single-instance raw args/action/result, Main generation and WebView count, Search activation stages, and readiness request/ack. No telemetry framework was added.
+- Focused automated contracts already cover Search activation command/readiness-listener ordering/generation nonce acknowledgement/stale and current nonce/navigation payload/renderer navigation; teardown session save → readiness false → FileWorkspace dispose → window destroy; Main reopen generation increment/small-session restore/stale-generation rejection; and single-instance ActivateMain/IgnoreBackground/unsupported-args fail-closed behavior.
+- The repair focused validation passed: Managed app-control tests 24 passed (992 filtered); frontend readiness/on-demand tests 8 passed; `cargo fmt --check`; narrow desktop-runtime Clippy with warnings denied; and `git diff --check`. These checks apply to the repair source tree `e079074...` / Production HEAD `a6d0e5aacbf0c20a354448746b9a198d82106282`. No source changed after those checks.
+- No full local test suite, extended performance, or full security suite was rerun for this repair.
 
 ## Scope confirmation and disposition
 
 - No schema, durable authority, PreviewSession/ReadGate/BrowseService semantics, filesystem mutation/recovery behavior, STATUS or ROADMAP changes.
 - No Global Index provider/runtime redesign, AI-only migration, ResourceGovernor, WebView lifecycle follow-on or ZB-05 work started.
 - No merge or Ready transition.
-- **BLOCKED** until owner review has Windows/macOS Hosted CI and the missing native cold-create/process evidence is resolved or explicitly waived, and local task-owned artifacts are handled under the host's approved cleanup policy.
+- The current native evidence boundary is owner-accepted; unavailable UI interactions remain `NOT DIRECTLY NATIVE-AUTOMATED ON THIS HOST`.
+- **PENDING HOSTED CI** on the new Result source head. If that run passes, disposition becomes `READY FOR OWNER RE-REVIEW — LOCAL TASK HYGIENE PENDING`; local cleanup remains owner-handled and is not a product blocker.
