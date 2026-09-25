@@ -462,6 +462,9 @@ describe("CI final performance remediation contract", () => {
     expect(globalIndexServiceQualification).toContain("deleteLatencyMs");
     expect(globalIndexServiceQualification).toContain("settledCoordinatorCycleDelta");
     expect(globalIndexServiceQualification).toContain("settledCoordinatorWaitDelta");
+    expect(globalIndexServiceQualification).toContain("LastCoordinatorEvent");
+    expect(globalIndexServiceQualification).toContain('$counts.LastCoordinatorEvent -ceq "coordinator_wait"');
+    expect(globalIndexServiceQualification).not.toContain('$counts.Lines[-1] -ceq "coordinator_wait"');
     expect(globalIndexServiceQualification).toContain("finally {");
     expect(globalIndexServiceQualification).toContain("CreateService failed; exact SCM output");
     expect(globalIndexServiceQualification).toContain("service-created-by-qualification.txt");

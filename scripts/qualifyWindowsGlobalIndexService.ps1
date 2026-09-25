@@ -100,11 +100,15 @@ function Get-TraceLines {
 
 function Get-TraceCounts {
     $lines = Get-TraceLines
+    $lastCoordinatorEvent = $lines | Where-Object {
+        $_ -ceq "coordinator_cycle" -or $_ -ceq "coordinator_wait"
+    } | Select-Object -Last 1
     return [pscustomobject]@{
         Lines = $lines
         Cycles = @($lines | Where-Object { $_ -ceq "coordinator_cycle" }).Count
         Waits = @($lines | Where-Object { $_ -ceq "coordinator_wait" }).Count
         ServiceRoutes = @($lines | Where-Object { $_ -ceq "windows_service_route_ok" }).Count
+        LastCoordinatorEvent = $lastCoordinatorEvent
     }
 }
 
@@ -469,7 +473,7 @@ try {
     $lastWaits = -1
     do {
         $counts = Get-TraceCounts
-        if ($counts.Lines.Count -gt 0 -and $counts.Lines[-1] -ceq "coordinator_wait" -and $counts.Cycles -eq $lastCycles -and $counts.Waits -eq $lastWaits) {
+        if ($counts.LastCoordinatorEvent -ceq "coordinator_wait" -and $counts.Cycles -eq $lastCycles -and $counts.Waits -eq $lastWaits) {
             if ($null -eq $settleSince) { $settleSince = [DateTime]::UtcNow }
             if (([DateTime]::UtcNow - $settleSince).TotalSeconds -ge 2) { break }
         } else {
@@ -479,7 +483,11 @@ try {
         }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $settleDeadline)
-    if ($null -eq $settleSince) { throw "coordinator did not settle into its blocking idle wait" }
+    if ($null -eq $settleSince) {
+        $lastTrace = if ($counts.Lines.Count -gt 0) { $counts.Lines[-1] } else { "none" }
+        $lastCoordinatorEvent = if ($counts.LastCoordinatorEvent) { $counts.LastCoordinatorEvent } else { "none" }
+        throw "coordinator did not settle into its blocking idle wait: cycles=$($counts.Cycles) waits=$($counts.Waits) lastCoordinatorEvent=$lastCoordinatorEvent lastTrace=$lastTrace"
+    }
     $idleBefore = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $idleBefore.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) { throw "no successful desktop-to-Windows-Service request was traced" }
