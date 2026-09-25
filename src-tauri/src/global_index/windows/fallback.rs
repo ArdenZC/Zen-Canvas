@@ -3,16 +3,12 @@ use crate::global_index::models::{
     GlobalEntryInput, GlobalSourceDescriptor, INDEX_STATUS_PERMISSION_REQUIRED,
     PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
 };
+use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use notify::{recommended_watcher, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::fs;
-use std::path::Path;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc::{sync_channel, Receiver, TryRecvError, TrySendError},
-    Arc,
-};
-
-const FALLBACK_WATCHER_CHANNEL_CAPACITY: usize = 2048;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Default)]
 struct FallbackScanSummary {
@@ -29,65 +25,109 @@ impl FallbackScanSummary {
     }
 }
 
-/// The recursive provider remains metadata-only. The watcher is only a
-/// bounded change signal; the next reconciliation performs the authoritative
-/// batched directory walk so overflow and rename edge cases cannot leave stale
-/// paths in the global index.
-pub(crate) struct ReconcileWatcher {
+/// Windows native indexing uses filesystem events only as a coalesced wake
+/// hint. Event paths are discarded and USN remains the row-change authority.
+pub(crate) struct ChangeSignalWatcher {
     _watcher: RecommendedWatcher,
-    receiver: Receiver<notify::Result<Event>>,
-    overflowed: Arc<AtomicBool>,
+    failed: Arc<AtomicBool>,
 }
 
-impl ReconcileWatcher {
-    pub(crate) fn start(root: &Path) -> Result<Self, GlobalIndexError> {
-        let (sender, receiver) = sync_channel(FALLBACK_WATCHER_CHANNEL_CAPACITY);
-        let overflowed = Arc::new(AtomicBool::new(false));
-        let overflowed_for_callback = overflowed.clone();
-        let mut watcher = recommended_watcher(move |event| {
-            if let Err(TrySendError::Full(_)) = sender.try_send(event) {
-                overflowed_for_callback.store(true, Ordering::Release);
+impl ChangeSignalWatcher {
+    pub(crate) fn start(
+        root: &Path,
+        wake: Arc<GlobalIndexWakeSlot>,
+        ignored_database_path: Option<PathBuf>,
+    ) -> Result<Self, GlobalIndexError> {
+        Self::start_inner(root, wake, ignored_database_path, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_ignoring_test_root(
+        root: &Path,
+        wake: Arc<GlobalIndexWakeSlot>,
+        ignored_database_path: Option<PathBuf>,
+        ignored_event_root: PathBuf,
+    ) -> Result<Self, GlobalIndexError> {
+        Self::start_inner(root, wake, ignored_database_path, Some(ignored_event_root))
+    }
+
+    fn start_inner(
+        root: &Path,
+        wake: Arc<GlobalIndexWakeSlot>,
+        ignored_database_path: Option<PathBuf>,
+        ignored_event_root: Option<PathBuf>,
+    ) -> Result<Self, GlobalIndexError> {
+        let failed = Arc::new(AtomicBool::new(false));
+        let failed_for_callback = failed.clone();
+        let ignored_database_path = ignored_database_path.clone();
+        let ignored_event_root = ignored_event_root.clone();
+        let mut watcher = recommended_watcher(move |event: notify::Result<Event>| match event {
+            Ok(event) => {
+                let is_ignored_only = !event.paths.is_empty()
+                    && event.paths.iter().all(|path| {
+                        ignored_database_path
+                            .as_deref()
+                            .is_some_and(|database_path| is_database_artifact(path, database_path))
+                            || ignored_event_root
+                                .as_deref()
+                                .is_some_and(|ignored_root| is_path_within(path, ignored_root))
+                    });
+                if !is_ignored_only {
+                    wake.notify(GlobalIndexWakeReason::ProviderChange);
+                }
+            }
+            Err(error) => {
+                if !failed_for_callback.swap(true, Ordering::AcqRel) {
+                    eprintln!("Windows Global Index change watcher failed: {error}");
+                    wake.notify(GlobalIndexWakeReason::ProviderChange);
+                }
             }
         })
         .map_err(|error| {
             GlobalIndexError::Provider(format!(
-                "windows_recursive_fallback_watcher_start_failed: {error}"
+                "windows_global_index_change_watcher_start_failed: {error}"
             ))
         })?;
         watcher
             .watch(root, RecursiveMode::Recursive)
             .map_err(|error| {
                 GlobalIndexError::Provider(format!(
-                    "windows_recursive_fallback_watcher_watch_failed: {error}"
+                    "windows_global_index_change_watcher_watch_failed: {error}"
                 ))
             })?;
         Ok(Self {
             _watcher: watcher,
-            receiver,
-            overflowed,
+            failed,
         })
     }
 
-    pub(crate) fn take_reconcile_signal(&self) -> Result<bool, GlobalIndexError> {
-        let mut changed = self.overflowed.swap(false, Ordering::AcqRel);
-        loop {
-            match self.receiver.try_recv() {
-                Ok(Ok(_event)) => changed = true,
-                Ok(Err(error)) => {
-                    return Err(GlobalIndexError::Provider(format!(
-                        "windows_recursive_fallback_watcher_event_failed: {error}"
-                    )))
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    return Err(GlobalIndexError::Provider(
-                        "windows_recursive_fallback_watcher_disconnected".to_string(),
-                    ))
-                }
-            }
-        }
-        Ok(changed)
+    pub(crate) fn has_failed(&self) -> bool {
+        self.failed.load(Ordering::Acquire)
     }
+}
+
+fn is_database_artifact(event_path: &Path, database_path: &Path) -> bool {
+    let event_path = normalized_windows_path(event_path);
+    let database_path = normalized_windows_path(database_path);
+    event_path == database_path
+        || ["-wal", "-shm", "-journal"]
+            .iter()
+            .any(|suffix| event_path == format!("{database_path}{suffix}"))
+}
+
+fn normalized_windows_path(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('/', "\\");
+    let path = path.strip_prefix("\\\\?\\").unwrap_or(&path);
+    path.to_ascii_lowercase()
+}
+
+fn is_path_within(path: &Path, root: &Path) -> bool {
+    let path = normalized_windows_path(path);
+    let root = normalized_windows_path(root);
+    path == root
+        || path
+            .strip_prefix(&root)
+            .is_some_and(|suffix| suffix.starts_with('\\'))
 }
 
 pub fn index_volume(
@@ -177,7 +217,7 @@ fn walk(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{is_database_artifact, *};
 
     #[test]
     fn fallback_provider_name_is_explicit() {
@@ -185,5 +225,32 @@ mod tests {
             PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
             "windows_recursive_fallback"
         );
+    }
+
+    #[test]
+    fn native_change_signal_ignores_only_its_sqlite_artifacts() {
+        let database = Path::new(r"C:\Users\test\AppData\Roaming\Zen\zen-canvas.sqlite3");
+        assert!(is_database_artifact(database, database));
+        assert!(is_database_artifact(
+            Path::new(r"\\?\C:\Users\test\AppData\Roaming\Zen\zen-canvas.sqlite3-wal"),
+            database
+        ));
+        assert!(is_database_artifact(
+            Path::new(r"C:\Users\test\AppData\Roaming\Zen\zen-canvas.sqlite3-shm"),
+            database
+        ));
+        assert!(!is_database_artifact(
+            Path::new(r"C:\Users\test\AppData\Roaming\Zen\user.db"),
+            database
+        ));
+        let staging_root = Path::new(r"F:\worktree\.tmp-tests\native-smoke\temp");
+        assert!(is_path_within(
+            Path::new(r"\\?\F:\worktree\.tmp-tests\native-smoke\temp\mft.sqlite"),
+            staging_root
+        ));
+        assert!(!is_path_within(
+            Path::new(r"F:\worktree\.tmp-tests\native-smoke\fixture\file.txt"),
+            staging_root
+        ));
     }
 }

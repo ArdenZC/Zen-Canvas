@@ -1,7 +1,9 @@
+use super::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
 use super::PendingUpdates;
+use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use fsevent_sys::core_foundation::{
     kCFAllocatorDefault, kCFRunLoopDefaultMode, kCFStringEncodingUTF8, kCFTypeArrayCallBacks,
-    CFArrayAppendValue, CFArrayCreateMutable, CFRelease, CFRunLoopGetCurrent, CFRunLoopRef,
+    CFArrayAppendValue, CFArrayCreateMutable, CFRelease, CFRunLoopGetCurrent,
     CFStringCreateWithCString,
 };
 use fsevent_sys::{
@@ -26,12 +28,16 @@ use std::thread::{self, JoinHandle};
 
 pub struct FseventsHandle {
     stop: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
+    stop_signal: Arc<NativeRunLoopStopSignal>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl FseventsHandle {
     pub fn stop(mut self) {
         self.stop.store(true, Ordering::Release);
+        self.stopped.store(true, Ordering::Release);
+        self.stop_signal.request_stop();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -42,6 +48,7 @@ pub fn start_reconcile_watcher(
     root: &Path,
     pending: Arc<Mutex<PendingUpdates>>,
     stopped: Arc<AtomicBool>,
+    wake: Arc<GlobalIndexWakeSlot>,
     since_event_id: Option<u64>,
 ) -> Result<FseventsHandle, String> {
     let root = root
@@ -50,12 +57,27 @@ pub fn start_reconcile_watcher(
         .to_string();
     let stop = Arc::new(AtomicBool::new(false));
     let stop_for_thread = stop.clone();
+    let stopped_for_handle = stopped.clone();
+    let stop_signal = Arc::new(NativeRunLoopStopSignal::default());
+    let stop_signal_for_thread = stop_signal.clone();
     let thread = thread::Builder::new()
         .name("zen-canvas-macos-fsevents".to_string())
-        .spawn(move || run_fsevents(&root, pending, stopped, stop_for_thread, since_event_id))
+        .spawn(move || {
+            run_fsevents(
+                &root,
+                pending,
+                stopped,
+                stop_for_thread,
+                stop_signal_for_thread,
+                wake,
+                since_event_id,
+            )
+        })
         .map_err(|error| format!("macos_fsevents_thread_start_failed: {error}"))?;
     Ok(FseventsHandle {
         stop,
+        stopped: stopped_for_handle,
+        stop_signal,
         thread: Some(thread),
     })
 }
@@ -63,6 +85,7 @@ pub fn start_reconcile_watcher(
 struct FseventInfo {
     pending: Arc<Mutex<PendingUpdates>>,
     stopped: Arc<AtomicBool>,
+    wake: Arc<GlobalIndexWakeSlot>,
 }
 
 extern "C" fn fsevent_callback(
@@ -96,6 +119,7 @@ extern "C" fn fsevent_callback(
             pending.last_event_id = ids.iter().copied().max().or(pending.last_event_id);
         }
     }
+    info.wake.notify(GlobalIndexWakeReason::ProviderChange);
 }
 
 fn fsevent_requires_full_reconcile(flags: FSEventStreamEventFlags) -> bool {
@@ -115,6 +139,8 @@ fn run_fsevents(
     pending: Arc<Mutex<PendingUpdates>>,
     stopped: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    stop_signal: Arc<NativeRunLoopStopSignal>,
+    wake: Arc<GlobalIndexWakeSlot>,
     since_event_id: Option<u64>,
 ) {
     let Ok(path) = CString::new(root) else {
@@ -142,7 +168,11 @@ fn run_fsevents(
         }
         CFArrayAppendValue(paths, path_ref);
         CFRelease(path_ref);
-        let info = Box::new(FseventInfo { pending, stopped });
+        let info = Box::new(FseventInfo {
+            pending,
+            stopped,
+            wake,
+        });
         let context = FSEventStreamContext {
             version: 0,
             info: Box::into_raw(info).cast(),
@@ -182,9 +212,13 @@ fn run_fsevents(
             drop(Box::from_raw(context.info.cast::<FseventInfo>()));
             return;
         }
-        while !stop.load(Ordering::Acquire) {
-            run_loop_run_for(0.25);
+        let native_run_loop = objc2_foundation::NSRunLoop::currentRunLoop().getCFRunLoop();
+        let stop_action = cross_thread_stop_action(native_run_loop);
+        stop_signal.install(stop_action);
+        if !stop.load(Ordering::Acquire) {
+            fsevent_sys::core_foundation::CFRunLoopRun();
         }
+        stop_signal.clear();
         FSEventStreamStop(stream);
         FSEventStreamUnscheduleFromRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
         FSEventStreamInvalidate(stream);
@@ -193,25 +227,10 @@ fn run_fsevents(
     }
 }
 
-unsafe fn run_loop_run_for(seconds: f64) {
-    // fsevent-sys exposes the run-loop handle but not the bounded runner. The
-    // CoreFoundation ABI is stable and this keeps shutdown responsive.
-    unsafe extern "C" {
-        fn CFRunLoopRunInMode(
-            mode: fsevent_sys::core_foundation::CFStringRef,
-            seconds: f64,
-            return_after_source_handled: u8,
-        ) -> isize;
-    }
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode, seconds, 1);
-}
-
-#[allow(dead_code)]
-fn _assert_run_loop_type(_: CFRunLoopRef) {}
-
 #[cfg(test)]
 mod tests {
     use super::{fsevent_callback, fsevent_requires_full_reconcile, FseventInfo};
+    use crate::global_index::wake::GlobalIndexWakeSlot;
     use fsevent_sys::{
         kFSEventStreamEventFlagEventIdsWrapped, kFSEventStreamEventFlagKernelDropped,
         kFSEventStreamEventFlagMount, kFSEventStreamEventFlagMustScanSubDirs,
@@ -251,9 +270,11 @@ mod tests {
     fn fsevents_callback_records_checkpoint_and_reconcile_signal() {
         let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
         let stopped = Arc::new(AtomicBool::new(false));
+        let wake = Arc::new(GlobalIndexWakeSlot::default());
         let info = FseventInfo {
             pending: pending.clone(),
             stopped,
+            wake: wake.clone(),
         };
         let flags = [kFSEventStreamEventFlagMustScanSubDirs];
         let event_ids = [42_u64];
@@ -268,15 +289,18 @@ mod tests {
         let pending = pending.lock().expect("pending updates");
         assert!(pending.full_reconcile);
         assert_eq!(pending.last_event_id, Some(42));
+        assert_eq!(wake.snapshot().notifications, 1);
     }
 
     #[test]
     fn fsevents_callback_keeps_normal_file_event_incremental() {
         let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
         let stopped = Arc::new(AtomicBool::new(false));
+        let wake = Arc::new(GlobalIndexWakeSlot::default());
         let info = FseventInfo {
             pending: pending.clone(),
             stopped,
+            wake: wake.clone(),
         };
         let flags = [0];
         let event_ids = [7_u64];
@@ -291,15 +315,18 @@ mod tests {
         let pending = pending.lock().expect("pending updates");
         assert!(!pending.full_reconcile);
         assert_eq!(pending.last_event_id, Some(7));
+        assert_eq!(wake.snapshot().notifications, 1);
     }
 
     #[test]
     fn fsevents_callback_stops_mutating_after_shutdown() {
         let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
         let stopped = Arc::new(AtomicBool::new(true));
+        let wake = Arc::new(GlobalIndexWakeSlot::default());
         let info = FseventInfo {
             pending: pending.clone(),
             stopped,
+            wake: wake.clone(),
         };
         let flags = [kFSEventStreamEventFlagMustScanSubDirs];
         let event_ids = [99_u64];
@@ -314,5 +341,6 @@ mod tests {
         let pending = pending.lock().expect("pending updates");
         assert!(!pending.full_reconcile);
         assert_eq!(pending.last_event_id, None);
+        assert_eq!(wake.snapshot().notifications, 0);
     }
 }

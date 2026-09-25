@@ -7,6 +7,7 @@ pub mod managed_worker;
 pub mod models;
 mod repository;
 pub mod search;
+pub(crate) mod wake;
 
 #[cfg(target_os = "macos")]
 pub mod macos;

@@ -58,13 +58,7 @@ impl Database {
                 mount_path = excluded.mount_path,
                 filesystem_type = excluded.filesystem_type,
                 drive_kind = excluded.drive_kind,
-                provider = CASE
-                    WHEN global_volumes.provider = 'windows_recursive_fallback'
-                     AND excluded.provider = 'windows_mft_usn'
-                     AND lower(global_volumes.filesystem_type) = lower(excluded.filesystem_type)
-                    THEN global_volumes.provider
-                    ELSE excluded.provider
-                END,
+                provider = excluded.provider,
                 updated_at = excluded.updated_at
             "#,
             params![

@@ -142,6 +142,37 @@ fn migration_creates_global_and_managed_domains_separately() {
 }
 
 #[test]
+fn fresh_native_discovery_normalizes_legacy_recursive_fallback_without_erasing_error() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    let mut legacy = test_volume();
+    legacy.provider = PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+    legacy.index_status = INDEX_STATUS_PERMISSION_REQUIRED.to_string();
+    legacy.last_error = Some("native access denied".to_string());
+    db.upsert_global_volume(&legacy)
+        .expect("insert legacy provider snapshot");
+
+    let mut discovered = legacy;
+    discovered.provider = PROVIDER_WINDOWS_MFT_USN.to_string();
+    db.upsert_global_volume(&discovered)
+        .expect("apply fresh native discovery");
+
+    let persisted = db
+        .get_global_volume("gv_test")
+        .expect("load volume")
+        .expect("volume remains present");
+    assert_eq!(persisted.provider, PROVIDER_WINDOWS_MFT_USN);
+    assert_eq!(persisted.index_status, INDEX_STATUS_PERMISSION_REQUIRED);
+    assert_eq!(
+        persisted.last_error.as_deref(),
+        Some("native access denied")
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn global_search_is_independent_from_legacy_files_and_ai_is_scope_gated() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");

@@ -747,4 +747,48 @@ mod tests {
             Err("index_service_source_snapshot_required".to_string())
         );
     }
+
+    #[test]
+    fn v3_service_protocol_and_event_frame_shape_remain_stable() {
+        assert_eq!(IPC_PROTOCOL_VERSION, 3);
+        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\ZenCanvas.GlobalIndex.v3");
+
+        let request = IndexServiceRequest {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            request_id: "request-1".to_string(),
+            command: IndexServiceCommand::Status,
+            source: None,
+        };
+        assert_eq!(
+            serde_json::to_value(request).expect("serialize v3 request"),
+            serde_json::json!({
+                "protocol_version": 3,
+                "request_id": "request-1",
+                "command": "status",
+                "source": null,
+            })
+        );
+
+        let frame = IndexServiceFrame::Event {
+            request_id: "request-1".to_string(),
+            event: IndexServiceEvent::Checkpoint {
+                volume_id: "volume-1".to_string(),
+                journal_id: Some("journal-1".to_string()),
+                journal_cursor: Some("cursor-1".to_string()),
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(frame).expect("serialize v3 event frame"),
+            serde_json::json!({
+                "kind": "event",
+                "request_id": "request-1",
+                "event": {
+                    "event": "checkpoint",
+                    "volume_id": "volume-1",
+                    "journal_id": "journal-1",
+                    "journal_cursor": "cursor-1",
+                },
+            })
+        );
+    }
 }

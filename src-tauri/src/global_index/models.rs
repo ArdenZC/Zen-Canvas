@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const PROVIDER_WINDOWS_MFT_USN: &str = "windows_mft_usn";
 pub const PROVIDER_WINDOWS_RECURSIVE_FALLBACK: &str = "windows_recursive_fallback";
+pub const PROVIDER_WINDOWS_UNSUPPORTED: &str = "windows_native_provider_unsupported";
 pub const PROVIDER_MACOS_SPOTLIGHT: &str = "macos_spotlight";
 pub const PROVIDER_MACOS_FSEVENTS_RECONCILE: &str = "macos_fsevents_reconcile";
 pub const PROVIDER_RECURSIVE_FALLBACK: &str = "recursive_fallback";
