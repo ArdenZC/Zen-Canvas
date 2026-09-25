@@ -1,6 +1,6 @@
 # ZB-04 — On-demand UI Runtime — Result
 
-Disposition: **PENDING HOSTED CI — NATIVE UI TOOL LIMITATION ACCEPTED / LOCAL TASK HYGIENE PENDING**
+Disposition: **READY FOR OWNER RE-REVIEW — LOCAL TASK HYGIENE PENDING**
 
 ## Identity
 
@@ -10,7 +10,7 @@ Disposition: **PENDING HOSTED CI — NATIVE UI TOOL LIMITATION ACCEPTED / LOCAL 
 - Production HEAD: `a6d0e5aacbf0c20a354448746b9a198d82106282` — resident `ExitRequested` repair and lifecycle diagnostics; tree `e079074721b1544b4998783966661efb209f411e`.
 - Validation/configuration HEAD: `d39cbdf655b2f8262c4365cf89567b330e8d1fce` (test/config-only successor; production sources are unchanged)
 - Repair source parent: `a119f2caf97236e5f64c25259c356baa54ffec86`.
-- Final branch HEAD: this Result is a documentation-only successor to Production HEAD `a6d0e5a`; the exact pushed Result commit is the Draft PR source head and is reported in the final closeout.
+- Final branch HEAD: this Result is a documentation-only status successor to Hosted CI-validated source HEAD `1be6ed66c7cc5a64667f36f0a0fc8f503b4d384b`; no production source changed after Production HEAD `a6d0e5aacbf0c20a354448746b9a198d82106282`. The exact pushed Result commit is the Draft PR source head and is reported in the final closeout.
 
 ## Main lifecycle
 
@@ -173,15 +173,18 @@ The full frontend suite first encountered generated Rust fixture files under `.t
 
 ## Hosted CI
 
-Draft PR [#264](https://github.com/ArdenZC/Zen-Canvas/pull/264) is open and remains Draft. The latest pre-repair integration run [36051507555](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36051507555) passed on source HEAD `a119f2caf97236e5f64c25259c356baa54ffec86`. The earlier run [36049624697](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36049624697) passed on `e93ffc7f5d34e55115f7eedf28a2b3f9390cbaa4`:
+Draft PR [#264](https://github.com/ArdenZC/Zen-Canvas/pull/264) is open and remains Draft. Post-repair Hosted CI run [36106019776](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36106019776) completed **SUCCESS** on exact PR source HEAD `1be6ed66c7cc5a64667f36f0a0fc8f503b4d384b`:
 
-- Windows and macOS Rust quality, release compile, and quality aggregates: PASS.
-- Frontend tests/build/browser quality and dependency audit: PASS.
+- Windows and macOS Rust quality, including tests/Clippy: PASS.
+- Frontend tests, format/build and browser quality: PASS.
 - Routed Search and Workspace Foundation performance lanes: PASS.
 - Native Apple Silicon macOS performance: PASS.
-- Source checkout/evidence, change-scope/routing, validation plan, and package metadata: PASS.
+- Windows/macOS release compile, package metadata smoke, dependency audit, source evidence, scope/routing and validation-plan contracts: PASS.
+- Unrouted package/native Preview Handler and unrelated performance lanes were skipped by the current validation plan.
 
-The post-repair Hosted CI run for the final Result source head is pending. The repair received the focused checks below; no local full suite, extended performance or full security validation was repeated. Hosted CI remains the final Windows/macOS integration proof. CI does not substitute for the native UI evidence boundary described above.
+This Result is a documentation-only successor to that full integration-validated source head; production sources are unchanged. The prior pre-repair runs were `36051507555` on `a119f2caf97236e5f64c25259c356baa54ffec86` and `36049624697` on `e93ffc7f5d34e55115f7eedf28a2b3f9390cbaa4`; they are historical and do not replace the post-repair run above.
+
+The repair received the focused checks below; no local full suite, extended performance or full security validation was repeated. Hosted CI is the final Windows/macOS integration proof for the repair source tree. CI does not substitute for the native UI evidence boundary described above.
 
 ## Local task hygiene / closeout pending
 
@@ -214,4 +217,4 @@ The repair commit `a6d0e5aacbf0c20a354448746b9a198d82106282` changes only `src-t
 - No Global Index provider/runtime redesign, AI-only migration, ResourceGovernor, WebView lifecycle follow-on or ZB-05 work started.
 - No merge or Ready transition.
 - The current native evidence boundary is owner-accepted; unavailable UI interactions remain `NOT DIRECTLY NATIVE-AUTOMATED ON THIS HOST`.
-- **PENDING HOSTED CI** on the new Result source head. If that run passes, disposition becomes `READY FOR OWNER RE-REVIEW — LOCAL TASK HYGIENE PENDING`; local cleanup remains owner-handled and is not a product blocker.
+- **READY FOR OWNER RE-REVIEW — LOCAL TASK HYGIENE PENDING**. The native QA boundary is accepted, Hosted CI run `36106019776` passed on source HEAD `1be6ed66c7cc5a64667f36f0a0fc8f503b4d384b`, and local cleanup remains owner-handled rather than a product blocker.
