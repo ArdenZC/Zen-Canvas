@@ -9,10 +9,15 @@ Set-StrictMode -Version Latest
 
 $serviceName = "ZenCanvasGlobalIndex"
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+$originalLocalAppData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { [IO.Path]::GetFullPath($env:LOCALAPPDATA) } else { $null }
+$originalUserProfile = if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) { [IO.Path]::GetFullPath($env:USERPROFILE) } else { $null }
 $taskId = "zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $runnerTemp $taskId))
 $profileRoot = Join-Path $taskRoot "profile"
-$fixtureRoot = Join-Path $taskRoot "fixtures"
+$fixtureRootMarker = Join-Path $taskRoot "fixture-root-created-by-qualification.txt"
+$fixtureRoot = $null
+$fixtureCleanupBoundary = $null
+$fixtureVolume = $null
 $tracePath = Join-Path $taskRoot "global-index-trace.log"
 $CandidateExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CandidateExe).Path)
 $ProbeExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProbeExe).Path)
@@ -37,10 +42,14 @@ $script:evidence = [ordered]@{
     clientCurrentExe = $null
     sameImage = $false
     fixedNtfsSource = $null
+    fixedNtfsMountPath = $null
     provider = $null
     sourceStatus = $null
     sourceLastError = $null
     baselineEntryCount = $null
+    fixtureRoot = $null
+    fixtureVolume = $null
+    usnJournalProbes = @()
     baselineFixturePath = $null
     baselineFixtureSearchFound = $false
     createLatencyMs = $null
@@ -56,6 +65,7 @@ $script:evidence = [ordered]@{
         serviceStopped = $false
         serviceDeleted = $false
         candidateProcessesTerminated = $false
+        fixtureRootRemoved = $false
         taskProfileRemoved = $false
         details = @()
     }
@@ -162,6 +172,14 @@ function Get-ProcessImage([int]$ProcessId) {
     return [IO.Path]::GetFullPath($process.ExecutablePath)
 }
 
+function Get-DriveId([string]$Path) {
+    $root = [IO.Path]::GetPathRoot($Path)
+    if ([string]::IsNullOrWhiteSpace($root) -or $root.Length -lt 2 -or $root[1] -ne ':') {
+        throw "expected a drive-letter path for hosted qualification: $Path"
+    }
+    return $root.Substring(0, 2)
+}
+
 function Stop-Probe {
     if ($null -eq $script:probeProcess) { return }
     try {
@@ -198,18 +216,80 @@ try {
     $script:evidence.candidateSha256 = (Get-FileHash -LiteralPath $CandidateExe -Algorithm SHA256).Hash
 
     New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
+
+    $fixtureLocations = @(
+        [pscustomobject]@{
+            Volume = Get-DriveId $runnerTemp
+            Root = Join-Path $taskRoot "fixtures"
+            Boundary = $runnerTemp
+        }
+    )
+    if ($originalLocalAppData) {
+        $localDataBoundary = $originalLocalAppData.TrimEnd('\') + '\'
+        $fixtureLocations += [pscustomobject]@{
+            Volume = Get-DriveId $originalLocalAppData
+            Root = Join-Path $originalLocalAppData ("Temp\$taskId\fixtures")
+            Boundary = $localDataBoundary
+        }
+    }
+    if ($originalUserProfile) {
+        $userProfileBoundary = $originalUserProfile.TrimEnd('\') + '\'
+        $fixtureLocations += [pscustomobject]@{
+            Volume = Get-DriveId $originalUserProfile
+            Root = Join-Path $originalUserProfile ("AppData\Local\Temp\$taskId\fixtures")
+            Boundary = $userProfileBoundary
+        }
+    }
+
+    $selectedFixtureLocation = $null
+    $probedVolumes = @{}
+    foreach ($location in $fixtureLocations) {
+        if ($probedVolumes.ContainsKey($location.Volume)) { continue }
+        $probedVolumes[$location.Volume] = $true
+        $logicalDisk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($location.Volume)'" -ErrorAction SilentlyContinue
+        if ($null -eq $logicalDisk -or $logicalDisk.FileSystem -ine "NTFS" -or $logicalDisk.DriveType -ne 3) {
+            $script:evidence.usnJournalProbes += [ordered]@{
+                volume = $location.Volume
+                filesystem = if ($logicalDisk) { $logicalDisk.FileSystem } else { $null }
+                driveType = if ($logicalDisk) { $logicalDisk.DriveType } else { $null }
+                exitCode = $null
+                output = "not a fixed NTFS volume"
+            }
+            continue
+        }
+        $journalOutput = (& fsutil.exe usn queryjournal $location.Volume 2>&1 | Out-String).Trim()
+        $journalExitCode = $LASTEXITCODE
+        $script:evidence.usnJournalProbes += [ordered]@{
+            volume = $location.Volume
+            filesystem = $logicalDisk.FileSystem
+            driveType = $logicalDisk.DriveType
+            exitCode = $journalExitCode
+            output = $journalOutput
+        }
+        if ($journalExitCode -eq 0) {
+            $selectedFixtureLocation = $location
+            break
+        }
+    }
+    if ($null -eq $selectedFixtureLocation) {
+        throw "no writable-path candidate is on a fixed NTFS volume with an active USN journal; probes=$($script:evidence.usnJournalProbes | ConvertTo-Json -Compress -Depth 5)"
+    }
+    $fixtureRoot = [IO.Path]::GetFullPath($selectedFixtureLocation.Root)
+    $fixtureCleanupBoundary = $selectedFixtureLocation.Boundary
+    $fixtureVolume = $selectedFixtureLocation.Volume
+    if (-not $fixtureRoot.StartsWith($fixtureCleanupBoundary, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "refusing to create qualification fixture outside its task-owned boundary: $fixtureRoot"
+    }
+    $script:evidence.fixtureRoot = $fixtureRoot
+    $script:evidence.fixtureVolume = $fixtureVolume
+    Set-Content -LiteralPath $fixtureRootMarker -Value $fixtureRoot -NoNewline
     New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+
     $preexistingToken = "zb05qapreexisting$([Guid]::NewGuid().ToString('N'))"
     $preexistingPath = Join-Path $fixtureRoot "$preexistingToken.txt"
     New-Item -ItemType File -Path $preexistingPath | Out-Null
     Set-Content -LiteralPath $preexistingPath -Value "created before the Global Index baseline" -NoNewline
     $script:evidence.baselineFixturePath = $preexistingPath
-
-    $driveLetter = [IO.Path]::GetPathRoot($fixtureRoot).Substring(0, 1)
-    $logicalDisk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$driveLetter`:'"
-    if ($null -eq $logicalDisk -or $logicalDisk.FileSystem -ine "NTFS" -or $logicalDisk.DriveType -ne 3) {
-        throw "qualification fixture must be on a fixed NTFS volume; drive=$driveLetter filesystem=$($logicalDisk.FileSystem) driveType=$($logicalDisk.DriveType)"
-    }
 
     $env:ZC_NATIVE_QA_PROFILE_ROOT = $profileRoot
     $env:ZC_GLOBAL_INDEX_QA_TRACE = $tracePath
@@ -298,6 +378,12 @@ try {
         })
         if ($eligibleSources.Count -gt 0) {
             $baselineSource = $eligibleSources | Sort-Object { $_.mountPath.Length } -Descending | Select-Object -First 1
+            $script:evidence.fixedNtfsSource = $baselineSource.id
+            $script:evidence.fixedNtfsMountPath = $baselineSource.mountPath
+            $script:evidence.provider = $baselineSource.provider
+            $script:evidence.sourceStatus = $baselineSource.status
+            $script:evidence.sourceLastError = $baselineSource.lastError
+            $script:evidence.baselineEntryCount = [long]$baselineSource.entryCount
             if ($baselineSource.status -in @("rebuild_required", "permission_required", "error", "unavailable")) {
                 throw "fixed NTFS baseline did not complete truthfully: status=$($baselineSource.status) error=$($baselineSource.lastError) entry_count=$($baselineSource.entryCount)"
             }
@@ -312,11 +398,6 @@ try {
     if ([long]$baselineSource.entryCount -le 0) {
         throw "native MFT baseline is incomplete: fixed NTFS source reached ready with entry_count=$($baselineSource.entryCount)"
     }
-    $script:evidence.fixedNtfsSource = $baselineSource.id
-    $script:evidence.provider = $baselineSource.provider
-    $script:evidence.sourceStatus = $baselineSource.status
-    $script:evidence.sourceLastError = $baselineSource.lastError
-    $script:evidence.baselineEntryCount = [long]$baselineSource.entryCount
     $baselineTrace = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $baselineTrace.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) {
@@ -464,6 +545,19 @@ try {
             if (-not $taskRoot.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
                 throw "refusing cleanup outside RUNNER_TEMP: $taskRoot"
             }
+        }
+        if ($fixtureRoot -and (Test-Path -LiteralPath $fixtureRoot)) {
+            if (-not $fixtureCleanupBoundary -or -not $fixtureRoot.StartsWith($fixtureCleanupBoundary, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "refusing cleanup outside the task-owned fixture boundary: $fixtureRoot"
+            }
+            Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
+        }
+        $script:evidence.cleanup.fixtureRootRemoved = -not $fixtureRoot -or -not (Test-Path -LiteralPath $fixtureRoot)
+        if (-not $script:evidence.cleanup.fixtureRootRemoved) {
+            $script:cleanupFailure = $true
+            $script:evidence.cleanup.details += "task fixture root remains: $fixtureRoot"
+        }
+        if (Test-Path -LiteralPath $taskRoot) {
             Remove-Item -LiteralPath $taskRoot -Recurse -Force
         }
         $script:evidence.cleanup.taskProfileRemoved = -not (Test-Path -LiteralPath $taskRoot)

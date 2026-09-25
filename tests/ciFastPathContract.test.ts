@@ -433,9 +433,12 @@ describe("CI final performance remediation contract", () => {
     expect(interactiveWorkflow).toContain("check_expected \"$GLOBAL_INDEX_SERVICE_EXPECTED\" \"$GLOBAL_INDEX_SERVICE\" windows-global-index-service-qualification");
 
     const fixtureCreated = globalIndexServiceQualification.indexOf("created before the Global Index baseline");
+    const journalProbe = globalIndexServiceQualification.indexOf("fsutil.exe usn queryjournal");
     const preexistingGuard = globalIndexServiceQualification.indexOf("refusing to replace or manage a pre-existing");
     const serviceCreated = globalIndexServiceQualification.indexOf('Invoke-ServiceControl @("create", $serviceName');
     expect(fixtureCreated).toBeGreaterThanOrEqual(0);
+    expect(journalProbe).toBeGreaterThanOrEqual(0);
+    expect(journalProbe).toBeLessThan(fixtureCreated);
     expect(preexistingGuard).toBeGreaterThanOrEqual(0);
     expect(serviceCreated).toBeGreaterThan(fixtureCreated);
     expect(serviceCreated).toBeGreaterThan(preexistingGuard);
@@ -450,6 +453,11 @@ describe("CI final performance remediation contract", () => {
     expect(globalIndexServiceQualification).toContain("finally {");
     expect(globalIndexServiceQualification).toContain("CreateService failed; exact SCM output");
     expect(globalIndexServiceQualification).toContain("service-created-by-qualification.txt");
+    expect(globalIndexServiceQualification).toContain("usnJournalProbes");
+    expect(globalIndexServiceQualification).toContain("fixtureRootRemoved");
+    expect(globalIndexServiceQualification).not.toContain("fsutil.exe usn createjournal");
+    expect(qualification).toContain("fixture-root-created-by-qualification.txt");
+    expect(qualification).toContain("leaving unexpected qualification fixture root untouched");
   });
 
   it("pins actions and keeps packaging and quality checks authoritative", () => {

@@ -621,6 +621,16 @@ jobs:
               }
             }
           }
+          $fixtureMarker = Join-Path $taskRoot "fixture-root-created-by-qualification.txt"
+          if (Test-Path -LiteralPath $fixtureMarker) {
+            $fixtureRoot = [IO.Path]::GetFullPath((Get-Content -LiteralPath $fixtureMarker -Raw).Trim())
+            $allowedFixtureRoots = @((Join-Path $taskRoot "fixtures"))
+            if ($env:LOCALAPPDATA) { $allowedFixtureRoots += Join-Path $env:LOCALAPPDATA "Temp\zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\fixtures" }
+            if ($env:USERPROFILE) { $allowedFixtureRoots += Join-Path $env:USERPROFILE "AppData\Local\Temp\zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\fixtures" }
+            $ownsFixtureRoot = @($allowedFixtureRoots | Where-Object { [IO.Path]::GetFullPath($_).Equals($fixtureRoot, [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+            if (-not $ownsFixtureRoot) { throw "leaving unexpected qualification fixture root untouched: $fixtureRoot" }
+            if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
+          }
           if (Test-Path -LiteralPath $taskRoot) { Remove-Item -LiteralPath $taskRoot -Recurse -Force }
 
   rust-macos:
