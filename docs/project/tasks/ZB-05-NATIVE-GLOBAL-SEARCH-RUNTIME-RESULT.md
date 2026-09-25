@@ -2,7 +2,7 @@
 
 ## Disposition
 
-**OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING.** Product and architecture review passed. Both prior blockers are closed: fixed NTFS zero-searchable-baseline now fails closed in the shared production MFT/direct-provider path, and exact-candidate Hosted Windows service qualification passed with the client and service using the same image on an isolated fixed NTFS VHD (run `36166201310`). Local validation left task-owned temporary artifacts because the local command policy rejected cleanup; the complete residue record is retained below. `LOCAL TASK HYGIENE PENDING` is not a product correctness blocker and not a merge blocker.
+**OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING.** Product and architecture review passed. The two earlier blockers remain closed: fixed NTFS zero-searchable-baseline fails closed in the shared production MFT/direct-provider path, and exact-candidate Hosted Windows same-image service qualification passed on an isolated fixed NTFS VHD. Owner re-review then identified two valid watcher-failure blockers; both are repaired in production HEAD `4c6591725a8cc5c81cb7a67cfd6f781252eef0fc`, with the test-only Hosted compile correction at `c7fab95a01203dde7360077cd583df069e32accb`. Both review threads have repair evidence and are resolved. Exact-head Hosted CI run `36175937658` passed on `c7fab95a01203dde7360077cd583df069e32accb`. Local validation left task-owned temporary artifacts because the local command policy rejected cleanup; the complete residue record is retained below. `LOCAL TASK HYGIENE PENDING` is not a product correctness blocker and not a merge blocker.
 
 The earlier local bounded smoke remains diagnostic only: the isolated candidate was correctly rejected by the installed metadata service, and its direct MFT/USN path reached `ready` with zero baseline entries. The subsequent exact-candidate Hosted qualification below establishes a complete non-empty MFT baseline through the actual Windows service on an isolated task-owned NTFS/USN volume. The installed local service and production profile were left unchanged.
 
@@ -11,8 +11,9 @@ The earlier local bounded smoke remains diagnostic only: the isolated candidate 
 - Branch: `perf/zb-05-native-global-search-runtime`
 - Baseline: `master@e4ef09fb27bae97081fba0fa850f5ad62a9b1b50`
 - Taskbook HEAD: `a5a9a957c706d05f0820a474c46041899c390c75`
-- Production HEAD: `336aaea93f9190a7f4b81f93c0d634440e3c4c58`
-- Final HEAD: this Result-only closeout commit, directly after the Hosted-validated qualification harness head `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64`; PR #266 records the literal final SHA.
+- Production HEAD: `4c6591725a8cc5c81cb7a67cfd6f781252eef0fc`
+- Hosted-validated test-only follow-up: `c7fab95a01203dde7360077cd583df069e32accb`
+- Final HEAD: this Result-only closeout commit, directly after `c7fab95a01203dde7360077cd583df069e32accb`; PR #266 records the literal final SHA.
 - PR: [#266](https://github.com/ArdenZC/Zen-Canvas/pull/266)
 
 ## Changed files
@@ -55,12 +56,14 @@ No `STATUS.md`, `ROADMAP`, schema, Search request/ranking contract, command perm
 - Fixed NTFS remains MFT baseline plus USN incremental authority. Desktop filesystem notifications wake the coordinator; they do not write durable rows.
 - The installed metadata service protocol remains v3 and metadata-only. Same-executable and local-session validation, service routing, SCM shutdown behavior, and request frames are unchanged.
 - A native MFT/USN error now preserves truthful permission/rebuild/error state and does not switch fixed NTFS to a recursive whole-volume crawl. Unsupported fixed filesystems are unavailable and disabled on discovery; removable and network volumes remain disabled by default.
+- A failed asynchronous change watcher is removed/dropped at the next source request and replaced before that request continues through the existing service/direct provider path. Healthy watchers are reused. A synchronous replacement failure returns a truthful provider error without self-wake or a new timer; USN remains the row-change authority.
 - The five-minute source-topology safety audit is separate from incremental work. It uses cheap volume descriptors and only triggers a normal cycle when the topology signature changes.
 - Initial MFT, explicit rebuild, and full reconciliation use the existing `WorkScheduler` Background admission and existing QoS helper. No scheduler was added to the Windows service.
 
 ### macOS
 
 - Spotlight update notifications append to the existing bounded pending state and wake the coordinator. FSEvents remains a reconciliation/checkpoint signal and also wakes it.
+- Asynchronous Spotlight query-start and FSEvents worker initialization failures share one record-unlock-wake helper. The coordinator is woken to drain `pending.last_error` and persist the existing truthful degraded status; no polling was reintroduced.
 - Pending updates remain bounded and coalesced; overflow still promotes to full reconciliation. Spotlight remains metadata row authority.
 - Spotlight and FSEvents worker loops now block on their native run loops and have an explicit cross-thread stop/wake path used by pause and shutdown.
 - Remaining timeout: Spotlight's active baseline collection still calls `runUntilDate` with a 200 ms deadline to observe cancellation while the collection is processing. This is active-work cancellation polling, not idle coordinator/source polling. FSEvents retains its 250 ms native event coalescing latency.
@@ -73,6 +76,13 @@ No `STATUS.md`, `ROADMAP`, schema, Search request/ranking contract, command perm
 - Before: settled coordinator work repeated at about one cycle every two seconds, including repeated discovery/provider probes.
 - After: the startup idle test observed one discovery and then a blocking wait with no repeated cycle; the native smoke recorded a five-second idle window with zero additional coordinator cycles/waits.
 - Routed Windows Search extended performance at `8cae1ea04edcf8536ef1ead69f7d0c026d46df1e`: SQLite/FTS 100k p95 `2.054 ms`; Global Search 100k p95 `32.035 ms` against the existing `100 ms` threshold. Subsequent production fixes removed one unused macOS import (`b41209219b15c3ce375bb2e988a30dbc25c4847c`) and corrected Windows MFT baseline handling through Production HEAD `336aaea93f9190a7f4b81f93c0d634440e3c4c58`; later exact-head Hosted evidence is recorded below. No ranking/query contract changed.
+
+### Post-review watcher failure repair
+
+- Windows focused tests: `cargo test --manifest-path src-tauri/Cargo.toml --lib global_index::windows` passed (29 tests, including watcher reuse/replacement, source-request continuation, MFT and USN); `global_index::wake` passed (4 tests). `cargo fmt --check`, CI-configured narrow Clippy, and `git diff --check` passed locally.
+- macOS focused tests ran in exact-head Hosted Rust quality because this workstation has only the Windows Rust target. `realtime_start_failure_uses_shared_error_and_wake_invariant`, `async_initialization_errors_record_and_coalesce_provider_wakes`, and `async_watcher_error_wakes_then_incremental_drain_records_degraded_status` passed. The full macOS Rust test step passed (956 passed, 24 ignored), and macOS Clippy passed.
+- First repair CI run `36175059884` on production HEAD `4c6591725a8cc5c81cb7a67cfd6f781252eef0fc` exposed `E0277`: the new provider-drain test used `expect_err`, which required `PendingUpdates: Debug`. The test was corrected to an explicit `match` in test-only follow-up `c7fab95a01203dde7360077cd583df069e32accb`. The first run's Windows qualification passed; its remaining performance jobs were canceled after the macOS compile failure. This failure remains part of the validation history.
+- Exact-head Hosted CI run `36175937658` passed on `c7fab95a01203dde7360077cd583df069e32accb`; Windows disposable same-image qualification, Windows/macOS Rust quality, release compiles, native macOS performance, routed performance shards, frontend/browser gates, dependency audit, and routing contracts passed.
 
 ### Bounded Windows native smoke
 
@@ -123,12 +133,14 @@ The local run was on Windows. No owner Apple Silicon GUI host was available, so 
 - The first hosted Windows service qualification attempt on `f8b90add036b9842f0910a2fe4356e4db4051c28` is recorded above as run `36159205805`; its final idle assertion failed after indexing all 1.36 million entries on C:.
 - After isolating qualification to the owned NTFS/USN test volume, Hosted run `36166201310` checked out harness head `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64` and completed `success` in `9m41s`. The Windows Global Index qualification job completed in `8m25s` (including the exact candidate build); its MFT baseline wait was `52 ms`, and its end-to-end service qualification step was `30s`. Windows/macOS quality, native macOS performance, all routed performance shards, release compiles, dependency audit, source/routing contracts, and validation planning passed.
 - The qualification optimization changes only hosted/local QA harnessing and its contract tests. Production HEAD remains `336aaea93f9190a7f4b81f93c0d634440e3c4c58`; no Global Index production code, schema, durable authority, Search contract, or user source defaults changed in this optimization.
+- Watcher repair production HEAD is `4c6591725a8cc5c81cb7a67cfd6f781252eef0fc`; test-only follow-up `c7fab95a01203dde7360077cd583df069e32accb` is the exact source validated by successful Hosted CI `36175937658`.
 
 ## Unexpected findings and closeout
 
 - Native test-binary identity is intentionally stricter than a generic test harness, preventing the isolated local test from impersonating the installed service. This historical limitation is resolved for qualification by the isolated Hosted same-image client/service run recorded above. The installed service identity, SCM configuration, and production profile were not changed.
 - `npm audit --audit-level=high` reported two moderate `@vitest/mocker` advisories but exited successfully at the configured high threshold. Rust audit reported eight existing allowed advisories and exited successfully. No dependency upgrades were made.
 - Frontend build completed with existing CSS optimizer and mixed static/dynamic PDF import warnings; neither prevented the build.
+- The first watcher-repair Hosted run failed to compile the macOS test because `expect_err` imposed a `Debug` bound on `PendingUpdates`; the test-only follow-up replaced it with an explicit `match`, and exact-head Hosted CI then passed. The unsuccessful attempt and its completed Windows qualification are recorded above.
 - Local task-owned artifacts could not be cleaned because local command policy rejected both safe PowerShell removal commands before process launch. No files were removed by either attempt. No alternate deletion method was attempted.
   - The two retained validation roots are `src-tauri/.tmp-tests/zb05-final-validation` and `.tmp-tests/zb05-final-validation` within this worktree.
   - The only reparse points found under those roots were eight test symlinks: each root contains `link.txt` and `source-link.txt` targeting its fixture's `target.txt`, `linked-parent` targeting its fixture's `real-parent`, and `protected-link` targeting `C:\Windows`.
@@ -146,4 +158,4 @@ The local run was on Windows. No owner Apple Silicon GUI host was available, so 
   - The first rejected command used `Remove-Item -LiteralPath $link.FullName -Force` without recursion for the validated links. The second used `Remove-Item -LiteralPath $path -Recurse -Force` only for exact task-owned roots previously checked to contain no reparse points. The policy rejection means local cleanup remains unresolved; this is a local task-hygiene closeout item, not a product correctness finding or merge blocker.
   - Shared `F:\CargoTarget`, the main checkout `F:\Coding\Zen-Canvas`, and their dependency data were not cleanup targets.
 
-**Current disposition: OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING.** The former Windows-baseline product-evidence blocker and the exact-candidate same-image service-qualification blocker are closed. The recorded local roots remain pending because cleanup was rejected by command policy. `LOCAL TASK HYGIENE PENDING` is not a product correctness blocker and not a merge blocker. No deletion-policy bypass was attempted; the historical failure and residue evidence above remain intact.
+**Current disposition: OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING.** The Windows baseline, exact-candidate same-image service qualification, failed Windows watcher recovery, and macOS asynchronous watcher-failure wake findings are closed. Exact-head Hosted CI passed and both repair threads are resolved. The recorded local roots remain pending because cleanup was rejected by command policy. `LOCAL TASK HYGIENE PENDING` is not a product correctness blocker and not a merge blocker. No deletion-policy bypass was attempted; the historical failure and residue evidence above remain intact.
