@@ -2,17 +2,17 @@
 
 ## Disposition
 
-**BLOCKED — owner review required for native Windows baseline evidence.**
+**BLOCKED — local task-owned artifact cleanup only.** Product implementation, exact-candidate Windows service qualification, and Hosted CI now pass. Local validation previously left task-owned temporary artifacts because the local command policy rejected cleanup; exact remaining paths are listed below.
 
-The implementation and local automated validation pass. The bounded Windows smoke exercised wake-to-search freshness and idle behavior, but the isolated candidate could not use the installed metadata service because the service correctly rejected the non-product test executable. The direct MFT/USN test path reached `ready` with zero baseline entries, so it does not establish a complete native baseline. The installed service and production profile were left unchanged.
+The earlier local bounded smoke remains diagnostic only: the isolated candidate was correctly rejected by the installed metadata service, and its direct MFT/USN path reached `ready` with zero baseline entries. The subsequent exact-candidate Hosted qualification below establishes a complete non-empty MFT baseline through the actual Windows service on an isolated task-owned NTFS/USN volume. The installed local service and production profile were left unchanged.
 
 ## Identity
 
 - Branch: `perf/zb-05-native-global-search-runtime`
 - Baseline: `master@e4ef09fb27bae97081fba0fa850f5ad62a9b1b50`
 - Taskbook HEAD: `a5a9a957c706d05f0820a474c46041899c390c75`
-- Production HEAD: `b41209219b15c3ce375bb2e988a30dbc25c4847c`
-- Final HEAD: the documentation-only closeout commit containing this Result, directly after Production HEAD; the exact branch/PR head SHA is reported in the closeout.
+- Production HEAD: `336aaea93f9190a7f4b81f93c0d634440e3c4c58`
+- Final HEAD: the documentation-only closeout commit containing this Result update, directly after the Hosted-validated qualification harness head `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64`; the exact branch/PR head SHA is reported in the closeout.
 - Draft PR: [#266](https://github.com/ArdenZC/Zen-Canvas/pull/266)
 
 ## Changed files
@@ -36,6 +36,7 @@ The implementation and local automated validation pass. The bounded Windows smok
 - `src-tauri/src/global_index/windows/volumes.rs`
 - `src-tauri/src/main.rs`
 - `docs/project/tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md`
+- Follow-up qualification-cost optimization (no production runtime or persistence changes): `.github/workflows/ci.yml`, `scripts/qualifyWindowsGlobalIndexService.ps1`, `src-tauri/native-qa/global_index_probe.rs`, and `tests/ciFastPathContract.test.ts`.
 
 No `STATUS.md`, `ROADMAP`, schema, Search request/ranking contract, command permission, or durable authority was changed. AI semantic migration and onboarding work were not started. The Cargo change makes the already locked Core Foundation crate a direct macOS dependency; it did not update package versions.
 
@@ -71,7 +72,7 @@ No `STATUS.md`, `ROADMAP`, schema, Search request/ranking contract, command perm
 - The test suite also covers true idle, wake coalescing and boundedness, the cycle-to-wait lost-wake boundary, Windows service protocol v3 frame shape, Windows recursive-fallback policy, and macOS callback/pending behavior.
 - Before: settled coordinator work repeated at about one cycle every two seconds, including repeated discovery/provider probes.
 - After: the startup idle test observed one discovery and then a blocking wait with no repeated cycle; the native smoke recorded a five-second idle window with zero additional coordinator cycles/waits.
-- Routed Windows Search extended performance at `8cae1ea04edcf8536ef1ead69f7d0c026d46df1e`: SQLite/FTS 100k p95 `2.054 ms`; Global Search 100k p95 `32.035 ms` against the existing `100 ms` threshold. The only subsequent code change in Production HEAD `b41209219b15c3ce375bb2e988a30dbc25c4847c` removes an unused macOS import; Hosted CI is routing Search performance for that exact final code head. No ranking/query contract changed.
+- Routed Windows Search extended performance at `8cae1ea04edcf8536ef1ead69f7d0c026d46df1e`: SQLite/FTS 100k p95 `2.054 ms`; Global Search 100k p95 `32.035 ms` against the existing `100 ms` threshold. Subsequent production fixes removed one unused macOS import (`b41209219b15c3ce375bb2e988a30dbc25c4847c`) and corrected Windows MFT baseline handling through Production HEAD `336aaea93f9190a7f4b81f93c0d634440e3c4c58`; later exact-head Hosted evidence is recorded below. No ranking/query contract changed.
 
 ### Bounded Windows native smoke
 
@@ -82,9 +83,18 @@ No `STATUS.md`, `ROADMAP`, schema, Search request/ranking contract, command perm
 - The production service remained installed/running with the same process identity and startup configuration before and after. Only task-owned disposable smoke files were created and removed.
 - Therefore this smoke is diagnostic evidence for the wake/freshness/idle path, not a PASS for complete native baseline qualification.
 
+### Exact-candidate Hosted Windows service qualification
+
+- The earlier whole-run qualification `36159205805` checked out `f8b90add036b9842f0910a2fe4356e4db4051c28`. It completed the C: MFT baseline (1,368,120 entries in `1,627,533 ms`) and the pre-existing-file/freshness checks, but failed only at the final settled-idle assertion (`cycles=8511`, `waits=8510`). The qualification job ran for `35m11s`; the baseline alone took `27m08s`.
+- The follow-up harness creates an expandable, task-owned 512 MB VHDX under the hosted runner's `RUNNER_TEMP`, formats it as fixed NTFS, creates a USN journal on that disposable volume when needed, and seeds the isolated profile through the existing durable Global Volume setting so exactly that one source is enabled. It does not change production defaults or disable any user source in a production profile.
+- Exact Hosted run `36166201310` checked out harness head `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64` and passed. Evidence confirms the exact service and desktop client ran the same candidate image; exactly one source remained enabled before indexing and after discovery; provider `windows_mft_usn` indexed `Z:\` to `ready` with 4 entries in `52 ms`; the pre-existing fixture was searchable; create/rename/delete freshness measured `15/123/121 ms`; and the successful service route was observed.
+- The final 10-second idle window had zero additional coordinator cycles and waits. The qualification created and detached its own VHD, removed the task profile/fixture, stopped/deleted the task service, and terminated candidate processes; every cleanup field passed and the artifact reported no failure.
+- The isolated baseline wait fell from `27m08s` to `52 ms`; the disposable-service qualification step fell from the prior 27m45s run to `30s`. The complete Hosted workflow fell from `35m50s` to `9m41s` (about 73% less elapsed time). The 5-minute baseline timeout applies only after source isolation; `ready`, non-null `lastFullIndexAt`, a positive entry count, exact source identity, fixture lookup, event freshness, and idle assertions remain required.
+- This qualifies the native Windows service/provider path on an isolated hosted Windows runner. It does not claim local owner-host UI acceptance.
+
 ### Local validation
 
-The taskbook's final local validation was run once after implementation stabilization, before the one-line macOS unused-import repair. The full suite passed on the source tree committed as `8cae1ea04edcf8536ef1ead69f7d0c026d46df1e`. After the repair committed as Production HEAD `b41209219b15c3ce375bb2e988a30dbc25c4847c`, focused Global Index tests (53 passed, 3 ignored), formatter, and narrow Clippy passed. Full local validation was not repeated.
+The taskbook's final local validation was run once after implementation stabilization, before the one-line macOS unused-import repair. The full suite passed on the source tree committed as `8cae1ea04edcf8536ef1ead69f7d0c026d46df1e`. After the repair committed as `b41209219b15c3ce375bb2e988a30dbc25c4847c`, focused Global Index tests (53 passed, 3 ignored), formatter, and narrow Clippy passed. Later Windows MFT fixes brought Production HEAD to `336aaea93f9190a7f4b81f93c0d634440e3c4c58`; full local validation was not repeated, while subsequent exact-head Hosted CI covered those changes. For the qualification-cost harness at `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64`, focused checks passed: PowerShell parser checks for the qualification script and workflow cleanup, 39 targeted CI contract tests, native QA probe `cargo check`, narrow Clippy, `cargo fmt --check`, and `git diff --check`.
 
 | Gate | Result |
 | --- | --- |
@@ -110,6 +120,9 @@ The local run was on Windows. No owner Apple Silicon GUI host was available, so 
 - Exact-head routed lanes passed: Windows and macOS release compile; Windows and macOS Rust quality; Apple Silicon native performance; Search performance; dependency audit; source/evidence and change-routing contracts; and the validation lane plan.
 - The exact-head Search performance lane measured SQLite/FTS 100k search p95 `2.217 ms` (configured threshold `1,000 ms`) and Global Search 100k p95 `41.128 ms` (configured threshold `100 ms`).
 - The workflow's package, Preview Handler, and unrelated performance lanes were skipped by routing; they were not required for this change class. Overall run conclusion: `success`.
+- The first hosted Windows service qualification attempt on `f8b90add036b9842f0910a2fe4356e4db4051c28` is recorded above as run `36159205805`; its final idle assertion failed after indexing all 1.36 million entries on C:.
+- After isolating qualification to the owned NTFS/USN test volume, Hosted run `36166201310` checked out harness head `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64` and completed `success` in `9m41s`. The Windows Global Index qualification job completed in `8m25s` (including the exact candidate build); its MFT baseline wait was `52 ms`, and its end-to-end service qualification step was `30s`. Windows/macOS quality, native macOS performance, all routed performance shards, release compiles, dependency audit, source/routing contracts, and validation planning passed.
+- The qualification optimization changes only hosted/local QA harnessing and its contract tests. Production HEAD remains `336aaea93f9190a7f4b81f93c0d634440e3c4c58`; no Global Index production code, schema, durable authority, Search contract, or user source defaults changed in this optimization.
 
 ## Unexpected findings and closeout
 
@@ -129,7 +142,8 @@ The local run was on Windows. No owner Apple Silicon GUI host was available, so 
     - `F:\Coding\Zen-Canvas-zb-05-native-global-search-runtime\.tmp-tests\zb05-final-validation\temp\zen-canvas-file-op-test-32108-20-1790329601000592600\linked-parent`
     - `F:\Coding\Zen-Canvas-zb-05-native-global-search-runtime\.tmp-tests\zb05-final-validation\temp\zen-canvas-file-op-test-32108-73-1790329602984408500\protected-link` → `C:\Windows`
   - The retained task-created non-reparse outputs include `.performance-artifacts`, `.performance-cache`, `node_modules`, `dist`, and the other test subdirectories under `.tmp-tests` and `src-tauri/.tmp-tests`.
+  - Read-only verification on 2026-09-26 confirmed these roots still exist: `F:\_codex_tmp\zb05-run-36159205805-evidence`, `F:\_codex_tmp\zb05-mft-focused-20260925`, `src-tauri\.tmp-tests\zb05-final-validation`, `.tmp-tests\zb05-final-validation`, `.performance-artifacts`, and `.performance-cache`. The new successful Hosted artifact was streamed and inspected in memory and did not create another local artifact directory.
   - The first rejected command used `Remove-Item -LiteralPath $link.FullName -Force` without recursion for the validated links. The second used `Remove-Item -LiteralPath $path -Recurse -Force` only for exact task-owned roots previously checked to contain no reparse points. The policy rejection means local cleanup remains unresolved; this is a task-hygiene blocker, not a product correctness finding.
   - Shared `F:\CargoTarget`, the main checkout `F:\Coding\Zen-Canvas`, and their dependency data were not cleanup targets.
 
-**Current disposition: BLOCKED — native Windows baseline qualification and local task-artifact cleanup remain outstanding.** Exact-head Hosted CI is green; the Windows native smoke did not establish a complete baseline, and local cleanup was rejected by command policy.
+**Current disposition: BLOCKED — local task-artifact cleanup only.** Exact-candidate hosted Windows baseline/service qualification and full Hosted CI are green; the former Windows-baseline product-evidence blocker is resolved. The retained local roots remain a task-hygiene closeout item because cleanup was rejected by command policy. No alternate cleanup method was attempted.
