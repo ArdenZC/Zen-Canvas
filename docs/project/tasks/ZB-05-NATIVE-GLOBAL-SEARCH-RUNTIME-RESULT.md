@@ -2,7 +2,7 @@
 
 ## Disposition
 
-**BLOCKED — local task-owned artifact cleanup only.** Product implementation, exact-candidate Windows service qualification, and Hosted CI now pass. Local validation previously left task-owned temporary artifacts because the local command policy rejected cleanup; exact remaining paths are listed below.
+**OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING.** Product and architecture review passed. Both prior blockers are closed: fixed NTFS zero-searchable-baseline now fails closed in the shared production MFT/direct-provider path, and exact-candidate Hosted Windows service qualification passed with the client and service using the same image on an isolated fixed NTFS VHD (run `36166201310`). Local validation left task-owned temporary artifacts because the local command policy rejected cleanup; the complete residue record is retained below. `LOCAL TASK HYGIENE PENDING` is not a product correctness blocker and not a merge blocker.
 
 The earlier local bounded smoke remains diagnostic only: the isolated candidate was correctly rejected by the installed metadata service, and its direct MFT/USN path reached `ready` with zero baseline entries. The subsequent exact-candidate Hosted qualification below establishes a complete non-empty MFT baseline through the actual Windows service on an isolated task-owned NTFS/USN volume. The installed local service and production profile were left unchanged.
 
@@ -12,8 +12,8 @@ The earlier local bounded smoke remains diagnostic only: the isolated candidate 
 - Baseline: `master@e4ef09fb27bae97081fba0fa850f5ad62a9b1b50`
 - Taskbook HEAD: `a5a9a957c706d05f0820a474c46041899c390c75`
 - Production HEAD: `336aaea93f9190a7f4b81f93c0d634440e3c4c58`
-- Final HEAD: the documentation-only closeout commit containing this Result update, directly after the Hosted-validated qualification harness head `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64`; the exact branch/PR head SHA is reported in the closeout.
-- Draft PR: [#266](https://github.com/ArdenZC/Zen-Canvas/pull/266)
+- Final HEAD: this Result-only closeout commit, directly after the Hosted-validated qualification harness head `8ede12c2375559cae1c9f8e847b9ce69c0f6ce64`; PR #266 records the literal final SHA.
+- PR: [#266](https://github.com/ArdenZC/Zen-Canvas/pull/266)
 
 ## Changed files
 
@@ -114,7 +114,7 @@ The local run was on Windows. No owner Apple Silicon GUI host was available, so 
 
 ## Hosted CI
 
-- PR #266 is Draft and open.
+- Hosted CI run `36166201310` was recorded while PR #266 was open and Draft; this closeout records the subsequent owner-review pass.
 - First run `36121168229` checked out `8cae1ea04edcf8536ef1ead69f7d0c026d46df1e`; it failed macOS Rust Clippy because `GlobalIndexWakeReason` was unused in `macos/mod.rs`. Windows Rust quality, both release compiles, dependency audit, Search performance, and native macOS performance passed.
 - The unused import was removed in Production HEAD `b41209219b15c3ce375bb2e988a30dbc25c4847c`. New exact-head Hosted CI run `36122740556` checked out that SHA and completed successfully.
 - Exact-head routed lanes passed: Windows and macOS release compile; Windows and macOS Rust quality; Apple Silicon native performance; Search performance; dependency audit; source/evidence and change-routing contracts; and the validation lane plan.
@@ -126,7 +126,7 @@ The local run was on Windows. No owner Apple Silicon GUI host was available, so 
 
 ## Unexpected findings and closeout
 
-- Native test-binary identity is intentionally stricter than a generic test harness, preventing the isolated test from impersonating the installed service. Do not change service identity, SCM configuration, or the production profile to bypass it; owner review/native qualification is required.
+- Native test-binary identity is intentionally stricter than a generic test harness, preventing the isolated local test from impersonating the installed service. This historical limitation is resolved for qualification by the isolated Hosted same-image client/service run recorded above. The installed service identity, SCM configuration, and production profile were not changed.
 - `npm audit --audit-level=high` reported two moderate `@vitest/mocker` advisories but exited successfully at the configured high threshold. Rust audit reported eight existing allowed advisories and exited successfully. No dependency upgrades were made.
 - Frontend build completed with existing CSS optimizer and mixed static/dynamic PDF import warnings; neither prevented the build.
 - Local task-owned artifacts could not be cleaned because local command policy rejected both safe PowerShell removal commands before process launch. No files were removed by either attempt. No alternate deletion method was attempted.
@@ -143,7 +143,7 @@ The local run was on Windows. No owner Apple Silicon GUI host was available, so 
     - `F:\Coding\Zen-Canvas-zb-05-native-global-search-runtime\.tmp-tests\zb05-final-validation\temp\zen-canvas-file-op-test-32108-73-1790329602984408500\protected-link` → `C:\Windows`
   - The retained task-created non-reparse outputs include `.performance-artifacts`, `.performance-cache`, `node_modules`, `dist`, and the other test subdirectories under `.tmp-tests` and `src-tauri/.tmp-tests`.
   - Read-only verification on 2026-09-26 confirmed these roots still exist: `F:\_codex_tmp\zb05-run-36159205805-evidence`, `F:\_codex_tmp\zb05-mft-focused-20260925`, `src-tauri\.tmp-tests\zb05-final-validation`, `.tmp-tests\zb05-final-validation`, `.performance-artifacts`, and `.performance-cache`. The new successful Hosted artifact was streamed and inspected in memory and did not create another local artifact directory.
-  - The first rejected command used `Remove-Item -LiteralPath $link.FullName -Force` without recursion for the validated links. The second used `Remove-Item -LiteralPath $path -Recurse -Force` only for exact task-owned roots previously checked to contain no reparse points. The policy rejection means local cleanup remains unresolved; this is a task-hygiene blocker, not a product correctness finding.
+  - The first rejected command used `Remove-Item -LiteralPath $link.FullName -Force` without recursion for the validated links. The second used `Remove-Item -LiteralPath $path -Recurse -Force` only for exact task-owned roots previously checked to contain no reparse points. The policy rejection means local cleanup remains unresolved; this is a local task-hygiene closeout item, not a product correctness finding or merge blocker.
   - Shared `F:\CargoTarget`, the main checkout `F:\Coding\Zen-Canvas`, and their dependency data were not cleanup targets.
 
-**Current disposition: BLOCKED — local task-artifact cleanup only.** Exact-candidate hosted Windows baseline/service qualification and full Hosted CI are green; the former Windows-baseline product-evidence blocker is resolved. The retained local roots remain a task-hygiene closeout item because cleanup was rejected by command policy. No alternate cleanup method was attempted.
+**Current disposition: OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING.** The former Windows-baseline product-evidence blocker and the exact-candidate same-image service-qualification blocker are closed. The recorded local roots remain pending because cleanup was rejected by command policy. `LOCAL TASK HYGIENE PENDING` is not a product correctness blocker and not a merge blocker. No deletion-policy bypass was attempted; the historical failure and residue evidence above remain intact.
