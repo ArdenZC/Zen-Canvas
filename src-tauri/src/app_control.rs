@@ -709,6 +709,14 @@ impl MainWindowLifecycleState {
         Ok(*next)
     }
 
+    /// Reports the latest allocated Main generation after a lifecycle operation succeeds.
+    pub fn latest_generation(&self) -> Result<u64, String> {
+        self.next_generation
+            .lock()
+            .map(|generation| *generation)
+            .map_err(|_| "main_window_lifecycle_unavailable".to_string())
+    }
+
     #[cfg(feature = "desktop-runtime")]
     fn record_creation_start(&self, generation: u64) {
         if let Ok(mut started) = self.creation_started.lock() {
@@ -754,6 +762,25 @@ pub fn search_window_url() -> &'static str {
 
 pub fn exit_app<R: Runtime>(app: &AppHandle<R>) {
     app.exit(0);
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExitRequestedAction {
+    StayResident,
+    Exit,
+}
+
+impl ExitRequestedAction {
+    pub const fn should_shutdown_resident(self) -> bool {
+        matches!(self, Self::Exit)
+    }
+}
+
+pub const fn exit_requested_action(code: Option<i32>) -> ExitRequestedAction {
+    match code {
+        None => ExitRequestedAction::StayResident,
+        Some(_) => ExitRequestedAction::Exit,
+    }
 }
 
 #[tauri::command]
@@ -1058,17 +1085,44 @@ fn activate_search_result_payload<R: Runtime>(
     readiness: &MainWindowReadinessState,
     mut payload: SearchNavigatePayload,
 ) -> Result<(), String> {
+    eprintln!(
+        "ui_runtime search_activation_received view={:?} session_id={:?} revision={:?}",
+        payload.view, payload.session_id, payload.revision
+    );
+    let stage_error = |stage: &str, error: String| {
+        eprintln!("ui_runtime search_activation_failed stage={stage} error={error}");
+        error
+    };
     let main_lifecycle = app.state::<MainWindowLifecycleState>();
-    let _owner = main_lifecycle.lock()?;
+    let _owner = main_lifecycle
+        .lock()
+        .map_err(|error| stage_error("main_lifecycle_lock", error))?;
+    eprintln!("ui_runtime main_ensure_started");
     ensure_main_window_locked(
         app,
         &main_lifecycle,
         readiness,
         &app.state::<crate::file_workspace::integration::FileWorkspaceRuntimeOwner>(),
         &app.state::<MainWindowSessionState>(),
-    )?;
-    let (generation, nonce) = readiness.begin_request(MAIN_WINDOW_READY_TIMEOUT)?;
+    )
+    .map_err(|error| stage_error("main_ensure_started", error))?;
+    let main_generation = app
+        .state::<MainWindowLifecycleState>()
+        .latest_generation()
+        .map_or_else(
+            |_| "unavailable".to_string(),
+            |generation| generation.to_string(),
+        );
+    eprintln!(
+        "ui_runtime main_ensure_started result=ok generation={main_generation} webview_count={}",
+        app.webview_windows().len()
+    );
+
+    let (generation, nonce) = readiness
+        .begin_request(MAIN_WINDOW_READY_TIMEOUT)
+        .map_err(|error| stage_error("main_ready_request", error))?;
     payload.nonce = nonce;
+    eprintln!("ui_runtime main_ready_request generation={generation} nonce={nonce}");
     app.emit_to(
         MAIN_WINDOW_LABEL,
         MAIN_WINDOW_READY_REQUEST_EVENT,
@@ -1079,11 +1133,20 @@ fn activate_search_result_payload<R: Runtime>(
             revision: payload.revision,
         },
     )
-    .map_err(|error| error.to_string())?;
-    readiness.wait_for_ack(generation, nonce, MAIN_WINDOW_READY_TIMEOUT)?;
+    .map_err(|error| stage_error("main_ready_request", error.to_string()))?;
+    readiness
+        .wait_for_ack(generation, nonce, MAIN_WINDOW_READY_TIMEOUT)
+        .map_err(|error| stage_error("main_ready_ack", error))?;
+    eprintln!("ui_runtime main_ready_ack generation={generation} nonce={nonce}");
+
     app.emit_to(MAIN_WINDOW_LABEL, SEARCH_NAVIGATE_EVENT, payload)
-        .map_err(|error| error.to_string())?;
-    hide_search_window_with_state(app, lifecycle, None)?;
+        .map_err(|error| stage_error("search_navigation_emit", error.to_string()))?;
+    eprintln!("ui_runtime search_navigation_emitted generation={generation} nonce={nonce}");
+    hide_search_window_with_state(app, lifecycle, None)
+        .map_err(|error| stage_error("search_destroy_after_handoff", error))?;
+    eprintln!(
+        "ui_runtime search_destroy_after_handoff result=ok generation={generation} nonce={nonce}"
+    );
     Ok(())
 }
 
@@ -1581,6 +1644,37 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc,
     };
+
+    #[test]
+    fn interaction_exit_request_keeps_resident_without_shutdown() {
+        let action = exit_requested_action(None);
+
+        assert_eq!(action, ExitRequestedAction::StayResident);
+        assert!(!action.should_shutdown_resident());
+    }
+
+    #[test]
+    fn programmatic_exit_codes_select_resident_shutdown() {
+        for code in [Some(0), Some(1), Some(-1)] {
+            let action = exit_requested_action(code);
+
+            assert_eq!(action, ExitRequestedAction::Exit);
+            assert!(action.should_shutdown_resident());
+        }
+    }
+
+    #[cfg(feature = "desktop-runtime")]
+    #[test]
+    fn latest_main_generation_reports_the_allocated_generation() {
+        let lifecycle = MainWindowLifecycleState::default();
+
+        assert_eq!(
+            lifecycle.latest_generation().expect("initial generation"),
+            0
+        );
+        assert_eq!(lifecycle.next_generation().expect("allocate generation"), 1);
+        assert_eq!(lifecycle.latest_generation().expect("latest generation"), 1);
+    }
 
     #[test]
     fn global_search_shortcut_matches_documented_accelerator() {

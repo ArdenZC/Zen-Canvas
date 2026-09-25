@@ -33,17 +33,47 @@ fn main() {
     let background_launch = zen_canvas_tauri::app_control::is_background_launch_args(&launch_args);
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            match zen_canvas_tauri::app_control::second_instance_action(&args) {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let action = zen_canvas_tauri::app_control::second_instance_action(&args);
+            eprintln!(
+                "ui_runtime single_instance_received first_pid={} args={args:?} cwd={cwd:?}",
+                std::process::id()
+            );
+            let action_name = match action {
+                zen_canvas_tauri::app_control::SecondInstanceAction::ActivateMain => "ActivateMain",
+                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreBackground => {
+                    "IgnoreBackground"
+                }
+                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreUnsupportedArguments => {
+                    "IgnoreUnsupportedArguments"
+                }
+            };
+            eprintln!("ui_runtime single_instance_action action={action_name}");
+            match action {
                 zen_canvas_tauri::app_control::SecondInstanceAction::ActivateMain => {
-                    if let Err(error) = zen_canvas_tauri::app_control::show_main_window(app) {
-                        eprintln!("Show main window for second launch failed: {error}");
+                    match zen_canvas_tauri::app_control::show_main_window(app) {
+                        Ok(()) => {
+                            let generation = app
+                                .state::<
+                                    zen_canvas_tauri::app_control::MainWindowLifecycleState,
+                                >()
+                                .latest_generation()
+                                .map_or_else(
+                                    |_| "unavailable".to_string(),
+                                    |generation| generation.to_string(),
+                                );
+                            eprintln!(
+                                "ui_runtime single_instance_main_activation result=ok generation={generation} webview_count={}",
+                                app.webview_windows().len()
+                            );
+                        }
+                        Err(error) => eprintln!(
+                            "ui_runtime single_instance_main_activation result=error error={error}"
+                        ),
                     }
                 }
                 zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreBackground => {}
-                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreUnsupportedArguments => {
-                    eprintln!("Ignored unsupported single-instance arguments");
-                }
+                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreUnsupportedArguments => {}
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -491,19 +521,26 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build Zen Canvas")
         .run(|app, event| {
-            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
-                if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
-                    if let Err(error) = coordinator.shutdown() {
-                        eprintln!("Global index shutdown failed (non-fatal): {error}");
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+                match zen_canvas_tauri::app_control::exit_requested_action(code) {
+                    zen_canvas_tauri::app_control::ExitRequestedAction::StayResident => {
+                        api.prevent_exit();
                     }
-                }
-                if let Some(worker) = app.try_state::<ManagedAiWorker>() {
-                    worker.shutdown();
-                }
-                if let Some(lifecycle) = app.try_state::<
-                    zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController,
-                >() {
-                    lifecycle.stop();
+                    zen_canvas_tauri::app_control::ExitRequestedAction::Exit => {
+                        if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
+                            if let Err(error) = coordinator.shutdown() {
+                                eprintln!("Global index shutdown failed (non-fatal): {error}");
+                            }
+                        }
+                        if let Some(worker) = app.try_state::<ManagedAiWorker>() {
+                            worker.shutdown();
+                        }
+                        if let Some(lifecycle) = app.try_state::<
+                            zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController,
+                        >() {
+                            lifecycle.stop();
+                        }
+                    }
                 }
             }
         });
