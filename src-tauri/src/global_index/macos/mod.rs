@@ -17,7 +17,7 @@ use super::models::{
     INDEX_STATUS_SPOTLIGHT_UNAVAILABLE, INDEX_STATUS_UNAVAILABLE,
     PROVIDER_MACOS_FSEVENTS_RECONCILE, PROVIDER_MACOS_SPOTLIGHT,
 };
-use super::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
+use super::wake::GlobalIndexWakeSlot;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{
