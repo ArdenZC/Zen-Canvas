@@ -1,6 +1,6 @@
 # ZB-04 — On-demand UI Runtime — Result
 
-Disposition: **READY FOR OWNER RE-REVIEW — LOCAL TASK HYGIENE PENDING**
+Disposition: **MERGED / OWNER REVIEW PASSED — LOCAL TASK HYGIENE PENDING**
 
 ## Identity
 
@@ -218,3 +218,16 @@ The repair commit `a6d0e5aacbf0c20a354448746b9a198d82106282` changes only `src-t
 - No merge or Ready transition.
 - The current native evidence boundary is owner-accepted; unavailable UI interactions remain `NOT DIRECTLY NATIVE-AUTOMATED ON THIS HOST`.
 - **READY FOR OWNER RE-REVIEW — LOCAL TASK HYGIENE PENDING**. The native QA boundary is accepted, Hosted CI run `36106019776` passed on source HEAD `1be6ed66c7cc5a64667f36f0a0fc8f503b4d384b`, and local cleanup remains owner-handled rather than a product blocker.
+
+
+## Final owner closeout
+
+- Final reviewed PR HEAD: `26b0a65fc0ab77c213426e655ba397dbd73566d1`.
+- Hosted CI on the exact final PR HEAD: run `36106912344` — success.
+- PR #264 received final owner approval and was rebase-merged to `master` as `813d54d63b2ecfc609b73d2cf05076efe809b516`.
+- Owner accepted the current native evidence boundary:
+  - directly observed native PASS for background no-WebView startup, Search cold create/destroy with resident survival, official single-instance callback/activation, Main generation creation and Main ready;
+  - Search→Main click/keyboard automation, Main close/reopen via the unavailable candidate UI target, tray interaction and explicit Quit click remain **NOT DIRECTLY NATIVE-AUTOMATED ON THIS HOST**, not PASS or FAIL.
+- Deterministic automated contracts continue to cover readiness generation/nonce/ack, stale-state rejection, Search navigation projection, Main teardown ordering, FileWorkspace generation disposal/reopen and single-instance argument classification.
+- The F:/D: QA artifacts and isolated profile remain **LOCAL TASK HYGIENE PENDING** because the host deletion policy prevents the approved safe cleanup route. They are not tracked by Git and were not part of the merged PR.
+- No follow-on Native Global Search provider/runtime work or AI semantic migration was started during closeout.
