@@ -10,6 +10,102 @@ use objc2_core_foundation::CFRunLoop;
 
 type StopAction = Box<dyn Fn() + Send + Sync + 'static>;
 
+/// A dormant source gives the lifecycle worker a blocking lifetime without a
+/// timer. It is signalled only for shutdown, including stop-before-run races.
+#[cfg(target_os = "macos")]
+pub(crate) struct LifecycleRunLoop {
+    run_loop: objc2_core_foundation::CFRetained<CFRunLoop>,
+    source: objc2_core_foundation::CFRetained<objc2_core_foundation::CFRunLoopSource>,
+}
+
+#[cfg(target_os = "macos")]
+impl LifecycleRunLoop {
+    pub(crate) fn new() -> Result<Self, &'static str> {
+        use objc2_core_foundation::{
+            kCFRunLoopDefaultMode, CFRunLoopSource, CFRunLoopSourceContext,
+        };
+
+        unsafe extern "C-unwind" fn stop_on_entry(_: *mut std::ffi::c_void) {
+            if let Some(run_loop) = CFRunLoop::current() {
+                run_loop.stop();
+            }
+        }
+
+        let run_loop = CFRunLoop::current().ok_or("macos_lifecycle_run_loop_unavailable")?;
+        let mut context = CFRunLoopSourceContext {
+            version: 0,
+            info: std::ptr::null_mut(),
+            retain: None,
+            release: None,
+            copyDescription: None,
+            equal: None,
+            hash: None,
+            schedule: None,
+            cancel: None,
+            perform: Some(stop_on_entry),
+        };
+        // CF copies the context; the callback captures no borrowed state.
+        let source = unsafe { CFRunLoopSource::new(None, 0, &mut context) }
+            .ok_or("macos_lifecycle_source_create_failed")?;
+        run_loop.add_source(Some(&source), unsafe { kCFRunLoopDefaultMode });
+        Ok(Self { run_loop, source })
+    }
+
+    pub(crate) fn stop_action(&self) -> impl Fn() + Send + Sync + 'static {
+        struct StopHandles {
+            run_loop: objc2_core_foundation::CFRetained<CFRunLoop>,
+            source: objc2_core_foundation::CFRetained<objc2_core_foundation::CFRunLoopSource>,
+        }
+        // CF run loops and source signalling are thread-safe. Only retained
+        // handles cross threads; registration/removal stays on the worker.
+        unsafe impl Send for StopHandles {}
+        unsafe impl Sync for StopHandles {}
+        impl StopHandles {
+            fn stop(&self) {
+                // CFRunLoopStop targets an active invocation. A pending source
+                // also stops the next invocation if the worker has not entered
+                // CFRunLoopRun yet. No periodic work is scheduled.
+                self.source.signal();
+                self.run_loop.stop();
+                self.run_loop.wake_up();
+            }
+        }
+        let handles = StopHandles {
+            run_loop: self.run_loop.clone(),
+            source: self.source.clone(),
+        };
+        move || handles.stop()
+    }
+
+    pub(crate) fn run(&self) {
+        CFRunLoop::run();
+    }
+
+    #[cfg(test)]
+    pub(super) fn waiting_probe(&self) -> impl Fn() -> bool + Send + 'static {
+        struct Probe(objc2_core_foundation::CFRetained<CFRunLoop>);
+        // A read-only CFRunLoopIsWaiting probe; CFRunLoop is thread-safe.
+        unsafe impl Send for Probe {}
+        impl Probe {
+            fn waiting(&self) -> bool {
+                self.0.is_waiting()
+            }
+        }
+        let probe = Probe(self.run_loop.clone());
+        move || probe.waiting()
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for LifecycleRunLoop {
+    fn drop(&mut self) {
+        self.run_loop.remove_source(Some(&self.source), unsafe {
+            objc2_core_foundation::kCFRunLoopDefaultMode
+        });
+        self.source.invalidate();
+    }
+}
+
 #[derive(Default)]
 struct StopState {
     requested: bool,

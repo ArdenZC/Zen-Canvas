@@ -72,7 +72,14 @@ impl MacLifecycleController {
                 .name("zen-canvas-macos-lifecycle".to_string())
                 .spawn(move || {
                     objc2::rc::autoreleasepool(|_| {
-                        run_workspace_observer(&state, &stopped, &stop_signal, &callback);
+                        run_workspace_observer(
+                            &state,
+                            &stopped,
+                            &stop_signal,
+                            &callback,
+                            #[cfg(test)]
+                            &|_, _| {},
+                        );
                     });
                 })
                 .map_err(|error| format!("macos_lifecycle_thread_start_failed: {error}"))?;
@@ -204,6 +211,7 @@ fn run_workspace_observer(
     stopped: &AtomicBool,
     stop_signal: &NativeRunLoopStopSignal,
     callback: &Arc<dyn Fn(MacLifecycleEvent) -> Result<(), String> + Send + Sync>,
+    #[cfg(test)] hook: &dyn Fn(&str, Option<&super::run_loop::LifecycleRunLoop>),
 ) {
     use block2::RcBlock;
     use objc2::rc::Retained;
@@ -216,7 +224,7 @@ fn run_workspace_observer(
     use objc2_foundation::{
         NSNotification, NSNotificationCenter, NSProcessInfo,
         NSProcessInfoPowerStateDidChangeNotification,
-        NSProcessInfoThermalStateDidChangeNotification, NSRunLoop,
+        NSProcessInfoThermalStateDidChangeNotification,
     };
     use std::ptr::NonNull;
 
@@ -293,6 +301,8 @@ fn run_workspace_observer(
             let observer_object: &AnyObject = protocol_object.as_ref();
             unsafe { process_center.removeObserver(observer_object) };
         }
+        #[cfg(test)]
+        hook("cleaned", None);
     });
 
     // A change between the initial snapshot and observer registration is
@@ -302,15 +312,43 @@ fn run_workspace_observer(
         &**callback,
         MacLifecycleEvent::ResourcePolicyChanged,
     );
-    let run_loop = NSRunLoop::currentRunLoop();
-    stop_signal.install(super::run_loop::cross_thread_stop_action(
-        run_loop.getCFRunLoop(),
-    ));
+    #[cfg(test)]
+    hook("registered", None);
+    let run_loop = match super::run_loop::LifecycleRunLoop::new() {
+        Ok(run_loop) => run_loop,
+        Err(error) => {
+            record_observer_failure(state, error);
+            return;
+        }
+    };
+    stop_signal.install(run_loop.stop_action());
+    // Clear cross-thread retained handles before removing the owned source;
+    // observer RAII cleanup follows both on every return path.
+    let _stop_cleanup = ObserverCleanup::new(|| stop_signal.clear());
+    #[cfg(test)]
+    hook("installed", Some(&run_loop));
     if !stopped.load(Ordering::Acquire) {
-        unsafe { fsevent_sys::core_foundation::CFRunLoopRun() };
+        #[cfg(test)]
+        hook("before_run", Some(&run_loop));
+        run_loop.run();
+        if !stopped.load(Ordering::Acquire) {
+            record_observer_failure(state, "macos_lifecycle_run_loop_exited_unexpectedly");
+        }
     }
-    stop_signal.clear();
 }
+
+#[cfg(any(target_os = "macos", test))]
+fn record_observer_failure(state: &Mutex<MacLifecycleSnapshot>, error: &str) {
+    eprintln!("{error}");
+    if let Ok(mut snapshot) = state.lock() {
+        snapshot.state = MacLifecycleState::ReconcileRequired;
+        snapshot.last_error = Some(error.to_string());
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "lifecycle_native_tests.rs"]
+mod native_tests;
 
 #[cfg(test)]
 mod tests {
@@ -393,6 +431,23 @@ mod tests {
             });
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn unexpected_observer_exit_is_diagnostic() {
+        let controller = test_controller();
+        super::record_observer_failure(
+            &controller.state,
+            "macos_lifecycle_run_loop_exited_unexpectedly",
+        );
+        assert_eq!(
+            controller.snapshot().state,
+            MacLifecycleState::ReconcileRequired
+        );
+        assert_eq!(
+            controller.snapshot().last_error.as_deref(),
+            Some("macos_lifecycle_run_loop_exited_unexpectedly")
+        );
     }
 
     #[test]

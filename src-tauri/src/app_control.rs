@@ -878,7 +878,12 @@ fn ensure_main_window_locked<R: Runtime>(
         }
     });
     if let Err(error) = window.show().and_then(|()| window.set_focus()) {
-        match window.destroy() {
+        match destroy_failed_main_window(
+            &app.state::<ExitIntentState>(),
+            app.webview_windows().len(),
+            || window.destroy(),
+            || app.webview_windows().len(),
+        ) {
             Ok(()) => {
                 let _ = workspace.abort_generation(generation);
                 readiness.invalidate_generation(generation);
@@ -897,6 +902,25 @@ fn ensure_main_window_locked<R: Runtime>(
     );
     Ok(())
 }
+
+#[cfg(any(feature = "desktop-runtime", test))]
+fn destroy_failed_main_window<E>(
+    exit_intent: &ExitIntentState,
+    webview_count: usize,
+    destroy: impl FnOnce() -> Result<(), E>,
+    remaining_webviews: impl FnOnce() -> usize,
+) -> Result<(), E> {
+    let teardown = exit_intent.begin_internal_window_teardown(webview_count);
+    // An error drops the guard, withdrawing the prediction rather than
+    // leaving a stale suppression for a later native/system exit.
+    destroy()?;
+    teardown.complete(remaining_webviews());
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "app_control_main_failure_tests.rs"]
+mod main_failure_tests;
 
 #[tauri::command]
 pub fn enter_background<R: Runtime>(
