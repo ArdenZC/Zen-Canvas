@@ -185,7 +185,9 @@ describe("CI final performance remediation contract", () => {
         "temp_safety_tests",
         "macos_native_hardening_smoke",
       ]) {
-        expect(macosQuality).not.toContain(removedFilter);
+        // The ordinary suite must remain unfiltered. A separately required
+        // native lifecycle qualification may legitimately name its module.
+        expect(ordinaryRustTests).not.toContain(removedFilter);
       }
     }
   });

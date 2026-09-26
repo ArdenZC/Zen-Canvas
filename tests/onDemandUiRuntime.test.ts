@@ -135,7 +135,15 @@ describe("on-demand UI runtime boundaries", () => {
     expect(appControl).toContain("fn create_search_window");
     expect(appControl).toContain("None => {");
     expect(appControl).toContain("create_search_window(app)?");
-    expect(appControl).toContain("window.destroy().map_err(|error| error.to_string())?");
+    const dismiss = appControl.slice(
+      appControl.indexOf("fn hide_search_window_with_state"),
+      appControl.indexOf('#[cfg(not(feature = "desktop-runtime"))]', appControl.indexOf("fn hide_search_window_with_state"))
+    );
+    expect(dismiss).toContain("lifecycle.hide_with_native(");
+    expect(dismiss).toContain("if let Err(error) = window.destroy()");
+    expect(dismiss).toContain("return Err(error.to_string())");
+    expect((dismiss.match(/teardown\.complete\(app\.webview_windows\(\)\.len\(\)\)/g) ?? []).length).toBe(2);
+    expect(dismiss.indexOf("window.destroy()")).toBeLessThan(dismiss.indexOf("ui_runtime search_window_destroyed"));
     expect(main).not.toContain("setup_search_window");
   });
 
