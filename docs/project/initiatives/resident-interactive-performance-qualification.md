@@ -1,6 +1,6 @@
 # Resident / Interactive Performance Qualification
 
-Status: **ACTIVE — implementation: qualification harness/evidence only; BASELINE MEASUREMENT FIRST; NO PRODUCT TUNING AUTHORIZED BEFORE A REPRODUCIBLE MISS**
+Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: qualification harness/evidence only; no production repair applied**
 
 Issue: [#268 — Resident / Interactive Performance Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/268)
 
@@ -36,6 +36,10 @@ Close the final Zero-Burden performance gate before AI Semantic Authority. The T
 ## Gate to AI
 
 AI Semantic Authority / AI-only Organize-Cleanup remains **GATED / NOT ACTIVE** until owner review accepts this Track. A reproducible interactive TARGET MISS or missing attributable resident evidence keeps the gate closed.
+
+## Qualification execution
+
+Baseline observations on Windows repeatedly missed the unchanged managed-scan pressure first-page p95 target; macOS also recorded a miss. A Windows background-progress HARD failure, macOS background-process abort and browser Preview misses remain blocking. All observations, including subsequent successful observations, remain evidence. The Track is not complete and owner review has not passed. See the [qualification result](../tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-RESULT.md) for exact source identities, resident limitations, raw artifacts, harness repair history and CI disposition. PR #269 remains Draft. Production policy must not be changed without a defensible diagnosis of the miss.
 
 ## Non-goals
 

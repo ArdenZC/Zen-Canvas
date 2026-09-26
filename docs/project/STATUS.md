@@ -5,7 +5,7 @@ Last verified: 2026-09-26
 ## Current execution truth
 
 - Latest merged production baseline: `master@6d38208741d186988468ec92b632dd3669a03aa5` (Zero-Burden Cross-Track Audit Remediation / PR #267). Final pre-merge current-head CI [36219230993](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36219230993) is **SUCCESS**.
-- Current engineering initiative: **Resident / Interactive Performance Qualification — ACTIVE — implementation: qualification harness/evidence only; baseline measurement first** on `perf/resident-interactive-qualification`, issue [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268). This Track must measure the real resident process and obtain credible interactive pressure evidence before AI Semantic Authority may begin. No product tuning is authorized until a reproducible qualification miss has been diagnosed. Authority: [current initiative](initiatives/resident-interactive-performance-qualification.md); activation taskbook: [performance qualification activation](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
+- Current engineering initiative: **Resident / Interactive Performance Qualification — ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: qualification harness/evidence only** on `perf/resident-interactive-qualification`, issue [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268). This Track must measure the real resident process and obtain credible interactive pressure evidence before AI Semantic Authority may begin. No product tuning is authorized until a reproducible qualification miss has been diagnosed. Authority: [current initiative](initiatives/resident-interactive-performance-qualification.md); activation taskbook: [performance qualification activation](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -28,13 +28,13 @@ Last verified: 2026-09-26
 
 **Resident / Interactive Performance Qualification**
 
-Status: **ACTIVE — implementation: qualification harness/evidence only; BASELINE MEASUREMENT FIRST; NO PRODUCT TUNING AUTHORIZED BEFORE A REPRODUCIBLE MISS**.
+Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: qualification harness/evidence only; no production repair applied**.
 
 Authority: [Resident / Interactive Performance Qualification](initiatives/resident-interactive-performance-qualification.md). Issue: [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268). Branch: `perf/resident-interactive-qualification`. Activation baseline: `master@6d38208741d186988468ec92b632dd3669a03aa5`.
 
 The immediate gate is evidence, not optimization: measure the actual resident Zen process (and the Windows Global Index service separately where applicable), retain existing no-leak/resource-settlement HARD gates, and qualify interactive foreground behavior under real managed-scan pressure. The existing target that foreground first-page p95 under background pressure should remain within 2x the idle baseline is not relaxed. Routed CI performance suites are supporting evidence but do not by themselves close this Track.
 
-AI Semantic Authority / AI-only Organize-Cleanup remains **GATED / NOT ACTIVE** until owner review accepts this qualification. W6 release residuals remain separate and unchanged.
+Qualification recorded repeated Windows managed-scan first-page ratio misses and a macOS miss, a Windows background-progress HARD failure and macOS background-process abort; they remain blocking and are not averaged away. Resident/platform and full-suite limitations are recorded in the [qualification result](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-RESULT.md). PR #269 remains Draft; this Track is not complete. AI Semantic Authority / AI-only Organize-Cleanup remains **GATED / NOT ACTIVE** until owner review accepts this qualification. W6 release residuals remain separate and unchanged.
 
 ## Release, schema and platform truth
 
