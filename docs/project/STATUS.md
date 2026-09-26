@@ -5,7 +5,7 @@ Last verified: 2026-09-26
 ## Current execution truth
 
 - Latest merged production baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9`; tree `5091a6899b5570aeb776eea503b0f1ea62dbacb9` (ZB-05 / PR #266). Exact-head hosted CI `36175937658` is **SUCCESS**.
-- Current engineering initiative: **Zero-Burden Cross-Track Audit Remediation — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING** on `remediation/zero-burden-cross-track-audit`, based on the exact merged baseline above. Production source is `06531c55f04cbe6a4b47d66305fcf262f74a223a`; hosted Windows/macOS CI [36217885372](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36217885372) is **SUCCESS** on that exact source, and pre-closeout Final HEAD `075f044ccea2613605b01fb794b428e582618c83` passed [36218506275](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36218506275). [PR #267](https://github.com/ArdenZC/Zen-Canvas/pull/267) is owner-approved for merge. Authority: [current initiative](initiatives/zero-burden-cross-track-audit-remediation.md); execution result: [remediation result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
+- Current engineering initiative: **Zero-Burden Cross-Track Audit Remediation — IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING** on `remediation/zero-burden-cross-track-audit`, based on the exact merged baseline above. Production source is `06531c55f04cbe6a4b47d66305fcf262f74a223a`; hosted Windows/macOS CI [36217885372](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36217885372) is **SUCCESS** on that exact source, and pre-closeout Final HEAD `075f044ccea2613605b01fb794b428e582618c83` passed [36218506275](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36218506275). [PR #267](https://github.com/ArdenZC/Zen-Canvas/pull/267) is owner-approved for merge. Authority: [current initiative](initiatives/zero-burden-cross-track-audit-remediation.md); execution result: [remediation result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -28,7 +28,7 @@ Last verified: 2026-09-26
 
 **Zero-Burden Cross-Track Audit Remediation**
 
-Status: **ACTIVE — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
+Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
 
 Authority: [Zero-Burden Cross-Track Audit Remediation](initiatives/zero-burden-cross-track-audit-remediation.md).
 

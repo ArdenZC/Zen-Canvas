@@ -89,7 +89,7 @@ Final authority:
 
 ### Zero-Burden Cross-Track Audit Remediation
 
-Status: **ACTIVE — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; ZB-01 through ZB-05 COMPLETE / MERGED; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
+Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; ZB-01 through ZB-05 COMPLETE / MERGED; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
 
 Authority: [Cross-Track Audit Remediation initiative](initiatives/zero-burden-cross-track-audit-remediation.md) and [result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
 
