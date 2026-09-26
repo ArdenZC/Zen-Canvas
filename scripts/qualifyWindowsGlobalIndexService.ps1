@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$CandidateExe,
     [Parameter(Mandatory = $true)][string]$ProbeExe,
-    [Parameter(Mandatory = $true)][string]$EvidencePath
+    [Parameter(Mandatory = $true)][string]$EvidencePath,
+    [switch]$ResidentQualification
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +35,13 @@ if (-not $CandidateExe.StartsWith([IO.Path]::GetFullPath($PWD.Path), [StringComp
 
 $script:evidence = [ordered]@{
     sourceHead = $null
+    sourceTree = (& git rev-parse 'HEAD^{tree}').Trim()
+    profileRoot = $profileRoot
+    rawTrace = @()
+    residentSamples = @()
+    serviceSamples = @()
+    residentStartup = $null
+    residentClassification = "UNVERIFIED"
     expectedSourceHead = $env:EXPECTED_SOURCE_SHA
     candidateExe = $CandidateExe
     candidateSha256 = $null
@@ -452,7 +460,7 @@ try {
         throw "service current_exe mismatch: candidate=$CandidateExe service=$serviceCurrentExe"
     }
 
-    $client = Start-Process -FilePath $CandidateExe -ArgumentList @("--background") -WorkingDirectory (Get-Location).Path -PassThru
+    $client = Start-Process -FilePath $CandidateExe -ArgumentList @("--background") -WorkingDirectory (Get-Location).Path -WindowStyle Hidden -RedirectStandardError (Join-Path $taskRoot "resident-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "resident-stdout.log") -PassThru
     $script:clientProcessId = $client.Id
     $clientCurrentExe = Get-ProcessImage $script:clientProcessId
     $script:evidence.clientCurrentExe = $clientCurrentExe
@@ -602,7 +610,30 @@ try {
     $idleBefore = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $idleBefore.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) { throw "no successful desktop-to-Windows-Service request was traced" }
-    Start-Sleep -Milliseconds 10000
+    if ($ResidentQualification) {
+        . (Join-Path $PSScriptRoot "sampleWindowsResident.ps1")
+        $startup = Get-Content -LiteralPath (Join-Path $taskRoot "resident-stderr.log") -Raw
+        $script:evidence.residentStartup = $startup
+        if ($startup -notmatch 'ui_runtime startup_mode=background webview_count=0 labels=\s') {
+            throw "resident startup did not prove background with zero Main/Search/WebViews: $startup"
+        }
+        $appSamples = @()
+        $serviceSamples = @()
+        for ($sampleIndex = 0; $sampleIndex -lt 31; $sampleIndex++) {
+            $appSamples += Get-ResidentProcessSample $script:clientProcessId $CandidateExe
+            $serviceSamples += Get-ResidentProcessSample $script:serviceProcessId $CandidateExe
+            $script:evidence.residentSamples = $appSamples
+            $script:evidence.serviceSamples = $serviceSamples
+            if ($sampleIndex -lt 30) { Start-Sleep -Seconds 1 }
+        }
+        Assert-ResidentTrend $appSamples
+        Assert-ResidentTrend $serviceSamples
+        $finalLog = Get-Content -LiteralPath (Join-Path $taskRoot "resident-stderr.log") -Raw
+        if ($finalLog -match 'main_window_created|search_window_ready') { throw "unexpected WebView lifecycle during resident window: $finalLog" }
+        $script:evidence.residentClassification = "HARD PASS / OBSERVATIONAL MEMORY"
+    } else {
+        Start-Sleep -Milliseconds 10000
+    }
     $idleAfter = Get-TraceCounts
     $script:evidence.settledCoordinatorCycleDelta = $idleAfter.Cycles - $idleBefore.Cycles
     $script:evidence.settledCoordinatorWaitDelta = $idleAfter.Waits - $idleBefore.Waits
@@ -617,6 +648,7 @@ try {
         $script:evidence.baselineWaitMs = [long]([DateTime]::UtcNow - $script:baselineStartedAt).TotalMilliseconds
     }
     Stop-Probe
+    $script:evidence.rawTrace = @(Get-TraceLines)
 
     try {
         $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
@@ -767,6 +799,9 @@ try {
     $evidenceDirectory = Split-Path -Parent $EvidencePath
     New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
     $script:evidence | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $EvidencePath -Encoding utf8NoBOM
+    if ($ResidentQualification) {
+        @("Source: $($script:evidence.sourceHead)", "Candidate SHA256: $($script:evidence.candidateSha256)", "Resident: $($script:evidence.residentClassification)", "Failure: $($script:evidence.failure)", "Cleanup: $($script:evidence.cleanup | ConvertTo-Json -Compress)", "Raw samples are in the sibling JSON; application and service remain separate.") | Set-Content -LiteralPath ([IO.Path]::ChangeExtension($EvidencePath, '.md')) -Encoding utf8NoBOM
+    }
 }
 
 if ($script:failureMessage) {

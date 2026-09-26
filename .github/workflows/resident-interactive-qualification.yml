@@ -1,0 +1,92 @@
+name: Resident Interactive Qualification
+
+on:
+  push:
+    branches: [perf/resident-interactive-qualification]
+    paths:
+      - '.github/workflows/resident-interactive-qualification.yml'
+      - 'scripts/qualifyWindowsGlobalIndexService.ps1'
+      - 'scripts/sampleWindowsResident.ps1'
+      - 'scripts/qualifyMacosResident.py'
+      - 'scripts/runResidentInteractiveQualification.mjs'
+      - 'src-tauri/**'
+      - 'src/**'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EXPECTED_SOURCE_SHA: ${{ github.sha }}
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  qualification:
+    name: Qualification / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify supported macOS runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          sw_vers
+          echo 'MACOSX_DEPLOYMENT_TARGET=13.0' >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm run build:frontend
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: resident-qualification-${{ runner.os }}-v1
+          cache-workspace-crates: true
+          cache-on-failure: true
+      - name: Build exact candidate and existing probe
+        shell: pwsh
+        run: |
+          cargo build --locked --release --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas --bin zb05-global-index-qa
+          if ($LASTEXITCODE -ne 0) { throw "candidate build failed: $LASTEXITCODE" }
+      - name: Windows exact process and separate service
+        id: windows-resident
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe src-tauri/target/release/zen-canvas.exe -ProbeExe src-tauri/target/release/zb05-global-index-qa.exe -EvidencePath .performance-artifacts/qualification/windows-resident.json -ResidentQualification
+          if ($LASTEXITCODE -ne 0) { throw "resident qualification blocked: $LASTEXITCODE" }
+      - name: macOS exact background process
+        id: macos-resident
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: python3 scripts/qualifyMacosResident.py src-tauri/target/release/zen-canvas .performance-artifacts/qualification/macos-resident.json
+      - name: Existing interactive workloads and three independent scan observations
+        id: interactive
+        continue-on-error: true
+        run: node scripts/runResidentInteractiveQualification.mjs
+      - name: Upload raw qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: resident-interactive-${{ runner.os }}-${{ github.sha }}
+          path: .performance-artifacts/qualification
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve blocking classification
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.interactive.outcome }}" -ne "success") { throw "interactive qualification blocked or performance review required" }
+          if ("${{ runner.os }}" -eq "Windows" -and "${{ steps.windows-resident.outcome }}" -ne "success") { throw "Windows resident evidence blocked" }
+          if ("${{ runner.os }}" -eq "macOS" -and "${{ steps.macos-resident.outcome }}" -ne "success") { throw "macOS resident evidence blocked" }
