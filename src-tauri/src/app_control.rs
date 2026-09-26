@@ -5,7 +5,9 @@ use std::{
 };
 use tauri::{AppHandle, Runtime, State, WebviewWindow};
 
-use crate::{settings::DEFAULT_SEARCH_HOTKEY, window_auth::require_main_window};
+use crate::{
+    exit_intent::ExitIntentState, settings::DEFAULT_SEARCH_HOTKEY, window_auth::require_main_window,
+};
 
 #[cfg(feature = "desktop-runtime")]
 use tauri::{
@@ -86,6 +88,20 @@ pub enum SecondInstanceAction {
     IgnoreUnsupportedArguments,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SecondInstanceDiagnostic {
+    pub arg_count: usize,
+    pub action: SecondInstanceAction,
+    pub background_flag_present: bool,
+    pub unsupported_arguments: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SecondInstanceClassification {
+    pub action: SecondInstanceAction,
+    pub diagnostic: SecondInstanceDiagnostic,
+}
+
 /// The official single-instance plugin forwards the second process argv, including argv[0].
 /// Only the ordinary no-argument launch activates Main; the explicit autostart flag stays
 /// resident, and unrecognized command-line payloads never gain a new routing capability.
@@ -95,6 +111,23 @@ pub fn second_instance_action(args: &[String]) -> SecondInstanceAction {
         [argument] if argument == "--background" => SecondInstanceAction::IgnoreBackground,
         _ => SecondInstanceAction::IgnoreUnsupportedArguments,
     }
+}
+
+/// Classify a second-instance payload once and retain only safe diagnostic
+/// facts. Argument values and the process working directory are never copied
+/// into the diagnostic record.
+pub fn classify_second_instance(args: &[String]) -> SecondInstanceClassification {
+    let action = second_instance_action(args);
+    let forwarded_args = args.get(1..).unwrap_or_default();
+    let diagnostic = SecondInstanceDiagnostic {
+        arg_count: forwarded_args.len(),
+        action,
+        background_flag_present: forwarded_args
+            .iter()
+            .any(|argument| argument == "--background"),
+        unsupported_arguments: action == SecondInstanceAction::IgnoreUnsupportedArguments,
+    };
+    SecondInstanceClassification { action, diagnostic }
 }
 
 /// Background startup is enabled only by the exact supported CLI shape used by autostart.
@@ -761,26 +794,8 @@ pub fn search_window_url() -> &'static str {
 }
 
 pub fn exit_app<R: Runtime>(app: &AppHandle<R>) {
+    app.state::<ExitIntentState>().record_explicit_exit();
     app.exit(0);
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExitRequestedAction {
-    StayResident,
-    Exit,
-}
-
-impl ExitRequestedAction {
-    pub const fn should_shutdown_resident(self) -> bool {
-        matches!(self, Self::Exit)
-    }
-}
-
-pub const fn exit_requested_action(code: Option<i32>) -> ExitRequestedAction {
-    match code {
-        None => ExitRequestedAction::StayResident,
-        Some(_) => ExitRequestedAction::Exit,
-    }
 }
 
 #[tauri::command]
@@ -903,11 +918,15 @@ pub fn enter_background<R: Runtime>(
             &readiness, generation, error,
         ));
     }
+    let exit_intent = app.state::<ExitIntentState>();
+    let teardown = exit_intent.begin_internal_window_teardown(app.webview_windows().len());
     if let Err(error) = window.destroy() {
+        teardown.complete(app.webview_windows().len());
         let _ = workspace.resume_after_window_destroy_failure(generation);
         let _ = readiness.set_ready(generation, true);
         return Err(format!("main_window_destroy_failed:{error}"));
     }
+    teardown.complete(app.webview_windows().len());
     #[cfg(feature = "desktop-runtime")]
     eprintln!(
         "ui_runtime main_window_destroyed generation={generation} webview_count={}",
@@ -1550,7 +1569,13 @@ fn hide_search_window_with_state<R: Runtime>(
             let window = app
                 .get_webview_window(SEARCH_WINDOW_LABEL)
                 .ok_or_else(|| "search_window_missing".to_string())?;
-            window.destroy().map_err(|error| error.to_string())?;
+            let exit_intent = app.state::<ExitIntentState>();
+            let teardown = exit_intent.begin_internal_window_teardown(app.webview_windows().len());
+            if let Err(error) = window.destroy() {
+                teardown.complete(app.webview_windows().len());
+                return Err(error.to_string());
+            }
+            teardown.complete(app.webview_windows().len());
             eprintln!(
                 "ui_runtime search_window_destroyed webview_count={}",
                 app.webview_windows().len()
@@ -1644,24 +1669,6 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc,
     };
-
-    #[test]
-    fn interaction_exit_request_keeps_resident_without_shutdown() {
-        let action = exit_requested_action(None);
-
-        assert_eq!(action, ExitRequestedAction::StayResident);
-        assert!(!action.should_shutdown_resident());
-    }
-
-    #[test]
-    fn programmatic_exit_codes_select_resident_shutdown() {
-        for code in [Some(0), Some(1), Some(-1)] {
-            let action = exit_requested_action(code);
-
-            assert_eq!(action, ExitRequestedAction::Exit);
-            assert!(action.should_shutdown_resident());
-        }
-    }
 
     #[cfg(feature = "desktop-runtime")]
     #[test]
@@ -1775,6 +1782,56 @@ mod tests {
             ]),
             SecondInstanceAction::IgnoreUnsupportedArguments
         );
+    }
+
+    #[test]
+    fn single_instance_diagnostic_omits_path_values_and_working_directory() {
+        let path_argument = r"C:\Users\Private\Documents\report.txt";
+        let working_directory = r"C:\Users\Private\Documents";
+        let classification =
+            classify_second_instance(&["zen-canvas.exe".to_string(), path_argument.to_string()]);
+        let diagnostic = format!("{:?}", classification.diagnostic);
+
+        assert_eq!(
+            classification.action,
+            SecondInstanceAction::IgnoreUnsupportedArguments
+        );
+        assert_eq!(classification.diagnostic.arg_count, 1);
+        assert!(classification.diagnostic.unsupported_arguments);
+        assert!(!diagnostic.contains(path_argument));
+        assert!(!diagnostic.contains(working_directory));
+    }
+
+    #[test]
+    fn second_instance_diagnostic_preserves_supported_classifications() {
+        let manual = classify_second_instance(&["zen-canvas.exe".to_string()]);
+        assert_eq!(manual.action, SecondInstanceAction::ActivateMain);
+        assert_eq!(manual.diagnostic.arg_count, 0);
+        assert!(!manual.diagnostic.background_flag_present);
+        assert!(!manual.diagnostic.unsupported_arguments);
+
+        let background =
+            classify_second_instance(&["zen-canvas.exe".to_string(), "--background".to_string()]);
+        assert_eq!(background.action, SecondInstanceAction::IgnoreBackground);
+        assert_eq!(background.diagnostic.arg_count, 1);
+        assert!(background.diagnostic.background_flag_present);
+        assert!(!background.diagnostic.unsupported_arguments);
+    }
+
+    #[test]
+    fn unsupported_second_instance_arguments_remain_fail_closed() {
+        let classification = classify_second_instance(&[
+            "zen-canvas.exe".to_string(),
+            "--background".to_string(),
+            "--open".to_string(),
+            r"C:\Users\Private\report.txt".to_string(),
+        ]);
+        assert_eq!(
+            classification.action,
+            SecondInstanceAction::IgnoreUnsupportedArguments
+        );
+        assert!(classification.diagnostic.background_flag_present);
+        assert!(classification.diagnostic.unsupported_arguments);
     }
 
     #[test]

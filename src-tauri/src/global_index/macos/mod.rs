@@ -6,7 +6,6 @@
 //! Spotlight remains the source of file metadata.
 
 mod fsevents;
-mod run_loop;
 mod spotlight;
 
 use super::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};

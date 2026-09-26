@@ -5,6 +5,7 @@
 //! existing durable workers can pause and resume without creating a second
 //! reconciliation authority or polling the filesystem.
 
+use super::run_loop::NativeRunLoopStopSignal;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -41,6 +42,7 @@ pub struct MacLifecycleSnapshot {
 pub struct MacLifecycleController {
     state: Arc<Mutex<MacLifecycleSnapshot>>,
     stopped: Arc<AtomicBool>,
+    stop_signal: Arc<NativeRunLoopStopSignal>,
     worker: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
@@ -55,6 +57,7 @@ impl MacLifecycleController {
                 last_error: None,
             })),
             stopped: Arc::new(AtomicBool::new(false)),
+            stop_signal: Arc::new(NativeRunLoopStopSignal::default()),
             worker: Arc::new(Mutex::new(None)),
         };
 
@@ -62,13 +65,14 @@ impl MacLifecycleController {
         {
             let state = Arc::clone(&controller.state);
             let stopped = Arc::clone(&controller.stopped);
+            let stop_signal = Arc::clone(&controller.stop_signal);
             let callback: Arc<dyn Fn(MacLifecycleEvent) -> Result<(), String> + Send + Sync> =
                 Arc::new(on_event);
             let worker = thread::Builder::new()
                 .name("zen-canvas-macos-lifecycle".to_string())
                 .spawn(move || {
                     objc2::rc::autoreleasepool(|_| {
-                        run_workspace_observer(&state, &stopped, &callback);
+                        run_workspace_observer(&state, &stopped, &stop_signal, &callback);
                     });
                 })
                 .map_err(|error| format!("macos_lifecycle_thread_start_failed: {error}"))?;
@@ -97,6 +101,7 @@ impl MacLifecycleController {
 
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::Release);
+        self.stop_signal.request_stop();
         if let Ok(mut slot) = self.worker.lock() {
             if let Some(worker) = slot.take() {
                 let _ = worker.join();
@@ -170,10 +175,34 @@ impl Drop for MacLifecycleController {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+struct ObserverCleanup<F: FnOnce()> {
+    cleanup: Option<F>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<F: FnOnce()> ObserverCleanup<F> {
+    fn new(cleanup: F) -> Self {
+        Self {
+            cleanup: Some(cleanup),
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<F: FnOnce()> Drop for ObserverCleanup<F> {
+    fn drop(&mut self) {
+        if let Some(cleanup) = self.cleanup.take() {
+            cleanup();
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn run_workspace_observer(
     state: &Arc<Mutex<MacLifecycleSnapshot>>,
     stopped: &AtomicBool,
+    stop_signal: &NativeRunLoopStopSignal,
     callback: &Arc<dyn Fn(MacLifecycleEvent) -> Result<(), String> + Send + Sync>,
 ) {
     use block2::RcBlock;
@@ -253,6 +282,19 @@ fn run_workspace_observer(
             &policy_block,
         )
     };
+    let _observer_cleanup = ObserverCleanup::new(|| {
+        let protocol_object: &ProtocolObject<dyn objc2_foundation::NSObjectProtocol> =
+            observer.as_ref();
+        let observer_object: &AnyObject = protocol_object.as_ref();
+        unsafe { center.removeObserver(observer_object) };
+        for observer in [&power_observer, &thermal_observer] {
+            let protocol_object: &ProtocolObject<dyn objc2_foundation::NSObjectProtocol> =
+                observer.as_ref();
+            let observer_object: &AnyObject = protocol_object.as_ref();
+            unsafe { process_center.removeObserver(observer_object) };
+        }
+    });
+
     // A change between the initial snapshot and observer registration is
     // covered by this fresh scheduler re-evaluation.
     MacLifecycleController::apply_event(
@@ -261,25 +303,97 @@ fn run_workspace_observer(
         MacLifecycleEvent::ResourcePolicyChanged,
     );
     let run_loop = NSRunLoop::currentRunLoop();
-    while !stopped.load(Ordering::Acquire) {
-        let deadline = objc2_foundation::NSDate::dateWithTimeIntervalSinceNow(0.25);
-        run_loop.runUntilDate(&deadline);
+    stop_signal.install(super::run_loop::cross_thread_stop_action(
+        run_loop.getCFRunLoop(),
+    ));
+    if !stopped.load(Ordering::Acquire) {
+        unsafe { fsevent_sys::core_foundation::CFRunLoopRun() };
     }
-    let protocol_object: &ProtocolObject<dyn objc2_foundation::NSObjectProtocol> =
-        observer.as_ref();
-    let observer_object: &AnyObject = protocol_object.as_ref();
-    unsafe { center.removeObserver(observer_object) };
-    for observer in [power_observer, thermal_observer] {
-        let protocol_object: &ProtocolObject<dyn objc2_foundation::NSObjectProtocol> =
-            observer.as_ref();
-        let observer_object: &AnyObject = protocol_object.as_ref();
-        unsafe { process_center.removeObserver(observer_object) };
-    }
+    stop_signal.clear();
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MacLifecycleController, MacLifecycleEvent, MacLifecycleState};
+    use super::{
+        MacLifecycleController, MacLifecycleEvent, MacLifecycleSnapshot, MacLifecycleState,
+        ObserverCleanup,
+    };
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc, Mutex,
+    };
+
+    fn test_controller() -> MacLifecycleController {
+        MacLifecycleController {
+            state: Arc::new(Mutex::new(MacLifecycleSnapshot {
+                state: MacLifecycleState::Active,
+                last_error: None,
+            })),
+            stopped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            stop_signal: Arc::new(super::NativeRunLoopStopSignal::default()),
+            worker: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    #[test]
+    fn stop_before_run_loop_install_is_preserved() {
+        let controller = test_controller();
+        let calls = Arc::new(AtomicUsize::new(0));
+        controller.stop();
+        let observed = Arc::clone(&calls);
+        controller.stop_signal.install(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn stop_after_run_loop_install_wakes_worker_without_polling() {
+        let controller = test_controller();
+        let (wake_tx, wake_rx) = mpsc::channel();
+        let (waiting_tx, waiting_rx) = mpsc::channel();
+        let stop_signal = Arc::clone(&controller.stop_signal);
+        let worker = std::thread::spawn(move || {
+            stop_signal.install(move || wake_tx.send(()).expect("wake lifecycle worker"));
+            waiting_tx.send(()).expect("report blocking wait entry");
+            wake_rx.recv().expect("stop signal wakes lifecycle worker");
+            stop_signal.clear();
+        });
+
+        waiting_rx
+            .recv()
+            .expect("worker installed its native stop action");
+        controller.stop();
+        worker.join().expect("worker exits after stop wake");
+    }
+
+    #[test]
+    fn repeated_stop_is_idempotent() {
+        let controller = test_controller();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&calls);
+        controller.stop_signal.install(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+
+        controller.stop();
+        controller.stop();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn observer_cleanup_runs_when_worker_scope_ends() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        {
+            let observed = Arc::clone(&calls);
+            let _cleanup = ObserverCleanup::new(move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn lifecycle_transitions_are_fail_closed_until_reconciliation_succeeds() {

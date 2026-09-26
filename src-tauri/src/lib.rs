@@ -4,6 +4,7 @@ pub mod app_control;
 pub mod content;
 pub mod db;
 pub mod dedupe;
+pub mod exit_intent;
 pub(crate) mod file_naming;
 pub mod file_ops;
 pub mod file_workspace;

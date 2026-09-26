@@ -181,8 +181,18 @@ fn source_version_change_during_generation_rejects_and_does_not_cache() {
 #[test]
 fn dispose_revokes_pending_owners_and_clears_session_memory() {
     let gate = Arc::new(FakeGate::new("v1"));
-    let renderer = Arc::new(FakeRenderer::new(false));
-    let service = service(gate, renderer, None, ThumbnailServiceConfig::default());
+    let wait = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let entered = Arc::new(AtomicBool::new(false));
+    let mut renderer = FakeRenderer::new(false);
+    renderer.wait = Some(Arc::clone(&wait));
+    renderer.entered = Some(Arc::clone(&entered));
+    let renderer = Arc::new(renderer);
+    let service = service(
+        Arc::clone(&gate),
+        renderer,
+        None,
+        ThumbnailServiceConfig::default(),
+    );
     let task = service
         .request(ThumbnailRequest::new(
             "dispose-request",
@@ -191,11 +201,23 @@ fn dispose_revokes_pending_owners_and_clears_session_memory() {
             WorkClass::Interactive,
         ))
         .expect("request");
+    wait_until(&entered);
     assert!(service.dispose());
+    release_wait(&wait);
     assert_eq!(task.join().unwrap_err(), ThumbnailError::Cancelled);
     assert!(!service.dispose());
+    wait_until_zero(&gate.leases);
     assert_eq!(service.active_request_count(), 0);
     assert_eq!(service.memory_cache_len(), 0);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while service.inner.scheduler.snapshot().running != 0 && Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert_eq!(service.inner.scheduler.snapshot().running, 0);
+    assert_eq!(
+        service.inner.scheduler.snapshot().granted,
+        ResourceHints::empty()
+    );
     assert_eq!(
         service
             .request(ThumbnailRequest::new(
@@ -207,6 +229,74 @@ fn dispose_revokes_pending_owners_and_clears_session_memory() {
             .unwrap_err(),
         ThumbnailError::Disposed
     );
+}
+
+#[test]
+fn dispose_waits_for_and_revokes_an_in_flight_disk_publication() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repository root")
+        .join(".tmp-tests")
+        .join("thumbnail-dispose-publication")
+        .join(uuid::Uuid::new_v4().to_string());
+    let gate = Arc::new(FakeGate::new("v1"));
+    let renderer = Arc::new(FakeRenderer::new(false));
+    let service = service(
+        Arc::clone(&gate),
+        renderer,
+        Some(root.clone()),
+        ThumbnailServiceConfig::default(),
+    );
+    service.inner.disk_publication_barrier.arm();
+    let task = service
+        .request(ThumbnailRequest::new(
+            "dispose-publication-request",
+            source("dispose-publication-file"),
+            ThumbnailVariant::Small,
+            WorkClass::Interactive,
+        ))
+        .expect("request");
+    wait_until(&service.inner.disk_publication_barrier.entered);
+
+    assert!(fs::read_dir(&root)
+        .expect("cache directory exists")
+        .filter_map(Result::ok)
+        .any(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("thumb")));
+
+    let service_for_dispose = service.clone();
+    let (dispose_tx, dispose_rx) = std::sync::mpsc::channel();
+    let dispose = thread::spawn(move || {
+        let result = service_for_dispose.dispose();
+        dispose_tx.send(result).expect("report disposal completion");
+    });
+    wait_until(&service.inner.disposed);
+    assert!(matches!(
+        dispose_rx.recv_timeout(Duration::from_millis(100)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+    ));
+    service.inner.disk_publication_barrier.release();
+    assert!(dispose_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("disposal completes after publication is revoked"));
+    dispose.join().expect("dispose thread joins");
+    assert_eq!(task.join().unwrap_err(), ThumbnailError::Cancelled);
+    wait_until(&service.inner.disk_publication_barrier.completed);
+
+    let entries = fs::read_dir(&root)
+        .expect("cache directory remains available")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    assert!(entries.iter().all(|path| {
+        path.extension().and_then(|ext| ext.to_str()) != Some("thumb")
+            && !path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(".pending-thumbnail-"))
+    }));
+    assert_eq!(service.memory_cache_len(), 0);
+    assert_eq!(gate.leases.load(Ordering::SeqCst), 0);
+    fs::remove_dir_all(root).expect("thumbnail cache cleanup");
 }
 
 #[test]

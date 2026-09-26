@@ -17,7 +17,7 @@ use notify::{
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    mpsc::{self, Receiver, TrySendError},
+    mpsc::{self, Receiver, SyncSender, TrySendError},
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
@@ -27,7 +27,11 @@ use thiserror::Error;
 const CHANGE_QUEUE_CAPACITY: usize = 128;
 const CHANGE_BATCH_LIMIT: usize = 128;
 const CHANGE_COALESCE_WINDOW: Duration = Duration::from_millis(50);
-const CHANGE_WORKER_POLL: Duration = Duration::from_millis(25);
+
+enum ChangeWorkerInput {
+    Notify(notify::Result<Event>),
+    Stop,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EphemeralChangeKind {
@@ -100,6 +104,7 @@ struct MonitorRuntime {
 pub(crate) struct EphemeralChangeMonitor {
     runtime: Arc<MonitorRuntime>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    worker_input: SyncSender<ChangeWorkerInput>,
 }
 
 impl EphemeralChangeMonitor {
@@ -134,18 +139,12 @@ impl EphemeralChangeMonitor {
         let stopped_for_callback = Arc::clone(&runtime);
         let overflow = Arc::new(AtomicBool::new(false));
         let overflow_for_callback = Arc::clone(&overflow);
-        let tx_for_callback = tx;
+        let tx_for_callback = tx.clone();
         let mut watcher = match recommended_watcher(move |event| {
             if stopped_for_callback.stopped.load(Ordering::Acquire) {
                 return;
             }
-            match tx_for_callback.try_send(event) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) => {
-                    overflow_for_callback.store(true, Ordering::Release);
-                }
-                Err(TrySendError::Disconnected(_)) => {}
-            }
+            try_queue_notify(&tx_for_callback, &overflow_for_callback, event);
         }) {
             Ok(watcher) => watcher,
             Err(error) => {
@@ -174,6 +173,7 @@ impl EphemeralChangeMonitor {
         Ok(Self {
             runtime,
             worker: Mutex::new(Some(worker)),
+            worker_input: tx,
         })
     }
 
@@ -275,13 +275,16 @@ impl EphemeralChangeMonitor {
     /// bounded by the worker's bounded receive/coalescing loop and is safe to
     /// call repeatedly.
     pub(crate) fn dispose(&self) {
-        self.runtime.stopped.store(true, Ordering::Release);
+        let first_stop = !self.runtime.stopped.swap(true, Ordering::AcqRel);
         if let Ok(mut state) = self.runtime.state.lock() {
             state.disposed = true;
             state.pending = None;
         }
         let _ = self.runtime.browse.invalidate(&self.runtime.session_id);
 
+        if first_stop {
+            let _ = self.worker_input.send(ChangeWorkerInput::Stop);
+        }
         if let Ok(mut worker) = self.worker.lock() {
             if let Some(worker) = worker.take() {
                 let _ = worker.join();
@@ -314,40 +317,86 @@ impl Drop for EphemeralChangeMonitor {
 fn run_worker(
     runtime: Arc<MonitorRuntime>,
     _watcher: RecommendedWatcher,
-    rx: Receiver<notify::Result<Event>>,
+    rx: Receiver<ChangeWorkerInput>,
     overflow: Arc<AtomicBool>,
+) {
+    run_worker_loop(&runtime, &rx, &overflow, || {});
+}
+
+fn run_worker_loop(
+    runtime: &Arc<MonitorRuntime>,
+    rx: &Receiver<ChangeWorkerInput>,
+    overflow: &AtomicBool,
+    mut before_idle_wait: impl FnMut(),
 ) {
     while !runtime.stopped.load(Ordering::Acquire) {
         if overflow.swap(false, Ordering::AcqRel) {
-            handle_hint(&runtime, EphemeralChangeKind::Uncertain);
+            handle_hint(runtime, EphemeralChangeKind::Uncertain);
         }
 
-        match rx.recv_timeout(CHANGE_WORKER_POLL) {
-            Ok(first) => {
+        before_idle_wait();
+        match receive_idle_input(rx) {
+            Ok(ChangeWorkerInput::Stop) => break,
+            Ok(ChangeWorkerInput::Notify(first)) => {
                 let mut batch = vec![first];
                 let deadline = Instant::now() + CHANGE_COALESCE_WINDOW;
                 while batch.len() < CHANGE_BATCH_LIMIT {
+                    if runtime.stopped.load(Ordering::Acquire) {
+                        return;
+                    }
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         break;
                     };
                     match rx.recv_timeout(remaining) {
-                        Ok(event) => batch.push(event),
+                        Ok(ChangeWorkerInput::Notify(event)) => batch.push(event),
+                        Ok(ChangeWorkerInput::Stop) => return,
                         Err(mpsc::RecvTimeoutError::Timeout)
                         | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
                 }
 
-                let mut hint = summarize_events(&runtime.target, batch);
-                if overflow.swap(false, Ordering::AcqRel) {
-                    hint = merge_optional_hint(hint, EphemeralChangeKind::Uncertain);
+                if runtime.stopped.load(Ordering::Acquire) {
+                    return;
                 }
+                let mut hint = summarize_events(&runtime.target, batch);
+                hint = merge_overflow_hint(hint, overflow);
                 if let Some(hint) = hint {
-                    handle_hint(&runtime, hint);
+                    handle_hint(runtime, hint);
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(_) => break,
         }
+    }
+}
+
+fn receive_idle_input(
+    rx: &Receiver<ChangeWorkerInput>,
+) -> Result<ChangeWorkerInput, mpsc::RecvError> {
+    rx.recv()
+}
+
+fn try_queue_notify(
+    tx: &SyncSender<ChangeWorkerInput>,
+    overflow: &AtomicBool,
+    event: notify::Result<Event>,
+) {
+    match tx.try_send(ChangeWorkerInput::Notify(event)) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => {
+            overflow.store(true, Ordering::Release);
+        }
+        Err(TrySendError::Disconnected(_)) => {}
+    }
+}
+
+fn merge_overflow_hint(
+    hint: Option<EphemeralChangeKind>,
+    overflow: &AtomicBool,
+) -> Option<EphemeralChangeKind> {
+    if overflow.swap(false, Ordering::AcqRel) {
+        merge_optional_hint(hint, EphemeralChangeKind::Uncertain)
+    } else {
+        hint
     }
 }
 
@@ -693,6 +742,69 @@ mod tests {
     }
 
     #[test]
+    fn idle_worker_waits_for_control_input_without_a_timer() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let (waiting_tx, waiting_rx) = mpsc::sync_channel(0);
+        let worker = thread::spawn(move || {
+            waiting_tx.send(()).expect("report idle receive entry");
+            receive_idle_input(&rx).expect("explicit stop input")
+        });
+
+        waiting_rx
+            .recv()
+            .expect("worker entered blocking idle receive");
+        tx.send(ChangeWorkerInput::Stop)
+            .expect("send explicit worker stop");
+        assert!(matches!(
+            worker.join().expect("worker exits after stop"),
+            ChangeWorkerInput::Stop
+        ));
+    }
+
+    #[test]
+    fn bounded_queue_overflow_degrades_the_hint_to_uncertain() {
+        let target = PathBuf::from("/work/Documents");
+        let event = Event {
+            kind: EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
+            paths: vec![target.join("report.txt")],
+            attrs: EventAttributes::new(),
+        };
+        let (tx, rx) = mpsc::sync_channel(1);
+        let overflow = AtomicBool::new(false);
+        try_queue_notify(&tx, &overflow, Ok(event.clone()));
+        try_queue_notify(&tx, &overflow, Ok(event));
+
+        let first = match rx.try_recv().expect("first bounded event remains queued") {
+            ChangeWorkerInput::Notify(event) => event,
+            ChangeWorkerInput::Stop => panic!("queue contains the first notify event"),
+        };
+        assert_eq!(
+            merge_overflow_hint(summarize_events(&target, vec![first]), &overflow),
+            Some(EphemeralChangeKind::Uncertain)
+        );
+    }
+
+    #[test]
+    fn queued_events_keep_the_existing_coalesced_hint_semantics() {
+        let target = PathBuf::from("/work/Documents");
+        let content_change = Event {
+            kind: EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
+            paths: vec![target.join("report.txt")],
+            attrs: EventAttributes::new(),
+        };
+        let rename = Event {
+            kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            paths: vec![target.join("report.txt"), target.join("renamed.txt")],
+            attrs: EventAttributes::new(),
+        };
+
+        assert_eq!(
+            summarize_events(&target, vec![Ok(content_change), Ok(rename)]),
+            Some(EphemeralChangeKind::Renamed)
+        );
+    }
+
+    #[test]
     fn target_rename_event_is_unavailable_without_row_deletion_semantics() {
         let target = PathBuf::from("/work/Documents");
         let event = Event {
@@ -790,6 +902,7 @@ mod tests {
         let page = browse
             .start_enumeration(&session.session_id, "current", &session.root_path_ref, 8)
             .expect("page");
+        monitor.dispose();
         monitor.dispose();
         monitor.inject_hint(EphemeralChangeKind::ContentChanged);
 

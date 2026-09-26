@@ -33,23 +33,20 @@ fn main() {
     let background_launch = zen_canvas_tauri::app_control::is_background_launch_args(&launch_args);
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            let action = zen_canvas_tauri::app_control::second_instance_action(&args);
+        .manage(zen_canvas_tauri::exit_intent::ExitIntentState::default())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let classification =
+                zen_canvas_tauri::app_control::classify_second_instance(&args);
+            let diagnostic = classification.diagnostic;
             eprintln!(
-                "ui_runtime single_instance_received first_pid={} args={args:?} cwd={cwd:?}",
-                std::process::id()
+                "ui_runtime single_instance_received first_pid={} arg_count={} action={:?} background_flag_present={} unsupported_arguments={}",
+                std::process::id(),
+                diagnostic.arg_count,
+                diagnostic.action,
+                diagnostic.background_flag_present,
+                diagnostic.unsupported_arguments
             );
-            let action_name = match action {
-                zen_canvas_tauri::app_control::SecondInstanceAction::ActivateMain => "ActivateMain",
-                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreBackground => {
-                    "IgnoreBackground"
-                }
-                zen_canvas_tauri::app_control::SecondInstanceAction::IgnoreUnsupportedArguments => {
-                    "IgnoreUnsupportedArguments"
-                }
-            };
-            eprintln!("ui_runtime single_instance_action action={action_name}");
-            match action {
+            match classification.action {
                 zen_canvas_tauri::app_control::SecondInstanceAction::ActivateMain => {
                     match zen_canvas_tauri::app_control::show_main_window(app) {
                         Ok(()) => {
@@ -67,8 +64,8 @@ fn main() {
                                 app.webview_windows().len()
                             );
                         }
-                        Err(error) => eprintln!(
-                            "ui_runtime single_instance_main_activation result=error error={error}"
+                        Err(_) => eprintln!(
+                            "ui_runtime single_instance_main_activation result=error error=main_window_activation_failed"
                         ),
                     }
                 }
@@ -528,11 +525,11 @@ fn main() {
                     }
                 }
                 tauri::RunEvent::ExitRequested { code, api, .. } => {
-                    match zen_canvas_tauri::app_control::exit_requested_action(code) {
-                        zen_canvas_tauri::app_control::ExitRequestedAction::StayResident => {
-                            api.prevent_exit();
-                        }
-                        zen_canvas_tauri::app_control::ExitRequestedAction::Exit => {
+                    let exit_intent = app.state::<zen_canvas_tauri::exit_intent::ExitIntentState>();
+                    exit_intent.dispatch_exit_requested(
+                        code,
+                        || api.prevent_exit(),
+                        || {
                             if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
                                 if let Err(error) = coordinator.shutdown() {
                                     eprintln!("Global index shutdown failed (non-fatal): {error}");
@@ -546,8 +543,8 @@ fn main() {
                             >() {
                                 lifecycle.stop();
                             }
-                        }
-                    }
+                        },
+                    );
                 }
                 _ => {}
             }

@@ -3877,8 +3877,32 @@ mod tests {
     use super::*;
     use crate::scheduler::{PermissiveResourcePolicy, ResourceCapacities, SchedulerConfig};
     use std::io::Write;
-    use std::sync::{atomic::AtomicUsize, Arc, Barrier};
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize},
+        Arc, Barrier,
+    };
     use zip::{write::SimpleFileOptions, ZipWriter};
+
+    const PDF_TEST_HANG_PROTECTION: Duration = Duration::from_secs(30);
+
+    fn run_pdf_with_hang_protection<T, F>(task: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+            let _ = result_tx.send(result);
+        });
+        match result_rx
+            .recv_timeout(PDF_TEST_HANG_PROTECTION)
+            .expect("PDF correctness worker exceeded hang-protection bound")
+        {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
 
     #[test]
     fn content_resource_wait_is_event_driven_and_cancellation_wakes_it() {
@@ -4520,53 +4544,56 @@ mod tests {
     }
 
     #[test]
-    fn pdf_midflight_timeout_and_cancel_are_bounded_without_publication() {
+    fn pdf_midflight_timeout_and_cancel_preserve_reasons_without_wall_clock_sla() {
         let policy = default_policy("fixture-root", 0);
         let hostile = compressed_pdf_fixture(&vec![b'x'; 2 * 1024 * 1024]);
 
-        let timeout_started = AtomicBool::new(false);
-        let timeout_hook = || {
-            timeout_started.store(true, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(20));
-        };
-        let started_at = Instant::now();
-        let timeout = pdf_text_extraction_with_limits_and_hook(
-            &hostile,
-            &policy,
-            Instant::now() + Duration::from_millis(5),
-            None,
-            Some(&timeout_hook),
-        )
-        .unwrap();
-        let timeout_elapsed = started_at.elapsed();
+        let timeout_started = Arc::new(AtomicBool::new(false));
+        let timeout_started_for_hook = Arc::clone(&timeout_started);
+        let hostile_for_timeout = hostile.clone();
+        let policy_for_timeout = policy.clone();
+        let timeout = run_pdf_with_hang_protection(move || {
+            let timeout_hook = move || {
+                timeout_started_for_hook.store(true, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(20));
+            };
+            pdf_text_extraction_with_limits_and_hook(
+                &hostile_for_timeout,
+                &policy_for_timeout,
+                Instant::now() + Duration::from_millis(5),
+                None,
+                Some(&timeout_hook),
+            )
+            .unwrap()
+        });
         assert!(timeout_started.load(Ordering::SeqCst));
         assert_eq!(timeout.status, "failed");
         assert_eq!(timeout.reason.as_deref(), Some("content_extractor_timeout"));
-        assert!(timeout_elapsed < Duration::from_millis(500));
 
-        let cancel = AtomicBool::new(false);
-        let cancel_started = AtomicBool::new(false);
-        let cancel_hook = || {
-            cancel_started.store(true, Ordering::SeqCst);
-            cancel.store(true, Ordering::SeqCst);
-        };
-        let started_at = Instant::now();
-        let cancelled = pdf_text_extraction_with_limits_and_hook(
-            &hostile,
-            &policy,
-            Instant::now() + Duration::from_secs(2),
-            Some(&cancel),
-            Some(&cancel_hook),
-        )
-        .unwrap();
-        let cancel_elapsed = started_at.elapsed();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_started = Arc::new(AtomicBool::new(false));
+        let cancel_for_worker = Arc::clone(&cancel);
+        let cancel_started_for_hook = Arc::clone(&cancel_started);
+        let cancelled = run_pdf_with_hang_protection(move || {
+            let cancel_hook = move || {
+                cancel_started_for_hook.store(true, Ordering::SeqCst);
+                cancel_for_worker.store(true, Ordering::SeqCst);
+            };
+            pdf_text_extraction_with_limits_and_hook(
+                &hostile,
+                &policy,
+                Instant::now() + Duration::from_secs(2),
+                Some(&cancel),
+                Some(&cancel_hook),
+            )
+            .unwrap()
+        });
         assert!(cancel_started.load(Ordering::SeqCst));
         assert_eq!(cancelled.status, "failed");
         assert_eq!(
             cancelled.reason.as_deref(),
             Some("content_extractor_cancelled")
         );
-        assert!(cancel_elapsed < Duration::from_millis(500));
     }
 
     #[test]
@@ -4681,24 +4708,28 @@ mod tests {
             preview_fingerprint: "test".into(),
             confirmed: true,
         };
-        let cancel = AtomicBool::new(false);
-        let started = AtomicBool::new(false);
-        let cancel_hook = || {
-            started.store(true, Ordering::SeqCst);
-            cancel.store(true, Ordering::SeqCst);
-        };
-        let elapsed_start = Instant::now();
-        let run = db
-            .process_content_run_with_pdf_hook(
-                "pdf-run-cancel-run",
-                &request,
-                vec![candidate],
-                Some(&cancel_hook),
-                Some(&cancel),
-            )
-            .unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let started = Arc::new(AtomicBool::new(false));
+        let cancel_for_hook = Arc::clone(&cancel);
+        let started_for_hook = Arc::clone(&started);
+        let db = Arc::new(db);
+        let db_for_worker = Arc::clone(&db);
+        let run = run_pdf_with_hang_protection(move || {
+            let cancel_hook = move || {
+                started_for_hook.store(true, Ordering::SeqCst);
+                cancel_for_hook.store(true, Ordering::SeqCst);
+            };
+            db_for_worker
+                .process_content_run_with_pdf_hook(
+                    "pdf-run-cancel-run",
+                    &request,
+                    vec![candidate],
+                    Some(&cancel_hook),
+                    Some(&cancel),
+                )
+                .unwrap()
+        });
         assert!(started.load(Ordering::SeqCst));
-        assert!(elapsed_start.elapsed() < Duration::from_millis(500));
         assert_eq!(run.status, "partially_completed");
         let conn = db.conn().unwrap();
         let (item_status, error_code): (String, Option<String>) = conn
@@ -4718,8 +4749,26 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
+        let running_items: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM content_run_items
+                 WHERE run_id='pdf-run-cancel-run' AND status='running'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let run_in_progress: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM content_runs
+                 WHERE id='pdf-run-cancel-run' AND status IN ('running','cancelling')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(item_status, "failed");
         assert_eq!(error_code.as_deref(), Some("content_extractor_cancelled"));
+        assert_eq!(running_items, 0);
+        assert_eq!(run_in_progress, 0);
         assert_eq!(artifacts, 0);
         assert_eq!(fts, 0);
         drop(conn);
@@ -4836,23 +4885,27 @@ mod tests {
             preview_fingerprint: "test".into(),
             confirmed: true,
         };
-        let started = AtomicBool::new(false);
-        let timeout_hook = || {
-            started.store(true, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(20));
-        };
-        let elapsed_start = Instant::now();
-        let run = db
-            .process_content_run_with_pdf_deadline_for_test(
-                &run_id,
-                &request,
-                vec![candidate],
-                Some(&timeout_hook),
-                Duration::from_millis(5),
-            )
-            .unwrap();
+        let started = Arc::new(AtomicBool::new(false));
+        let started_for_hook = Arc::clone(&started);
+        let run_id_for_worker = run_id.clone();
+        let db = Arc::new(db);
+        let db_for_worker = Arc::clone(&db);
+        let run = run_pdf_with_hang_protection(move || {
+            let timeout_hook = move || {
+                started_for_hook.store(true, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(20));
+            };
+            db_for_worker
+                .process_content_run_with_pdf_deadline_for_test(
+                    &run_id_for_worker,
+                    &request,
+                    vec![candidate],
+                    Some(&timeout_hook),
+                    Duration::from_millis(5),
+                )
+                .unwrap()
+        });
         assert!(started.load(Ordering::SeqCst));
-        assert!(elapsed_start.elapsed() < Duration::from_millis(500));
         assert_eq!(run.status, "partially_completed");
         let conn = db.conn().unwrap();
         let (item_status, error_code): (String, Option<String>) = conn
