@@ -3,7 +3,7 @@ use std::{
     sync::{Condvar, Mutex},
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Runtime, State, WebviewWindow};
+use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 
 use crate::{
     exit_intent::ExitIntentState, settings::DEFAULT_SEARCH_HOTKEY, window_auth::require_main_window,
@@ -14,7 +14,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, Emitter, LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    App, Emitter, LogicalSize, Size, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 #[cfg(feature = "desktop-runtime")]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
