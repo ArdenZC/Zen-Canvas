@@ -230,3 +230,8 @@ jobs:
             Remove-Item -LiteralPath $resolved -Recurse -Force
             if (Test-Path -LiteralPath $resolved) { throw "task-owned matrix path remains after cleanup: $resolved" }
           }
+      - name: Preserve blocked matrix classification
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.matrix.outcome }}" -ne "success") { throw "managed-scan causal matrix is blocked or incomplete; inspect its retained artifact" }

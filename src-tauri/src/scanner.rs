@@ -998,7 +998,7 @@ where
         }
     };
     let session_id = admission.session.id.clone();
-    let run_ids = admission.runs;
+    let admitted_runs = admission.runs;
     let legacy = LegacyScanContext {
         job_kind: job_kind.to_string(),
         include_entries: true,
@@ -1006,7 +1006,7 @@ where
     let worker_session_id = session_id.clone();
     let work = ManagedSessionWork {
         session_id: worker_session_id,
-        runs: run_ids,
+        runs: admitted_runs,
         guards,
         legacy: Some(legacy),
     };

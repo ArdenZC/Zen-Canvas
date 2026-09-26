@@ -11,7 +11,7 @@ use crate::{
         cancel_performance_managed_scan, start_performance_managed_scan_roots,
         PerformanceManagedScan, ScanJobManager,
     },
-    scheduler::{CancellationToken, ResourceHints, WorkRequest, WorkScheduler},
+    scheduler::{CancellationToken, ResourceCapacities, ResourceHints, WorkRequest, WorkScheduler},
 };
 use serde_json::{json, Value};
 use std::{
@@ -216,7 +216,7 @@ fn run_slot_observation<R: tauri::Runtime + 'static>(
     initial_snapshot: &crate::scheduler::SchedulerSnapshot,
     fixture: &WorkspaceFixture,
     requested_slots: usize,
-    background_capacity: ResourceHints,
+    background_capacity: ResourceCapacities,
     capacity_slots: usize,
     app: &tauri::AppHandle<R>,
 ) -> bool {
