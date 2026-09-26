@@ -87,11 +87,11 @@ Final authority:
 
 ## Current
 
-### Zero-Burden Cross-Track Audit Remediation
+### Resident / Interactive Performance Qualification
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; ZB-01 through ZB-05 COMPLETE / MERGED; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
+Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: one bounded managed-scan traversal/QoS repair plus qualification evidence; issue #268; branch `perf/resident-interactive-qualification`**.
 
-Authority: [Cross-Track Audit Remediation initiative](initiatives/zero-burden-cross-track-audit-remediation.md) and [result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
+Authority: [Resident / Interactive Performance Qualification initiative](initiatives/resident-interactive-performance-qualification.md) and [activation taskbook](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
 
 The completed foundation sequence is:
 
@@ -99,12 +99,12 @@ The completed foundation sequence is:
 2. [ZB-02 — Idle Polling Removal](tasks/ZB-02-IDLE-POLLING-REMOVAL-RESULT.md) — **MERGED**.
 3. [ZB-03 — Runtime Resource Governance](tasks/ZB-03-RUNTIME-RESOURCE-GOVERNANCE-RESULT.md) — **MERGED**.
 4. [ZB-04 — On-Demand UI Runtime](tasks/ZB-04-ON-DEMAND-UI-RUNTIME-RESULT.md) — **MERGED**.
-5. [ZB-05 — Native Global Search Runtime](tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md) — **MERGED** to `master@316db9a09261dd3f6d3935aae68d261c45485cf9` through PR #266.
-6. **Cross-Track Audit Remediation — CURRENT.**
-7. **Resident / Interactive Performance Qualification — NEXT, after this PR merges.**
-8. **AI Semantic Authority — GATED after foundation and performance qualification; NOT ACTIVE.**
+5. [ZB-05 — Native Global Search Runtime](tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md) — **MERGED** through PR #266.
+6. [Zero-Burden Cross-Track Audit Remediation](initiatives/zero-burden-cross-track-audit-remediation.md) — **COMPLETE / MERGED** through PR #267 to `master@6d38208741d186988468ec92b632dd3669a03aa5`.
+7. **Resident / Interactive Performance Qualification — CURRENT.**
+8. **AI Semantic Authority — GATED after owner-reviewed performance qualification; NOT ACTIVE.**
 
-The current remediation preserves the existing runtime and durable authorities. Routed CI performance suites passed; this is not Resident / Interactive Performance Qualification and does not change release/publication state.
+Qualification must establish attributable resident-process evidence and credible interactive foreground evidence. The one-CPU traversal repair keeps filesystem work on the scanner worker already carrying background QoS; broader production tuning requires new causal evidence. Existing product targets are not relaxed, historical misses remain, and no new cross-platform absolute RSS cap is invented. AI Semantic Authority stays gated pending owner acceptance.
 
 ## Release qualification residuals — W6-10
 

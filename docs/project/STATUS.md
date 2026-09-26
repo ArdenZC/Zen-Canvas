@@ -1,11 +1,11 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-26
+Last verified: 2026-09-27
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9`; tree `5091a6899b5570aeb776eea503b0f1ea62dbacb9` (ZB-05 / PR #266). Exact-head hosted CI `36175937658` is **SUCCESS**.
-- Current engineering initiative: **Zero-Burden Cross-Track Audit Remediation — IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING** on `remediation/zero-burden-cross-track-audit`, based on the exact merged baseline above. Production source is `06531c55f04cbe6a4b47d66305fcf262f74a223a`; hosted Windows/macOS CI [36217885372](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36217885372) is **SUCCESS** on that exact source, and pre-closeout Final HEAD `075f044ccea2613605b01fb794b428e582618c83` passed [36218506275](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36218506275). [PR #267](https://github.com/ArdenZC/Zen-Canvas/pull/267) is owner-approved for merge. Authority: [current initiative](initiatives/zero-burden-cross-track-audit-remediation.md); execution result: [remediation result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
+- Latest merged production baseline: `master@6d38208741d186988468ec92b632dd3669a03aa5` (Zero-Burden Cross-Track Audit Remediation / PR #267). Final pre-merge current-head CI [36219230993](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36219230993) is **SUCCESS**.
+- Current engineering initiative: **Resident / Interactive Performance Qualification — ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: one bounded managed-scan traversal/QoS repair plus qualification evidence** on `perf/resident-interactive-qualification`, issue [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268). Final qualification source is `28ffd3db4cc65df2c84612ce055a5a5b7b409477` / tree `b5e29565af584401993a793eaaba17449a7a538d`; run [36267998830](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36267998830) retains the blocking classification and exact-source normal CI [36268002168](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36268002168) is **SUCCESS**. Windows retains four 2x misses despite structural HARD PASS/background progress; macOS managed-scan repeats met target but resident startup aborts; the test-only matrix was non-monotonic and did not justify more tuning. AI Semantic Authority remains gated. Authority: [current initiative](initiatives/resident-interactive-performance-qualification.md); activation taskbook: [performance qualification activation](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -26,15 +26,15 @@ Last verified: 2026-09-26
 
 ## Current initiative
 
-**Zero-Burden Cross-Track Audit Remediation**
+**Resident / Interactive Performance Qualification**
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
+Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: one bounded managed-scan traversal/QoS repair plus qualification evidence**.
 
-Authority: [Zero-Burden Cross-Track Audit Remediation](initiatives/zero-burden-cross-track-audit-remediation.md).
+Authority: [Resident / Interactive Performance Qualification](initiatives/resident-interactive-performance-qualification.md). Issue: [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268). Branch: `perf/resident-interactive-qualification`. Activation baseline: `master@6d38208741d186988468ec92b632dd3669a03aa5`.
 
-Baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9`. Production HEAD: `06531c55f04cbe6a4b47d66305fcf262f74a223a`. The initiative closes the bounded runtime, privacy, correctness-test and documentation-truth findings. It does not reopen release qualification or authorize publication.
+The current bounded repair maps a one-CPU managed-scan lease to serial traversal on the scanner worker carrying background QoS. Multi-CPU traversal remains bounded to the admitted grant. Repaired Windows measurements must retain the full Workspace Foundation managed-scan observation and three independent observations; the 2x target is unchanged. Qualification also measures the real resident Zen process (and Windows Global Index service separately where applicable) and retains existing no-leak/resource-settlement HARD gates. Routed CI performance suites do not by themselves close this Track.
 
-W6 release residuals remain as recorded below: W6-10B is blocked on a valid SmartScreen/UAC evidence host; W6-10C is deferred/unverified without a supported Mac host; RC1 remains immutable, RC2 is not authorized, and publication remains deferred.
+Qualification recorded repeated Windows managed-scan first-page ratio misses, a Windows background-progress HARD failure and a macOS background-process abort; prior target misses remain blocking and are not averaged away. The final code-head run on `28ffd3db` leaves the full Workspace Foundation observation and all three independent Windows observations above the 2x target, although every structural gate and post-release progress check passes. All three macOS scan observations met target and structural gates, but the exact resident app still aborts before `tray_ready`; the latest LLDB attempt timed out without a captured backtrace. The required 1–4 slot matrix completed with one 3-slot miss and no monotonic latency increase, so it provides no basis for more production tuning. Five-run browser repeats met mock targets on both OSes; native UI remains unverified and the four historical Preview misses remain. Local task hygiene is pending for two generated SQLite fixtures after exact-path cleanup was rejected by automatic policy review. Resident/platform and full-suite evidence is recorded in the [qualification result](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-RESULT.md). PR #269 remains Draft; this Track is not complete. AI Semantic Authority / AI-only Organize-Cleanup remains **GATED / NOT ACTIVE** until owner review accepts this qualification. W6 release residuals remain separate and unchanged.
 
 ## Release, schema and platform truth
 

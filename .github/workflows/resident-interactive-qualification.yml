@@ -1,0 +1,243 @@
+name: Resident Interactive Qualification
+
+on:
+  push:
+    branches: [perf/resident-interactive-qualification]
+    paths:
+      - '.github/workflows/resident-interactive-qualification.yml'
+      - 'scripts/qualifyWindowsGlobalIndexService.ps1'
+      - 'scripts/sampleWindowsResident.ps1'
+      - 'scripts/qualifyMacosResident.py'
+      - 'scripts/diagnoseMacosStartup.py'
+      - 'scripts/runResidentInteractiveQualification.mjs'
+      - 'scripts/qualifyInteractiveBrowser.mjs'
+      - 'scripts/runW3-10PhaseABrowserHarness.mjs'
+      - 'scripts/runW2-11BrowserGate.mjs'
+      - 'src-tauri/**'
+      - 'src/**'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EXPECTED_SOURCE_SHA: ${{ github.sha }}
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  browser:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: node scripts/qualifyInteractiveBrowser.mjs
+      - name: Upload browser observations
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: interactive-browser-${{ runner.os }}-${{ github.sha }}
+          path: .performance-artifacts/qualification
+          retention-days: 30
+  qualification:
+    name: Qualification / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify supported macOS runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          sw_vers
+          echo 'MACOSX_DEPLOYMENT_TARGET=13.0' >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm run build:frontend
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: resident-qualification-${{ runner.os }}-v1
+          cache-workspace-crates: true
+          cache-on-failure: true
+      - name: Build exact candidate and existing probe
+        id: candidate
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path .performance-artifacts/qualification -Force | Out-Null
+          $taskConfig = Join-Path $env:RUNNER_TEMP 'resident-qualification-tauri.json'
+          if (Test-Path -LiteralPath $taskConfig) { throw "refusing pre-existing task config: $taskConfig" }
+          try {
+            if ("${{ runner.os }}" -eq "macOS") {
+              # Cargo package name differs from its existing desktop binary.
+              '{"mainBinaryName":"zen-canvas"}' | Set-Content -LiteralPath $taskConfig
+              npx tauri build --features "desktop-runtime,native-qa" --bundles app --config $taskConfig -- --locked 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
+            } else {
+              cargo build --locked --release --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas --bin zb05-global-index-qa 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
+            }
+            $buildExit = $LASTEXITCODE
+            @{ sourceHead = $env:EXPECTED_SOURCE_SHA; sourceTree = (git rev-parse 'HEAD^{tree}'); runner = "${{ runner.os }}"; architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); exitCode = $buildExit } | ConvertTo-Json | Set-Content .performance-artifacts/qualification/candidate-build.json
+            if ($buildExit -ne 0) { throw "candidate build failed: $buildExit" }
+          } finally {
+            if (Test-Path -LiteralPath $taskConfig) { Remove-Item -LiteralPath $taskConfig }
+          }
+      - name: Windows exact process and separate service
+        id: windows-resident
+        if: runner.os == 'Windows' && steps.candidate.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe src-tauri/target/release/zen-canvas.exe -ProbeExe src-tauri/target/release/zb05-global-index-qa.exe -EvidencePath .performance-artifacts/qualification/windows-resident.json -ResidentQualification
+          if ($LASTEXITCODE -ne 0) { throw "resident qualification blocked: $LASTEXITCODE" }
+      - name: Bounded optional macOS startup backtrace
+        if: runner.os == 'macOS' && steps.candidate.outcome == 'success'
+        continue-on-error: true
+        run: python3 scripts/diagnoseMacosStartup.py 'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' .performance-artifacts/qualification/macos-startup-backtrace.json
+      - name: macOS exact background process
+        id: macos-resident
+        if: runner.os == 'macOS' && steps.candidate.outcome == 'success'
+        continue-on-error: true
+        run: python3 scripts/qualifyMacosResident.py 'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' .performance-artifacts/qualification/macos-resident.json
+      - name: Existing interactive workloads and three independent scan observations
+        id: interactive
+        continue-on-error: true
+        run: node scripts/runResidentInteractiveQualification.mjs
+      - name: Upload raw qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: resident-interactive-${{ runner.os }}-${{ github.sha }}
+          path: .performance-artifacts/qualification
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve blocking classification
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.candidate.outcome }}" -ne "success") { throw "candidate build blocked; see candidate-build log/JSON" }
+          if ("${{ steps.interactive.outcome }}" -ne "success") { throw "interactive qualification blocked or performance review required" }
+          if ("${{ runner.os }}" -eq "Windows" -and "${{ steps.windows-resident.outcome }}" -ne "success") { throw "Windows resident evidence blocked" }
+          if ("${{ runner.os }}" -eq "macOS" -and "${{ steps.macos-resident.outcome }}" -ne "success") { throw "macOS resident evidence blocked" }
+
+  windows-scan-slot-causal-matrix:
+    name: Windows managed-scan causal matrix
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: resident-scan-slot-matrix-Windows-v1
+          cache-workspace-crates: true
+          cache-on-failure: true
+      - name: Run real managed-scan slots 1 through 4 on one fixture
+        id: matrix
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:EXPECTED_SOURCE_SHA) { throw "matrix checkout does not match the event SHA" }
+          $matrixRoot = Join-Path $PWD ".performance-artifacts/managed-scan-causal-matrix"
+          $tempRoot = Join-Path $PWD ".performance-temp/managed-scan-causal-matrix"
+          $fixtureRoot = Join-Path $PWD ".tmp-performance-fixtures/managed-scan-causal-matrix"
+          foreach ($ownedRoot in @($matrixRoot, $tempRoot, $fixtureRoot)) {
+            if (Test-Path -LiteralPath $ownedRoot) { throw "refusing pre-existing matrix-owned path: $ownedRoot" }
+          }
+          New-Item -ItemType Directory -Path $matrixRoot, $tempRoot | Out-Null
+          "owned_roots=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $env:TEMP = $tempRoot
+          $env:TMP = $tempRoot
+          $env:ZC_PERF_WORKSPACE_FIXTURE_ROOT = $fixtureRoot
+          $runLog = Join-Path $matrixRoot "managed-scan-causal-matrix.log"
+          cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib file_workspace::integration::performance::scheduler::causal_matrix::managed_scan_slot_causal_matrix_1_to_4 -- --exact --ignored --nocapture --test-threads=1 2>&1 | Tee-Object -FilePath $runLog
+          $testExitCode = $LASTEXITCODE
+          $rawLog = Get-Content -LiteralPath $runLog -Raw
+          $metricMatches = [regex]::Matches($rawLog, '\[zc-perf\] (\{[^\r\n]*\})')
+          $metrics = @($metricMatches | ForEach-Object { $_.Groups[1].Value | ConvertFrom-Json })
+          $latencyRows = @($metrics | Where-Object { $_.scenario -eq "managed_scan_slot_causal_latency" })
+          $structureRows = @($metrics | Where-Object { $_.scenario -eq "managed_scan_slot_causal_structure" })
+          $unavailable = @($latencyRows | Where-Object { $_.classification -eq "MATRIX LEVEL UNAVAILABLE" })
+          $misses = @($latencyRows | Where-Object { $_.classification -eq "TARGET MISSED" })
+          $latencySlots = @($latencyRows | Sort-Object target_effective_scan_slots | ForEach-Object { [int]$_.target_effective_scan_slots })
+          $structureSlots = @($structureRows | Sort-Object target_effective_scan_slots | ForEach-Object { [int]$_.target_effective_scan_slots })
+          $structureBlocked = @($structureRows | Where-Object { $_.classification -ne "HARD PASS" })
+          $rowsComplete = ($latencyRows.Count -eq 4) -and ($structureRows.Count -eq 4) -and (($latencySlots -join ",") -eq "1,2,3,4") -and (($structureSlots -join ",") -eq "1,2,3,4") -and ($structureBlocked.Count -eq 0)
+          $disposition = if ($testExitCode -ne 0 -or -not $rowsComplete) { "BLOCKED" } elseif ($unavailable.Count -gt 0) { "MATRIX INCOMPLETE / CAPACITY LIMITED" } elseif ($misses.Count -gt 0) { "PERFORMANCE REVIEW REQUIRED" } else { "MATRIX COMPLETE / TARGETS MET" }
+          $evidence = [ordered]@{
+            sourceHead = $head
+            sourceTree = (git rev-parse 'HEAD^{tree}').Trim()
+            workflowRunId = $env:GITHUB_RUN_ID
+            runnerOS = "${{ runner.os }}"
+            runnerArch = "${{ runner.arch }}"
+            osVersion = [Environment]::OSVersion.VersionString
+            logicalProcessorCount = [Environment]::ProcessorCount
+            rustc = (rustc -Vv | Out-String).Trim()
+            cargoLockSha256 = (Get-FileHash -Algorithm SHA256 src-tauri/Cargo.lock).Hash
+            testExitCode = $testExitCode
+            classification = $disposition
+            latencyRows = $latencyRows
+            structureRows = $structureRows
+          }
+          $evidence | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $matrixRoot "managed-scan-causal-matrix.json") -Encoding utf8
+          if (-not $rowsComplete) { throw "matrix did not emit all eight structured observations for slots 1 through 4" }
+          if ($testExitCode -ne 0) { throw "causal matrix structural or settlement checks failed; raw evidence retained" }
+          if ($unavailable.Count -gt 0) { throw "one or more requested effective slot levels exceeded real scheduler capacity; raw evidence retained" }
+      - name: Upload causal matrix raw evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: managed-scan-causal-matrix-Windows-${{ github.sha }}
+          path: .performance-artifacts/managed-scan-causal-matrix
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove task-owned matrix fixture and temporary roots
+        if: always() && steps.matrix.outputs.owned_roots == 'true'
+        shell: pwsh
+        run: |
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+          $ownedRoots = @(
+            (Join-Path $workspace ".tmp-performance-fixtures/managed-scan-causal-matrix"),
+            (Join-Path $workspace ".performance-temp/managed-scan-causal-matrix")
+          )
+          foreach ($ownedRoot in $ownedRoots) {
+            if (-not (Test-Path -LiteralPath $ownedRoot)) { continue }
+            $resolved = (Resolve-Path -LiteralPath $ownedRoot).Path
+            if (-not $resolved.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) { throw "cleanup path escapes the workspace: $resolved" }
+            $item = Get-Item -LiteralPath $resolved -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "refusing reparse-point cleanup: $resolved" }
+            Remove-Item -LiteralPath $resolved -Recurse -Force
+            if (Test-Path -LiteralPath $resolved) { throw "task-owned matrix path remains after cleanup: $resolved" }
+          }
+      - name: Preserve blocked matrix classification
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.matrix.outcome }}" -ne "success") { throw "managed-scan causal matrix is blocked or incomplete; inspect its retained artifact" }

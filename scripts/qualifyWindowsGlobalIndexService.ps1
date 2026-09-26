@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$CandidateExe,
     [Parameter(Mandatory = $true)][string]$ProbeExe,
-    [Parameter(Mandatory = $true)][string]$EvidencePath
+    [Parameter(Mandatory = $true)][string]$EvidencePath,
+    [switch]$ResidentQualification
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +35,13 @@ if (-not $CandidateExe.StartsWith([IO.Path]::GetFullPath($PWD.Path), [StringComp
 
 $script:evidence = [ordered]@{
     sourceHead = $null
+    sourceTree = (& git rev-parse 'HEAD^{tree}').Trim()
+    profileRoot = $profileRoot
+    rawTrace = @()
+    residentSamples = @()
+    serviceSamples = @()
+    residentStartup = $null
+    residentClassification = "UNVERIFIED"
     expectedSourceHead = $env:EXPECTED_SOURCE_SHA
     candidateExe = $CandidateExe
     candidateSha256 = $null
@@ -67,7 +75,7 @@ $script:evidence = [ordered]@{
     createLatencyMs = $null
     renameLatencyMs = $null
     deleteLatencyMs = $null
-    settledIdleWindowMs = 10000
+    settledIdleWindowMs = $null
     settledCoordinatorCycleDelta = $null
     settledCoordinatorWaitDelta = $null
     serviceRouteObserved = $false
@@ -88,6 +96,7 @@ $script:probeProcess = $null
 $script:clientProcessId = $null
 $script:serviceProcessId = $null
 $script:serviceCreatedByTask = $false
+$script:taskRootCreatedByTask = $false
 $script:qualificationVhdCreated = $false
 $script:qualificationVhdAttached = $false
 $script:failureMessage = $null
@@ -393,6 +402,7 @@ try {
         throw "refusing to reuse an existing qualification task root: $taskRoot"
     }
     New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
+    $script:taskRootCreatedByTask = $true
     New-QualificationVolume
 
     $preexistingToken = "zb05qapreexisting$([Guid]::NewGuid().ToString('N'))"
@@ -452,7 +462,7 @@ try {
         throw "service current_exe mismatch: candidate=$CandidateExe service=$serviceCurrentExe"
     }
 
-    $client = Start-Process -FilePath $CandidateExe -ArgumentList @("--background") -WorkingDirectory (Get-Location).Path -PassThru
+    $client = Start-Process -FilePath $CandidateExe -ArgumentList @("--background") -WorkingDirectory (Get-Location).Path -WindowStyle Hidden -RedirectStandardError (Join-Path $taskRoot "resident-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "resident-stdout.log") -PassThru
     $script:clientProcessId = $client.Id
     $clientCurrentExe = Get-ProcessImage $script:clientProcessId
     $script:evidence.clientCurrentExe = $clientCurrentExe
@@ -599,11 +609,49 @@ try {
         $lastCoordinatorEvent = if ($counts.LastCoordinatorEvent) { $counts.LastCoordinatorEvent } else { "none" }
         throw "coordinator did not settle into its blocking idle wait: cycles=$($counts.Cycles) waits=$($counts.Waits) lastCoordinatorEvent=$lastCoordinatorEvent lastTrace=$lastTrace"
     }
+    $idleStartedAt = [DateTime]::UtcNow
+    $script:evidence.settledIdleStartedAt = $idleStartedAt.ToString('o')
     $idleBefore = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $idleBefore.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) { throw "no successful desktop-to-Windows-Service request was traced" }
-    Start-Sleep -Milliseconds 10000
+    if ($ResidentQualification) {
+        . (Join-Path $PSScriptRoot "sampleWindowsResident.ps1")
+        $startup = Get-Content -LiteralPath (Join-Path $taskRoot "resident-stderr.log") -Raw
+        $script:evidence.residentStartup = $startup
+        if ($startup -notmatch 'ui_runtime startup_mode=background webview_count=0 labels=\s') {
+            throw "resident startup did not prove background with zero Main/Search/WebViews: $startup"
+        }
+        $appSamples = @()
+        $serviceSamples = @()
+        for ($sampleIndex = 0; $sampleIndex -lt 31; $sampleIndex++) {
+            $appSamples += Get-ResidentProcessSample $script:clientProcessId $CandidateExe
+            $serviceSamples += Get-ResidentProcessSample $script:serviceProcessId $CandidateExe
+            foreach ($series in @(@{ samples = $appSamples }, @{ samples = $serviceSamples })) {
+                $samples = $series.samples
+                $samples[$sampleIndex]['cpuDeltaSeconds'] = if ($sampleIndex -eq 0) { 0 } else { $samples[$sampleIndex].cpuTotalSeconds - $samples[$sampleIndex - 1].cpuTotalSeconds }
+            }
+            $script:evidence.residentSamples = $appSamples
+            $script:evidence.serviceSamples = $serviceSamples
+            foreach ($sample in @($appSamples[$sampleIndex], $serviceSamples[$sampleIndex])) {
+                # Process.MainWindowHandle includes non-WebView native utility
+                # windows. Main/Search/WebView truth comes from Tauri's window
+                # diagnostic and lifecycle trace, plus the WebView child check.
+                if ($sample.webviewChildren -ne 0) { throw "unexpected resident WebView: $($sample | ConvertTo-Json -Compress)" }
+            }
+            if ($sampleIndex -lt 30) { Start-Sleep -Seconds 1 }
+        }
+        Assert-ResidentTrend $appSamples
+        Assert-ResidentTrend $serviceSamples
+        $finalLog = Get-Content -LiteralPath (Join-Path $taskRoot "resident-stderr.log") -Raw
+        if ($finalLog -match 'main_window_created|search_window_ready') { throw "unexpected WebView lifecycle during resident window: $finalLog" }
+        $script:evidence.residentClassification = "HARD PASS / OBSERVATIONAL MEMORY"
+    } else {
+        Start-Sleep -Milliseconds 10000
+    }
     $idleAfter = Get-TraceCounts
+    $idleFinishedAt = [DateTime]::UtcNow
+    $script:evidence.settledIdleFinishedAt = $idleFinishedAt.ToString('o')
+    $script:evidence.settledIdleWindowMs = [long]($idleFinishedAt - $idleStartedAt).TotalMilliseconds
     $script:evidence.settledCoordinatorCycleDelta = $idleAfter.Cycles - $idleBefore.Cycles
     $script:evidence.settledCoordinatorWaitDelta = $idleAfter.Waits - $idleBefore.Waits
     if ($script:evidence.settledCoordinatorCycleDelta -ne 0 -or $script:evidence.settledCoordinatorWaitDelta -ne 0) {
@@ -612,11 +660,13 @@ try {
 } catch {
     $script:failureMessage = $_.Exception.ToString()
     $script:evidence.failure = $script:failureMessage
+    if ($ResidentQualification) { $script:evidence.residentClassification = "BLOCKED" }
 } finally {
     if ($null -ne $script:baselineStartedAt -and $null -eq $script:evidence.baselineWaitMs) {
         $script:evidence.baselineWaitMs = [long]([DateTime]::UtcNow - $script:baselineStartedAt).TotalMilliseconds
     }
     Stop-Probe
+    if ($script:taskRootCreatedByTask) { $script:evidence.rawTrace = @(Get-TraceLines) }
 
     try {
         $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
@@ -686,6 +736,7 @@ try {
         }
 
         if (Test-Path -LiteralPath $taskRoot) {
+            if (-not $script:taskRootCreatedByTask) { throw "left pre-existing task root untouched: $taskRoot" }
             if (-not $taskRoot.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
                 throw "refusing cleanup outside RUNNER_TEMP: $taskRoot"
             }
@@ -767,6 +818,9 @@ try {
     $evidenceDirectory = Split-Path -Parent $EvidencePath
     New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
     $script:evidence | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $EvidencePath -Encoding utf8NoBOM
+    if ($ResidentQualification) {
+        @("Source: $($script:evidence.sourceHead)", "Candidate SHA256: $($script:evidence.candidateSha256)", "Resident: $($script:evidence.residentClassification)", "Failure: $($script:evidence.failure)", "Cleanup: $($script:evidence.cleanup | ConvertTo-Json -Compress)", "Raw samples are in the sibling JSON; application and service remain separate.") | Set-Content -LiteralPath ([IO.Path]::ChangeExtension($EvidencePath, '.md')) -Encoding utf8NoBOM
+    }
 }
 
 if ($script:failureMessage) {
