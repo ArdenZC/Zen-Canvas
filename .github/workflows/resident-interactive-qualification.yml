@@ -8,6 +8,7 @@ on:
       - 'scripts/qualifyWindowsGlobalIndexService.ps1'
       - 'scripts/sampleWindowsResident.ps1'
       - 'scripts/qualifyMacosResident.py'
+      - 'scripts/diagnoseMacosStartup.py'
       - 'scripts/runResidentInteractiveQualification.mjs'
       - 'scripts/qualifyInteractiveBrowser.mjs'
       - 'scripts/runW3-10PhaseABrowserHarness.mjs'
@@ -30,7 +31,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -111,6 +112,10 @@ jobs:
         run: |
           & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe src-tauri/target/release/zen-canvas.exe -ProbeExe src-tauri/target/release/zb05-global-index-qa.exe -EvidencePath .performance-artifacts/qualification/windows-resident.json -ResidentQualification
           if ($LASTEXITCODE -ne 0) { throw "resident qualification blocked: $LASTEXITCODE" }
+      - name: Bounded optional macOS startup backtrace
+        if: runner.os == 'macOS' && steps.candidate.outcome == 'success'
+        continue-on-error: true
+        run: python3 scripts/diagnoseMacosStartup.py 'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' .performance-artifacts/qualification/macos-startup-backtrace.json
       - name: macOS exact background process
         id: macos-resident
         if: runner.os == 'macOS' && steps.candidate.outcome == 'success'

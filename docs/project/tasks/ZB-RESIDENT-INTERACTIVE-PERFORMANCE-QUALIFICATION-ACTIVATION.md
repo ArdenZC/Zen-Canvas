@@ -5,8 +5,8 @@
 - Issue: [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268)
 - Branch: `perf/resident-interactive-qualification`
 - Baseline: `master@6d38208741d186988468ec92b632dd3669a03aa5`
-- Track type: **implementation — qualification harness/evidence only**
-- Product tuning: **NOT AUTHORIZED until baseline evidence shows a reproducible miss**
+- Track type: **implementation — qualification evidence plus the specifically bounded managed-scan traversal/QoS repair below**
+- Product tuning: **the repeated Windows miss is diagnosed at the scanner worker boundary; no broader tuning is authorized**
 
 ## Historical evidence that must not be overstated
 
@@ -89,13 +89,26 @@ Do not discard or average away a TARGET MISS. If any qualification observation m
 
 ## Phase 3 — bounded remediation, only if required
 
-Only after a reproducible miss:
+Only after a reproducible miss, a production fix may address the confirmed cause while preserving WorkScheduler and managed-scanner authority. The current bounded repair is:
 
-- diagnose whether the cause is scheduler policy, scanner work shape, foreground admission/resource budgeting, fixture/test distortion, or host noise;
-- if the test is wrong, repair the test without weakening the product target;
-- if production behavior is wrong, make the smallest product fix preserving WorkScheduler and managed-scanner authority;
-- do not introduce a second scheduler, direct bypass, priority hack, schema change or durable authority;
-- rerun the full qualification matrix on the repaired exact head.
+- A managed scan's admitted CPU grant is the only input to traversal parallelism.
+- One admitted CPU uses `Parallelism::Serial`, keeping traversal on the scanner worker that already has background QoS.
+- More than one admitted CPU uses a new Rayon pool bounded to that grant.
+- Add deterministic tests for `lease.cpu == 1 -> Serial` and `lease.cpu > 1 -> RayonNewPool(lease.cpu)`.
+- Preserve scanner cancellation/finalization tests and scheduler/resource-governor behavior.
+- Do not change the 2x target, hard-code Windows capacity to 2, bypass WorkScheduler, add a scheduler, alter durable scan authority, or change the 15-second background-progress boundary.
+
+After this repair, run the full Workspace Foundation managed-scan observation and three independent managed-scan observations on one exact Windows candidate/runner. Preserve every raw sample and classification. Every structural result must remain HARD PASS; the target remains pressure p95 <= 2x idle p95.
+
+If any repaired Windows observation still misses, stop production changes. Add a test-only causal matrix at effective scan slots 1, 2, 3 and 4 on the same runner, exact candidate and fixture. Record idle/pressure p95, ratio, foreground wait/admission, background progress, scheduler queued/running/grants, scan progress and settlement. Use the result to distinguish slot-sensitive contention from a one-slot filesystem/database/Browse issue before proposing any further production work.
+
+On macOS, add native-qa-only coarse startup checkpoints for process entry, Tauri setup, database readiness, core runtime owners, tray, autostart sync, hotkey, watcher, macOS lifecycle and setup completion. Checkpoint messages must be deterministic and contain no paths or user data. If the process enters main but never enters Tauri setup, record `abort before Zen user setup`; only the exact runtime versions and matching upstream evidence may support an upstream classification. Do not upgrade Tauri opportunistically, patch/vendor tao, catch foreign exceptions or claim resident PASS from a startup trace.
+
+Attempt one bounded LLDB batch backtrace on hosted macOS for `objc_exception_throw` / `__rust_foreign_exception` when available. Record `DIAGNOSTIC AVAILABLE` only when a backtrace is actually captured; otherwise record `DIAGNOSTIC UNAVAILABLE`. Do not let LLDB absence/failure block the qualification itself and do not leave debugger/candidate processes running.
+
+Repeat browser-only Preview qualification five independent times on Windows and macOS at the final repaired production candidate. Preserve scenario, viewport, raw shell/useful samples, p95 values and classifications. Do not modify Preview production code. Keep all four historical Preview TARGET MISSES. Repeated final-head passes may be presented to the owner as non-reproduction; they do not erase historical blockers.
+
+When `background_progressed_after_release` fails, emit failure-only diagnostics for the extra scan durable status, cancelled original run status, scheduler running/queued/background grants, total grants before/after, replacement scan queued/running state and a scan progress marker. Preserve the 15-second boundary and existing cancellation/finalization requirements.
 
 ## CI / evidence
 
@@ -119,11 +132,12 @@ Create:
 
 The result must include exact candidate identity, platform/runner, raw resident samples, raw interactive metrics, repeated managed-scan observations, classifications, any repair, final CI, residual limitations, and the final AI gate disposition.
 
-Allowed closeout before owner review:
+Allowed disposition before owner review:
 
-`IMPLEMENTATION / QUALIFICATION COMPLETE — READY FOR OWNER REVIEW`
+- `READY FOR OWNER PERFORMANCE RE-REVIEW` only when all actionable repairs/evidence are complete and no unresolved performance failure remains.
+- `BLOCKED / PERFORMANCE REVIEW REQUIRED` while any required result remains failed, missing or unattributed.
 
-Do not write `OWNER REVIEW PASSED` yourself.
+Do not write `OWNER REVIEW PASSED` yourself. Keep PR #269 Draft and do not merge.
 
 ## Scope guard
 

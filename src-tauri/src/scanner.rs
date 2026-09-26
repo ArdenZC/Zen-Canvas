@@ -1007,8 +1007,16 @@ pub(crate) fn cancel_performance_managed_scan(
     Ok(())
 }
 
-fn scan_walk_parallelism(resource_lease: &ResourceLease) -> usize {
-    resource_lease.resources().cpu.max(1) as usize
+fn scan_walk_parallelism(resource_lease: &ResourceLease) -> Parallelism {
+    let admitted_cpu_parallelism = resource_lease.resources().cpu.max(1) as usize;
+    if admitted_cpu_parallelism == 1 {
+        // Keep traversal on the scanner worker that already carries the
+        // scheduler's background QoS. A one-thread Rayon pool would move the
+        // actual filesystem work to a different, unscoped worker.
+        Parallelism::Serial
+    } else {
+        Parallelism::RayonNewPool(admitted_cpu_parallelism)
+    }
 }
 
 fn run_managed_session<R: Runtime>(
@@ -1187,9 +1195,7 @@ fn run_scan_run<R: Runtime>(
     }
 
     let walker = WalkDir::new(&root)
-        .parallelism(Parallelism::RayonNewPool(scan_walk_parallelism(
-            &resource_lease,
-        )))
+        .parallelism(scan_walk_parallelism(&resource_lease))
         .skip_hidden(true)
         .follow_links(false)
         .process_read_dir(move |_depth, path, _state, children| {
@@ -2117,7 +2123,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_walk_parallelism_is_bounded_by_scheduler_grant() {
+    fn scan_walk_uses_serial_traversal_for_one_cpu_lease() {
         use crate::scheduler::{
             adapters::ManagedScanResourceLeaseAdapter, PermissiveResourcePolicy,
             ResourceCapacities, SchedulerConfig, WorkScheduler,
@@ -2136,12 +2142,48 @@ mod tests {
                 CancellationToken::new(),
             )
             .expect("scan resource lease");
-        let configured_parallelism = scan_walk_parallelism(&lease);
 
         assert_eq!(lease.resources().cpu, 1);
-        assert!(configured_parallelism <= lease.resources().cpu as usize);
-        assert!(configured_parallelism <= scheduler.snapshot().granted.cpu as usize);
-        assert_eq!(configured_parallelism, 1);
+        assert!(matches!(scan_walk_parallelism(&lease), Parallelism::Serial));
+        assert_eq!(scheduler.snapshot().granted.cpu, 1);
+        drop(lease);
+    }
+
+    #[test]
+    fn scan_walk_uses_bounded_rayon_pool_for_multi_cpu_lease() {
+        use crate::file_workspace::WorkClass;
+        use crate::scheduler::{
+            CancellationToken, PermissiveResourcePolicy, ResourceCapacities, ResourceHints,
+            SchedulerConfig, WorkRequest, WorkScheduler,
+        };
+
+        let scheduler = WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(4, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        );
+        let lease = scheduler
+            .try_acquire(
+                WorkRequest::new(
+                    "scan-fixture-multi-cpu",
+                    WorkClass::Background,
+                    ResourceHints {
+                        cpu: 3,
+                        io: 1,
+                        open_handles: 1,
+                        ..ResourceHints::empty()
+                    },
+                )
+                .with_cancellation(CancellationToken::new()),
+            )
+            .expect("multi-cpu scheduler lease");
+
+        assert_eq!(lease.resources().cpu, 3);
+        assert_eq!(scheduler.snapshot().granted.cpu, lease.resources().cpu);
+        assert!(matches!(
+            scan_walk_parallelism(&lease),
+            Parallelism::RayonNewPool(3)
+        ));
         drop(lease);
     }
 

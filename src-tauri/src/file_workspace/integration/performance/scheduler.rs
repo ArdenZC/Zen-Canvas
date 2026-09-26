@@ -285,12 +285,31 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
     // alone.
     let replacement_deadline = Instant::now() + Duration::from_secs(15);
     let mut background_progressed = false;
+    let mut post_release_snapshot = pressure_snapshot;
+    let mut replacement_scan_status_at_boundary = None;
+    let mut replacement_scan_queued_at_boundary = false;
+    let mut replacement_scan_running_at_boundary = false;
+    let mut replacement_scan_progress_marker = None;
     while Instant::now() < replacement_deadline {
         let snapshot = scheduler.snapshot();
-        let extra_scan_left_queued = scans
+        let replacement_scan = scans
             .get(pressure_slots)
-            .and_then(|scan| scan_db.get_scan_run_record(&scan.run_id).ok())
-            .is_some_and(|record| record.dto.status == "queued");
+            .and_then(|scan| scan_db.get_scan_run_record(&scan.run_id).ok());
+        if let Some(record) = replacement_scan {
+            replacement_scan_status_at_boundary = Some(record.dto.status.clone());
+            replacement_scan_queued_at_boundary = record.dto.status == "queued";
+            replacement_scan_running_at_boundary = record.dto.status == "running";
+            replacement_scan_progress_marker = Some(json!({
+                "phase": record.dto.phase,
+                "scanned_files": record.dto.scanned_files,
+                "scanned_directories": record.dto.scanned_directories,
+                "processed_bytes": record.dto.processed_bytes,
+                "revision": record.dto.revision,
+                "last_checkpoint_at": record.dto.last_checkpoint_at,
+            }));
+        }
+        post_release_snapshot = snapshot;
+        let extra_scan_left_queued = replacement_scan_queued_at_boundary;
         if !extra_scan_left_queued
             && (snapshot.running_background >= pressure_slots
                 || snapshot.total_grants >= pressure_snapshot.total_grants + 2)
@@ -305,6 +324,12 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
         .map(|scan| scan.run_id.clone())
         .collect::<Vec<_>>();
     let cancellation_releases = cancel_and_join_scans(&scan_db, &jobs, &dedupe_jobs, &mut scans);
+    let original_cancelled_run_status = scan_run_ids.first().and_then(|run_id| {
+        scan_db
+            .get_scan_run_record(run_id)
+            .ok()
+            .map(|record| record.dto.status)
+    });
     let scan_runs_settled_without_failure = scan_run_ids.iter().all(|run_id| {
         scan_db
             .get_scan_run_record(run_id)
@@ -378,79 +403,96 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
             ),
         ],
     );
-    metrics::emit_metric(
-        "managed_scan_pressure",
-        classification,
-        [
-            (
-                "real_authority".to_string(),
-                json!("scanner::run_managed_session"),
-            ),
-            (
-                "adapter".to_string(),
-                json!("ManagedScanResourceLeaseAdapter"),
-            ),
-            ("managed_scan_admission".to_string(), json!(admission_ok)),
-            ("pressure_slots".to_string(), json!(pressure_slots)),
-            ("real_scan_count".to_string(), json!(scan_root_count)),
-            (
-                "pressure_fixture_entries".to_string(),
-                json!(pressure_fixture_entries),
-            ),
-            (
-                "pressure_fixture_files_per_root".to_string(),
-                json!(files_per_root),
-            ),
-            (
-                "pressure_fixture_directories_per_root".to_string(),
-                json!(directories_per_root),
-            ),
-            (
-                "pressure_fixture_min_entries".to_string(),
-                json!(MIN_PRESSURE_FIXTURE_ENTRIES),
-            ),
-            ("pressure_observed".to_string(), json!(pressure_observed)),
-            (
-                "foreground_admitted".to_string(),
-                json!(foreground_admitted),
-            ),
-            ("scheduler_settled".to_string(), json!(scheduler_settled)),
-            ("runtime_settled".to_string(), json!(runtime_settled)),
-            (
-                "pressure_scheduler_background".to_string(),
-                json!(pressure_snapshot.running_background),
-            ),
-            (
-                "background_progressed_after_release".to_string(),
-                json!(background_progressed),
-            ),
-            (
-                "cancellation_releases_leases".to_string(),
-                json!(cancellation_releases),
-            ),
-            (
-                "scan_runs_settled_without_failure".to_string(),
-                json!(scan_runs_settled_without_failure),
-            ),
-            (
-                "scheduler_settled_running".to_string(),
-                json!(settled_snapshot.running),
-            ),
-            (
-                "scheduler_settled_queued".to_string(),
-                json!(settled_snapshot.queued),
-            ),
-            (
-                "runtime_settled_entry_refs".to_string(),
-                json!(settled_runtime.browse_entry_refs),
-            ),
-            (
-                "runtime_settled_path_refs".to_string(),
-                json!(settled_runtime.browse_path_refs),
-            ),
-            ("fixture_root_scope".to_string(), json!("repository-local")),
-        ],
-    );
+    let mut pressure_metrics = vec![
+        (
+            "real_authority".to_string(),
+            json!("scanner::run_managed_session"),
+        ),
+        (
+            "adapter".to_string(),
+            json!("ManagedScanResourceLeaseAdapter"),
+        ),
+        ("managed_scan_admission".to_string(), json!(admission_ok)),
+        ("pressure_slots".to_string(), json!(pressure_slots)),
+        ("real_scan_count".to_string(), json!(scan_root_count)),
+        (
+            "pressure_fixture_entries".to_string(),
+            json!(pressure_fixture_entries),
+        ),
+        (
+            "pressure_fixture_files_per_root".to_string(),
+            json!(files_per_root),
+        ),
+        (
+            "pressure_fixture_directories_per_root".to_string(),
+            json!(directories_per_root),
+        ),
+        (
+            "pressure_fixture_min_entries".to_string(),
+            json!(MIN_PRESSURE_FIXTURE_ENTRIES),
+        ),
+        ("pressure_observed".to_string(), json!(pressure_observed)),
+        (
+            "foreground_admitted".to_string(),
+            json!(foreground_admitted),
+        ),
+        ("scheduler_settled".to_string(), json!(scheduler_settled)),
+        ("runtime_settled".to_string(), json!(runtime_settled)),
+        (
+            "pressure_scheduler_background".to_string(),
+            json!(pressure_snapshot.running_background),
+        ),
+        (
+            "background_progressed_after_release".to_string(),
+            json!(background_progressed),
+        ),
+        (
+            "cancellation_releases_leases".to_string(),
+            json!(cancellation_releases),
+        ),
+        (
+            "scan_runs_settled_without_failure".to_string(),
+            json!(scan_runs_settled_without_failure),
+        ),
+        (
+            "scheduler_settled_running".to_string(),
+            json!(settled_snapshot.running),
+        ),
+        (
+            "scheduler_settled_queued".to_string(),
+            json!(settled_snapshot.queued),
+        ),
+        (
+            "runtime_settled_entry_refs".to_string(),
+            json!(settled_runtime.browse_entry_refs),
+        ),
+        (
+            "runtime_settled_path_refs".to_string(),
+            json!(settled_runtime.browse_path_refs),
+        ),
+        ("fixture_root_scope".to_string(), json!("repository-local")),
+    ];
+    if !background_progressed {
+        pressure_metrics.push((
+            "background_progress_failure_diagnostics".to_string(),
+            json!({
+                "extra_scan_durable_status": replacement_scan_status_at_boundary,
+                "original_cancelled_run_status": original_cancelled_run_status,
+                "scheduler_running_before_release": pressure_snapshot.running,
+                "scheduler_queued_before_release": pressure_snapshot.queued,
+                "scheduler_background_grants_before_release": pressure_snapshot.running_background,
+                "scheduler_total_grants_before_release": pressure_snapshot.total_grants,
+                "scheduler_running_at_deadline": post_release_snapshot.running,
+                "scheduler_queued_at_deadline": post_release_snapshot.queued,
+                "scheduler_background_grants_at_deadline": post_release_snapshot.running_background,
+                "scheduler_total_grants_at_deadline": post_release_snapshot.total_grants,
+                "replacement_scan_queued_at_deadline": replacement_scan_queued_at_boundary,
+                "replacement_scan_running_at_deadline": replacement_scan_running_at_boundary,
+                "scan_progress_marker": replacement_scan_progress_marker,
+            }),
+        ));
+    }
+    metrics::emit_metric("managed_scan_pressure", classification, pressure_metrics);
     assert!(
         structural_pass,
         "real managed scan pressure did not preserve foreground access, background progress, cancellation release, or steady state"

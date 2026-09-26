@@ -89,7 +89,7 @@ Final authority:
 
 ### Resident / Interactive Performance Qualification
 
-Status: **ACTIVE — implementation: qualification harness/evidence only; baseline measurement first; issue #268; branch `perf/resident-interactive-qualification`**.
+Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: one bounded managed-scan traversal/QoS repair plus qualification evidence; issue #268; branch `perf/resident-interactive-qualification`**.
 
 Authority: [Resident / Interactive Performance Qualification initiative](initiatives/resident-interactive-performance-qualification.md) and [activation taskbook](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
 
@@ -104,7 +104,7 @@ The completed foundation sequence is:
 7. **Resident / Interactive Performance Qualification — CURRENT.**
 8. **AI Semantic Authority — GATED after owner-reviewed performance qualification; NOT ACTIVE.**
 
-Qualification must establish attributable resident-process evidence and credible interactive foreground evidence. Existing product targets are not relaxed and no new cross-platform absolute RSS cap is invented.
+Qualification must establish attributable resident-process evidence and credible interactive foreground evidence. The one-CPU traversal repair keeps filesystem work on the scanner worker already carrying background QoS; broader production tuning requires new causal evidence. Existing product targets are not relaxed, historical misses remain, and no new cross-platform absolute RSS cap is invented. AI Semantic Authority stays gated pending owner acceptance.
 
 ## Release qualification residuals — W6-10
 

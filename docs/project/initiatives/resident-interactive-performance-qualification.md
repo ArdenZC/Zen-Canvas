@@ -1,6 +1,6 @@
 # Resident / Interactive Performance Qualification
 
-Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: qualification harness/evidence only; no production repair applied**
+Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: one bounded managed-scan traversal/QoS repair plus qualification evidence**
 
 Issue: [#268 — Resident / Interactive Performance Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/268)
 
@@ -39,7 +39,9 @@ AI Semantic Authority / AI-only Organize-Cleanup remains **GATED / NOT ACTIVE** 
 
 ## Qualification execution
 
-Baseline observations on Windows repeatedly missed the unchanged managed-scan pressure first-page p95 target; macOS also recorded a miss. A Windows background-progress HARD failure, macOS background-process abort and browser Preview misses remain blocking. All observations, including subsequent successful observations, remain evidence. The Track is not complete and owner review has not passed. See the [qualification result](../tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-RESULT.md) for exact source identities, resident limitations, raw artifacts, harness repair history and CI disposition. PR #269 remains Draft. Production policy must not be changed without a defensible diagnosis of the miss.
+Baseline observations on Windows repeatedly missed the unchanged managed-scan pressure first-page p95 target; macOS also recorded a miss. Source inspection confirmed that a one-CPU scan lease creates a new one-thread Rayon pool, moving traversal away from the scanner worker carrying background QoS. This continuation authorizes only mapping a one-CPU lease to serial traversal and retaining a lease-bounded Rayon pool for grants above one CPU. The change does not alter the 2x target, scheduler admission, durable scan authority or platform capacity. The repair's effect on the latency misses remains unverified until the repaired exact candidate is measured.
+
+A Windows background-progress HARD failure, macOS background-process abort and browser Preview misses remain blocking. All observations, including subsequent successful observations, remain evidence. macOS startup checkpoints and one optional bounded LLDB diagnostic will distinguish the Zen setup boundary without claiming upstream attribution from a shared abort fingerprint alone. Browser Preview production code remains out of scope; five independent browser-only repeats per OS must retain raw samples. If the Windows repair still misses, production changes stop and a test-only 1–4 effective-slot causal matrix is required. The Track is not complete and owner review has not passed. See the [qualification result](../tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-RESULT.md) for exact source identities, resident limitations, raw artifacts, harness repair history and CI disposition. PR #269 remains Draft. AI Semantic Authority remains gated.
 
 ## Non-goals
 

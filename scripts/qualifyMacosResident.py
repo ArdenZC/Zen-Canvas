@@ -5,11 +5,15 @@ import json
 import os
 import pathlib
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+
+STARTUP_CHECKPOINT_PATTERN = re.compile(r'^native_qa startup_checkpoint=([a-z_]+)$', re.MULTILINE)
+RUNTIME_PACKAGES = ('tauri', 'tao', 'wry', 'objc2', 'objc2-exception-helper')
 
 
 def command(*args):
@@ -27,6 +31,32 @@ def cpu_seconds(value):
     return sum(float(part) * 60 ** index for index, part in enumerate(reversed(parts)))
 
 
+def locked_runtime_versions():
+    lockfile = pathlib.Path('src-tauri/Cargo.lock')
+    if not lockfile.exists():
+        return {}
+    versions = {name: [] for name in RUNTIME_PACKAGES}
+    for package in re.split(r'(?=^\[\[package\]\]$)', lockfile.read_text(), flags=re.MULTILINE):
+        name = re.search(r'^name = "([^"]+)"$', package, flags=re.MULTILINE)
+        version = re.search(r'^version = "([^"]+)"$', package, flags=re.MULTILINE)
+        if name and version and name.group(1) in versions:
+            versions[name.group(1)].append(version.group(1))
+    return {name: sorted(set(found)) for name, found in versions.items() if found}
+
+
+def startup_trace(log):
+    checkpoints = STARTUP_CHECKPOINT_PATTERN.findall(log)
+    if 'process_main_entered' in checkpoints and 'tauri_setup_entered' not in checkpoints:
+        attribution = 'abort before Zen user setup'
+    elif 'tauri_setup_entered' in checkpoints:
+        attribution = 'Zen setup entered'
+    elif checkpoints:
+        attribution = 'partial startup trace; setup boundary unverified'
+    else:
+        attribution = 'startup trace unavailable'
+    return checkpoints, attribution
+
+
 def main():
     candidate = pathlib.Path(sys.argv[1]).resolve(strict=True)
     output = pathlib.Path(sys.argv[2]).resolve()
@@ -34,6 +64,9 @@ def main():
                     sourceTree=command('git', 'rev-parse', 'HEAD^{tree}'),
                     candidate=str(candidate), candidateSha256=hashlib.sha256(candidate.read_bytes()).hexdigest(),
                     runner=platform.platform(), architecture=platform.machine(),
+                    runtimeDependencies=locked_runtime_versions(),
+                    startupCheckpoints=[], lastStartupCheckpoint=None,
+                    startupAttribution='startup trace unavailable',
                     classification='UNVERIFIED', samples=[], cleanup={}, failure=None)
     info = candidate.parent.parent / 'Info.plist'
     if info.exists():
@@ -78,6 +111,10 @@ def main():
                 raise RuntimeError('coordinator did not settle to blocking wait within 180s')
             log = (task / 'stderr.log').read_text()
             evidence['startupLog'] = log
+            checkpoints, attribution = startup_trace(log)
+            evidence['startupCheckpoints'] = checkpoints
+            evidence['lastStartupCheckpoint'] = checkpoints[-1] if checkpoints else None
+            evidence['startupAttribution'] = attribution
             if 'ui_runtime startup_mode=background webview_count=0 labels=' not in log:
                 raise RuntimeError('missing background / zero Main Search WebView diagnostic')
             before = trace.read_text().splitlines()
@@ -129,6 +166,10 @@ def main():
             evidence['cleanup']['processStopped'] = process.poll() is not None
         if task is not None:
             evidence['stderr'] = (task / 'stderr.log').read_text() if (task / 'stderr.log').exists() else ''
+            checkpoints, attribution = startup_trace(evidence['stderr'])
+            evidence['startupCheckpoints'] = checkpoints
+            evidence['lastStartupCheckpoint'] = checkpoints[-1] if checkpoints else None
+            evidence['startupAttribution'] = attribution
             try:
                 if task.parent != pathlib.Path(os.environ['RUNNER_TEMP']).resolve() or not task.name.startswith('resident-qualification-'):
                     raise RuntimeError('task cleanup boundary mismatch')
