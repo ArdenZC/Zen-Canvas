@@ -1,5 +1,7 @@
 #![cfg(feature = "performance-test-tauri")]
 
+mod causal_matrix;
+
 use super::{
     fixture::WorkspaceFixture,
     harness::{open_fixture, runtime_for},

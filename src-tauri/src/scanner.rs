@@ -915,6 +915,7 @@ fn acquire_scan_resource_lease(
 #[cfg(all(test, feature = "performance-test-tauri"))]
 pub(crate) struct PerformanceManagedScan {
     pub(crate) run_id: String,
+    pub(crate) run_ids: Vec<String>,
     pub(crate) worker: std::thread::JoinHandle<()>,
 }
 
@@ -936,11 +937,36 @@ pub(crate) fn start_performance_managed_scan<R>(
 where
     R: Runtime + 'static,
 {
+    start_performance_managed_scan_roots(app, db, jobs, dedupe_jobs, vec![root], job_id, job_kind)
+}
+
+/// Start one real managed-session worker over several fixture roots. The
+/// causal matrix uses this to hold total workload constant while varying only
+/// how many scanner workers contend for the existing scheduler leases.
+#[cfg(all(test, feature = "performance-test-tauri"))]
+pub(crate) fn start_performance_managed_scan_roots<R>(
+    app: AppHandle<R>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+    roots: Vec<PathBuf>,
+    job_id: String,
+    job_kind: &str,
+) -> Result<PerformanceManagedScan, String>
+where
+    R: Runtime + 'static,
+{
     if !matches!(job_kind, "foreground" | "background") {
         return Err("performance scan job kind must be foreground or background".to_string());
     }
+    if roots.is_empty() {
+        return Err("performance managed scan requires at least one root".to_string());
+    }
     let request = ManagedScanRequest {
-        roots: vec![root.to_string_lossy().into_owned()],
+        roots: roots
+            .iter()
+            .map(|root| root.to_string_lossy().into_owned())
+            .collect(),
         request_key: Some(job_id.clone()),
         dedupe: false,
     };
@@ -953,15 +979,21 @@ where
     if !admission.created || admission.runs.is_empty() {
         return Err("performance managed scan admission did not create a run".to_string());
     }
-    let run_id = admission
+    let run_ids = admission
         .runs
-        .first()
+        .iter()
         .map(|run| run.id.clone())
+        .collect::<Vec<_>>();
+    let run_id = run_ids
+        .first()
+        .cloned()
         .ok_or_else(|| "performance managed scan admission returned no run".to_string())?;
     let guards = match register_scan_guards(&jobs, &admission.runs) {
         Ok(guards) => guards,
         Err(error) => {
-            let _ = db.request_scan_cancellation(&run_id);
+            for run_id in &run_ids {
+                let _ = db.request_scan_cancellation(run_id);
+            }
             return Err(error);
         }
     };
@@ -983,7 +1015,11 @@ where
             eprintln!("Performance managed scan session failed: {error}");
         }
     });
-    Ok(PerformanceManagedScan { run_id, worker })
+    Ok(PerformanceManagedScan {
+        run_id,
+        run_ids,
+        worker,
+    })
 }
 
 /// Mirror the production cancellation boundary after the test-only worker has
