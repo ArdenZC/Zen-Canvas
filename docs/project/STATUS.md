@@ -4,8 +4,8 @@ Last verified: 2026-09-26
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9`; tree `5091a6899b5570aeb776eea503b0f1ea62dbacb9` (ZB-05 / PR #266). Exact-head hosted CI `36175937658` is **SUCCESS**.
-- Current engineering initiative: **Zero-Burden Cross-Track Audit Remediation — IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING** on `remediation/zero-burden-cross-track-audit`, based on the exact merged baseline above. Production source is `06531c55f04cbe6a4b47d66305fcf262f74a223a`; hosted Windows/macOS CI [36217885372](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36217885372) is **SUCCESS** on that exact source, and pre-closeout Final HEAD `075f044ccea2613605b01fb794b428e582618c83` passed [36218506275](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36218506275). [PR #267](https://github.com/ArdenZC/Zen-Canvas/pull/267) is owner-approved for merge. Authority: [current initiative](initiatives/zero-burden-cross-track-audit-remediation.md); execution result: [remediation result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
+- Latest merged production baseline: `master@6d38208741d186988468ec92b632dd3669a03aa5` (Zero-Burden Cross-Track Audit Remediation / PR #267). Final pre-merge current-head CI [36219230993](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36219230993) is **SUCCESS**.
+- Current engineering initiative: **Resident / Interactive Performance Qualification — ACTIVE — implementation: qualification harness/evidence only; baseline measurement first** on `perf/resident-interactive-qualification`, issue [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268). This Track must measure the real resident process and obtain credible interactive pressure evidence before AI Semantic Authority may begin. No product tuning is authorized until a reproducible qualification miss has been diagnosed. Authority: [current initiative](initiatives/resident-interactive-performance-qualification.md); activation taskbook: [performance qualification activation](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -26,15 +26,15 @@ Last verified: 2026-09-26
 
 ## Current initiative
 
-**Zero-Burden Cross-Track Audit Remediation**
+**Resident / Interactive Performance Qualification**
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
+Status: **ACTIVE — implementation: qualification harness/evidence only; BASELINE MEASUREMENT FIRST; NO PRODUCT TUNING AUTHORIZED BEFORE A REPRODUCIBLE MISS**.
 
-Authority: [Zero-Burden Cross-Track Audit Remediation](initiatives/zero-burden-cross-track-audit-remediation.md).
+Authority: [Resident / Interactive Performance Qualification](initiatives/resident-interactive-performance-qualification.md). Issue: [#268](https://github.com/ArdenZC/Zen-Canvas/issues/268). Branch: `perf/resident-interactive-qualification`. Activation baseline: `master@6d38208741d186988468ec92b632dd3669a03aa5`.
 
-Baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9`. Production HEAD: `06531c55f04cbe6a4b47d66305fcf262f74a223a`. The initiative closes the bounded runtime, privacy, correctness-test and documentation-truth findings. It does not reopen release qualification or authorize publication.
+The immediate gate is evidence, not optimization: measure the actual resident Zen process (and the Windows Global Index service separately where applicable), retain existing no-leak/resource-settlement HARD gates, and qualify interactive foreground behavior under real managed-scan pressure. The existing target that foreground first-page p95 under background pressure should remain within 2x the idle baseline is not relaxed. Routed CI performance suites are supporting evidence but do not by themselves close this Track.
 
-W6 release residuals remain as recorded below: W6-10B is blocked on a valid SmartScreen/UAC evidence host; W6-10C is deferred/unverified without a supported Mac host; RC1 remains immutable, RC2 is not authorized, and publication remains deferred.
+AI Semantic Authority / AI-only Organize-Cleanup remains **GATED / NOT ACTIVE** until owner review accepts this qualification. W6 release residuals remain separate and unchanged.
 
 ## Release, schema and platform truth
 
