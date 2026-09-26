@@ -176,6 +176,21 @@ Native cancel/unload/close must revoke host/native-access request ownership and 
 
 That concentration is a **hardening target**, not evidence of a second durable authority. Future work may split runtime ownership into focused providers/controllers while keeping one application composition root.
 
+### Resident process and on-demand windows
+
+- The Tauri process may remain resident while no app WebView is open. Main and standalone Search WebViews are created when needed; Main-to-background and Search-close paths destroy their WebView and release its window-owned runtime.
+- `ExitIntentState` is a process-local, non-persistent lifecycle signal. Only internal teardown that removes the last WebView can arm a one-shot stay-resident decision. Explicit Quit records exit intent; an unmarked native/system exit shuts down resident owners.
+- `FileWorkspaceRuntimeOwner` lazily creates one runtime for a Main-window generation and disposes it at Main teardown. Reopening Main acquires a fresh generation. Browse sessions, refs and page cursors remain owned by the existing BrowseService and are not promoted into process-wide durable state.
+
+### Idle worker and platform wake models
+
+- The Global Index coordinator waits on one bounded process-local wake slot. Startup, provider changes, source-topology changes, explicit commands, lifecycle resume and recovery notifications coalesce into wake hints; durable Global Index providers/repository remain the row and status authorities. The existing cheap source-topology safety audit is separate from incremental work and may wake a normal cycle when topology changes.
+- Windows Global Index uses MFT for the fixed-NTFS baseline and USN Journal for incremental changes. Desktop filesystem notifications wake the coordinator; they do not write durable rows.
+- macOS Spotlight query/update results supply Global Index rows. FSEvents supplies a reconcile/checkpoint signal and wakes the coordinator; it does not supply durable row truth.
+- The macOS lifecycle observer registers native notifications and blocks in its run loop while idle. Stop sends a cross-thread native run-loop stop/wake, then the worker removes observers and joins. Global Index Spotlight/FSEvents watchers use the same macOS run-loop stop utility.
+- FileWorkspace ephemeral change monitoring uses a bounded `Notify`/`Stop` channel. Its idle worker blocks on receive; only active event coalescing uses a bounded timeout. Overflow becomes `Uncertain` and routes through the existing Browse invalidation/re-enumeration authority.
+- OS notifications and ephemeral change events are hints. They can wake, invalidate or request reconciliation, but they do not become durable per-row truth.
+
 W3 Preview frontend orchestration should be a bounded `PreviewExperienceController`/provider rather than another responsibility appended independently to LibraryMode, BrowseMode, List, Grid and Context Panel. The exact file/module name may differ, but one consumer-facing Preview lifecycle coordinator is the preferred ownership shape.
 
 ## Compatibility bridges
