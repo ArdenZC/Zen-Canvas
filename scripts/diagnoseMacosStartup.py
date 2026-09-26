@@ -107,8 +107,14 @@ def main():
             for line in raw.splitlines()
             if line.startswith('native_qa startup_checkpoint=')
         ]
-        backtrace_observed = 'frame #' in raw and ('stop reason = breakpoint' in raw
-                                                   or 'stop reason = signal SIGABRT' in raw)
+        captured_stop_reason = any(
+            reason in raw for reason in (
+                'stop reason = breakpoint',
+                'stop reason = signal SIGABRT',
+                'stop reason = hit Objective-C exception',
+            )
+        )
+        backtrace_observed = 'frame #0:' in raw and captured_stop_reason
         evidence['backtraceCaptured'] = backtrace_observed
         if backtrace_observed:
             evidence['classification'] = 'DIAGNOSTIC AVAILABLE'
