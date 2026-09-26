@@ -2,7 +2,7 @@
 
 ## Disposition
 
-**BLOCKED — PRODUCTION IMPLEMENTATION AND HOSTED CI ARE COMPLETE, BUT THE DOCS SUCCESSOR IS NOT PUBLISHED AND TASK TEMP CLEANUP WAS BLOCKED BY POLICY.** Draft PR #267 remains open at the validated production head. No owner approval, Ready transition, merge or release is claimed.
+**BLOCKED — PRODUCTION IMPLEMENTATION AND THE PUBLISHED DOCS HEAD BOTH HAVE SUCCESSFUL HOSTED CI; TASK TEMP CLEANUP WAS BLOCKED BY POLICY.** Draft PR #267 remains open. No owner approval, Ready transition, merge or release is claimed.
 
 ## Identity
 
@@ -33,7 +33,7 @@
 
 - **Root cause:** The observer used `runUntilDate` at 250 ms intervals to check a stop flag while otherwise idle.
 - **Repair:** Extracted the existing Global Index stop signal into a shared macOS run-loop utility. The lifecycle observer now blocks in the native run loop; stop requests issue a cross-thread stop/wake, and an RAII cleanup removes observers before worker join completes.
-- **Evidence:** Platform lifecycle/run-loop seam tests pass for stop-before-install, stop-after-install, repeated stop and observer cleanup. Hosted macOS compilation, Clippy and native-target tests are pending.
+- **Evidence:** Platform lifecycle/run-loop seam tests pass for stop-before-install, stop-after-install, repeated stop and observer cleanup. Hosted macOS Rust quality, Clippy, and Apple Silicon native Quick Look lifecycle checks passed in run `36215942981`; this is not owner native visual acceptance or macOS release qualification.
 
 ### FileWorkspace idle polling
 
@@ -79,13 +79,12 @@ After the hosted compiler finding, the follow-up production commit `b1040a0c9761
 - Run `36213480561` on implementation commit `6306d6ecb82b475c1495f7ac6b25ec7d255cff29` exposed a compile error: `Manager` was only imported under `desktop-runtime`, while shared app-control calls also compile without that feature and on macOS. No performance suite ran in that failed attempt.
 - The import was corrected in Production HEAD `b1040a0c9761549a055099b6d3bb8b5bf526308d`.
 - Run `36214511995` checked out Production HEAD `b1040a0c9761549a055099b6d3bb8b5bf526308d` and completed **SUCCESS**. Source/evidence and change-routing contracts, Windows Global Index service qualification, Windows/macOS Rust quality, Windows/macOS release compilation, native macOS Quick Look lifecycle, and the routed Search, Library/Content and Workspace Foundation CI performance suites passed.
+- Run `36215942981` checked out docs-only successor `ffa3a0735ae78b2ec4e4a9f4f89d8e07d85ade4c` and completed **SUCCESS**. The Windows Global Index service qualification, Windows/macOS Rust quality and release compilation, native macOS performance, routed performance suites, governance and quality aggregates passed. This successor changed documentation only; Production HEAD remains `b1040a0c9761549a055099b6d3bb8b5bf526308d`.
 - The routed CI performance suites are recorded as workflow evidence only. No Resident / Interactive Performance Qualification, release qualification, or owner native visual acceptance is claimed.
 
 ## Current-truth documentation reconciliation
 
-The local docs-only successor updates `STATUS.md`, `ROADMAP.md` and `ARCHITECTURE_MAP.md` to show the current remediation and its validated production head, the completed ZB-01 through ZB-05 sequence, Resident / Interactive Performance Qualification as next, and accurate resident/runtime ownership. The W6 initiative retains its release residuals but is no longer the active engineering initiative. W6-10B security-host blockers, W6-10C macOS unverified/deferred status and deferred publication remain intact; AI Semantic Authority stays gated. `npm run test:docs` passed for all six changed Markdown files.
-
-The docs-only commit is local and is not part of the remote PR head. The CI classifier evaluates the cumulative PR diff against `master`, so publishing the docs successor would queue another full Windows/macOS and routed-performance matrix. It is held to preserve the requested single final hosted integration pass.
+The docs-only successor updates `STATUS.md`, `ROADMAP.md` and `ARCHITECTURE_MAP.md` to show the current remediation and its validated production head, the completed ZB-01 through ZB-05 sequence, Resident / Interactive Performance Qualification as next, and accurate resident/runtime ownership. The W6 initiative retains its release residuals but is no longer the active engineering initiative. W6-10B security-host blockers, W6-10C macOS unverified/deferred status and deferred publication remain intact; AI Semantic Authority stays gated. `npm run test:docs` passed for all six changed Markdown files. The published successor at `ffa3a0735ae78b2ec4e4a9f4f89d8e07d85ade4c` passed hosted CI run `36215942981` on that exact head.
 
 ## Changed files
 
@@ -101,7 +100,7 @@ Production changes are committed through Production HEAD `b1040a0c9761549a055099
 
 - Hosted macOS compilation, Clippy, native lifecycle and routed performance CI checks passed on Production HEAD `b1040a0c9761549a055099b6d3bb8b5bf526308d`. This does not establish owner native visual acceptance or macOS release qualification.
 - No owner native visual acceptance, release qualification or performance qualification is claimed.
-- The remote Draft PR remains at Production HEAD `b1040a0c9761549a055099b6d3bb8b5bf526308d`; the docs-only successor is local and awaits the user's decision on the additional hosted run.
+- The Draft PR remains open with no Ready transition, merge or release. Hosted CI run `36215942981` passed on docs-only successor `ffa3a0735ae78b2ec4e4a9f4f89d8e07d85ade4c`; final branch head is reported in the owner closeout.
 - `.tmp-tests` remains at `F:\Coding\Zen-Canvas-remediation-zero-burden-cross-track-audit\.tmp-tests`. It contains 103 task-owned descendants and no reparse points. The automatic action policy rejected both a recursive root removal and a bounded per-path cleanup attempt with the response `blocked by policy`; cleanup is unresolved.
 - No owner approval, Ready transition, merge or release has occurred.
 
