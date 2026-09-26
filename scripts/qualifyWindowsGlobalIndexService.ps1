@@ -75,7 +75,7 @@ $script:evidence = [ordered]@{
     createLatencyMs = $null
     renameLatencyMs = $null
     deleteLatencyMs = $null
-    settledIdleWindowMs = 10000
+    settledIdleWindowMs = $null
     settledCoordinatorCycleDelta = $null
     settledCoordinatorWaitDelta = $null
     serviceRouteObserved = $false
@@ -609,6 +609,8 @@ try {
         $lastCoordinatorEvent = if ($counts.LastCoordinatorEvent) { $counts.LastCoordinatorEvent } else { "none" }
         throw "coordinator did not settle into its blocking idle wait: cycles=$($counts.Cycles) waits=$($counts.Waits) lastCoordinatorEvent=$lastCoordinatorEvent lastTrace=$lastTrace"
     }
+    $idleStartedAt = [DateTime]::UtcNow
+    $script:evidence.settledIdleStartedAt = $idleStartedAt.ToString('o')
     $idleBefore = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $idleBefore.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) { throw "no successful desktop-to-Windows-Service request was traced" }
@@ -647,6 +649,9 @@ try {
         Start-Sleep -Milliseconds 10000
     }
     $idleAfter = Get-TraceCounts
+    $idleFinishedAt = [DateTime]::UtcNow
+    $script:evidence.settledIdleFinishedAt = $idleFinishedAt.ToString('o')
+    $script:evidence.settledIdleWindowMs = [long]($idleFinishedAt - $idleStartedAt).TotalMilliseconds
     $script:evidence.settledCoordinatorCycleDelta = $idleAfter.Cycles - $idleBefore.Cycles
     $script:evidence.settledCoordinatorWaitDelta = $idleAfter.Waits - $idleBefore.Waits
     if ($script:evidence.settledCoordinatorCycleDelta -ne 0 -or $script:evidence.settledCoordinatorWaitDelta -ne 0) {
