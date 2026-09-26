@@ -1,4 +1,17 @@
 # Observer only: do not trim the candidate working set or change its priority.
+if (-not ('ResidentWindowDiagnostics' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class ResidentWindowDiagnostics {
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr handle, StringBuilder text, int maximum);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr handle, StringBuilder text, int maximum);
+}
+'@
+}
 function Get-ResidentProcessSample([int]$ProcessId, [string]$ExpectedImage) {
     $process = Get-Process -Id $ProcessId -ErrorAction Stop
     $process.Refresh()
@@ -6,7 +19,12 @@ function Get-ResidentProcessSample([int]$ProcessId, [string]$ExpectedImage) {
     if (-not $image.Equals($ExpectedImage, [StringComparison]::OrdinalIgnoreCase)) { throw "resident sample image mismatch: $image" }
     $children = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $ProcessId })
     $webviews = @($children | Where-Object { $_.Name -ieq 'msedgewebview2.exe' })
-    if ($webviews.Count -ne 0 -or $process.MainWindowHandle -ne 0) { throw "unexpected resident window/WebView for process $ProcessId" }
+    $windowClass = [Text.StringBuilder]::new(256)
+    $windowTitle = [Text.StringBuilder]::new(256)
+    if ($process.MainWindowHandle.ToInt64() -ne 0) {
+        [void][ResidentWindowDiagnostics]::GetClassName($process.MainWindowHandle, $windowClass, 256)
+        [void][ResidentWindowDiagnostics]::GetWindowText($process.MainWindowHandle, $windowTitle, 256)
+    }
     return [ordered]@{
         timestamp = [DateTime]::UtcNow.ToString('o')
         pid = $ProcessId
@@ -18,6 +36,8 @@ function Get-ResidentProcessSample([int]$ProcessId, [string]$ExpectedImage) {
         cpuTotalSeconds = $process.TotalProcessorTime.TotalSeconds
         webviewChildren = $webviews.Count
         mainWindowHandle = $process.MainWindowHandle.ToInt64()
+        nativeWindowClass = $windowClass.ToString()
+        nativeWindowTitle = $windowTitle.ToString()
     }
 }
 

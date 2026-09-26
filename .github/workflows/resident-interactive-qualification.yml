@@ -11,6 +11,7 @@ on:
       - 'scripts/runResidentInteractiveQualification.mjs'
       - 'scripts/qualifyInteractiveBrowser.mjs'
       - 'scripts/runW3-10PhaseABrowserHarness.mjs'
+      - 'scripts/runW2-11BrowserGate.mjs'
       - 'src-tauri/**'
       - 'src/**'
 
@@ -83,7 +84,11 @@ jobs:
       - name: Build exact candidate and existing probe
         shell: pwsh
         run: |
-          cargo build --locked --release --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas --bin zb05-global-index-qa
+          if ("${{ runner.os }}" -eq "macOS") {
+            npx tauri build --features "desktop-runtime native-qa" --bundles app
+          } else {
+            cargo build --locked --release --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas --bin zb05-global-index-qa
+          }
           if ($LASTEXITCODE -ne 0) { throw "candidate build failed: $LASTEXITCODE" }
       - name: Windows exact process and separate service
         id: windows-resident
@@ -97,7 +102,7 @@ jobs:
         id: macos-resident
         if: runner.os == 'macOS'
         continue-on-error: true
-        run: python3 scripts/qualifyMacosResident.py src-tauri/target/release/zen-canvas .performance-artifacts/qualification/macos-resident.json
+        run: python3 scripts/qualifyMacosResident.py 'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' .performance-artifacts/qualification/macos-resident.json
       - name: Existing interactive workloads and three independent scan observations
         id: interactive
         continue-on-error: true

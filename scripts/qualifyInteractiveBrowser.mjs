@@ -8,10 +8,11 @@ const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).tr
 if (head !== process.env.EXPECTED_SOURCE_SHA) throw new Error('source mismatch');
 const env = { ...process.env, W310_SOURCE_HEAD: head, W310_EXPECTED_CHECKOUT_SHA: head,
   W211_SOURCE_HEAD: head, W211_EXPECTED_CHECKOUT_SHA: head,
-  ZC_QUALIFICATION_OUTPUT: `${output}/preview-browser.json` };
+  ZC_QUALIFICATION_OUTPUT: `${output}/preview-browser.json`,
+  ZC_BROWSE_QUALIFICATION_OUTPUT: `${output}/browse-browser.json` };
 const result = { sourceHead: head, classification: 'UNVERIFIED', runs: [], targetMisses: [],
   limitations: ['Browser mock measures DOM timing; native/system useful representation is separate.',
-    'W2-11 Browse first useful content is a single observation, not a transition p95 qualification.'] };
+    'Browse DOM timing uses the existing browser mock; real filesystem first page is measured separately by Workspace Foundation.'] };
 for (const script of ['runW3-10PhaseABrowserHarness.mjs', 'runW2-11BrowserGate.mjs']) {
   const observation = spawnSync(process.execPath, [`scripts/${script}`], { env, encoding: 'utf8', windowsHide: true,
     timeout: 15 * 60 * 1000, maxBuffer: 64 * 1024 * 1024 });
@@ -27,6 +28,12 @@ if (fs.existsSync(`${output}/preview-browser.json`)) {
     }
   }
 } else result.runs.push({ script: 'preview metrics', exitCode: -1 });
+if (fs.existsSync(`${output}/browse-browser.json`)) {
+  const browse = JSON.parse(fs.readFileSync(`${output}/browse-browser.json`, 'utf8'));
+  for (const row of browse.evidence) {
+    if (row.feedbackP95Ms > row.feedbackTargetP95Ms || row.usefulP95Ms > row.usefulTargetP95Ms) result.targetMisses.push({ scenario: 'browse-transition', ...row });
+  }
+} else result.runs.push({ script: 'browse metrics', exitCode: -1 });
 result.classification = result.runs.some(row => row.exitCode !== 0) ? 'BLOCKED'
   : result.targetMisses.length ? 'PERFORMANCE REVIEW REQUIRED' : 'BROWSER TARGETS MET / NATIVE UI UNVERIFIED';
 try {

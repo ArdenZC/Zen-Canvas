@@ -96,6 +96,7 @@ $script:probeProcess = $null
 $script:clientProcessId = $null
 $script:serviceProcessId = $null
 $script:serviceCreatedByTask = $false
+$script:taskRootCreatedByTask = $false
 $script:qualificationVhdCreated = $false
 $script:qualificationVhdAttached = $false
 $script:failureMessage = $null
@@ -401,6 +402,7 @@ try {
         throw "refusing to reuse an existing qualification task root: $taskRoot"
     }
     New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
+    $script:taskRootCreatedByTask = $true
     New-QualificationVolume
 
     $preexistingToken = "zb05qapreexisting$([Guid]::NewGuid().ToString('N'))"
@@ -622,8 +624,18 @@ try {
         for ($sampleIndex = 0; $sampleIndex -lt 31; $sampleIndex++) {
             $appSamples += Get-ResidentProcessSample $script:clientProcessId $CandidateExe
             $serviceSamples += Get-ResidentProcessSample $script:serviceProcessId $CandidateExe
+            foreach ($series in @(@{ samples = $appSamples }, @{ samples = $serviceSamples })) {
+                $samples = $series.samples
+                $samples[$sampleIndex]['cpuDeltaSeconds'] = if ($sampleIndex -eq 0) { 0 } else { $samples[$sampleIndex].cpuTotalSeconds - $samples[$sampleIndex - 1].cpuTotalSeconds }
+            }
             $script:evidence.residentSamples = $appSamples
             $script:evidence.serviceSamples = $serviceSamples
+            foreach ($sample in @($appSamples[$sampleIndex], $serviceSamples[$sampleIndex])) {
+                # Process.MainWindowHandle includes non-WebView native utility
+                # windows. Main/Search/WebView truth comes from Tauri's window
+                # diagnostic and lifecycle trace, plus the WebView child check.
+                if ($sample.webviewChildren -ne 0) { throw "unexpected resident WebView: $($sample | ConvertTo-Json -Compress)" }
+            }
             if ($sampleIndex -lt 30) { Start-Sleep -Seconds 1 }
         }
         Assert-ResidentTrend $appSamples
@@ -643,12 +655,13 @@ try {
 } catch {
     $script:failureMessage = $_.Exception.ToString()
     $script:evidence.failure = $script:failureMessage
+    if ($ResidentQualification) { $script:evidence.residentClassification = "BLOCKED" }
 } finally {
     if ($null -ne $script:baselineStartedAt -and $null -eq $script:evidence.baselineWaitMs) {
         $script:evidence.baselineWaitMs = [long]([DateTime]::UtcNow - $script:baselineStartedAt).TotalMilliseconds
     }
     Stop-Probe
-    $script:evidence.rawTrace = @(Get-TraceLines)
+    if ($script:taskRootCreatedByTask) { $script:evidence.rawTrace = @(Get-TraceLines) }
 
     try {
         $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
@@ -718,6 +731,7 @@ try {
         }
 
         if (Test-Path -LiteralPath $taskRoot) {
+            if (-not $script:taskRootCreatedByTask) { throw "left pre-existing task root untouched: $taskRoot" }
             if (-not $taskRoot.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
                 throw "refusing cleanup outside RUNNER_TEMP: $taskRoot"
             }

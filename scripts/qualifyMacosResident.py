@@ -35,6 +35,10 @@ def main():
                     candidate=str(candidate), candidateSha256=hashlib.sha256(candidate.read_bytes()).hexdigest(),
                     runner=platform.platform(), architecture=platform.machine(),
                     classification='UNVERIFIED', samples=[], cleanup={}, failure=None)
+    info = candidate.parent.parent / 'Info.plist'
+    if info.exists():
+        evidence['bundleInfoPlistSha256'] = hashlib.sha256(info.read_bytes()).hexdigest()
+        evidence['applicationBundle'] = str(candidate.parent.parent.parent)
     task = None
     process = None
     try:

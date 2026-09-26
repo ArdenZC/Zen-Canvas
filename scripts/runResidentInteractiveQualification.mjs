@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
-import { PERFORMANCE_SUITES } from './performanceManifest.mjs';
+import { PERFORMANCE_SUITES, getPrecompileTargetsForSuites } from './performanceManifest.mjs';
+import { createPerformanceBuildIdentity } from './performanceBuildIdentity.mjs';
 import { createPerformanceFixtureIdentity } from './performanceFixtureIdentity.mjs';
 import { manifestTargetPath, validateBinaryManifest } from './performanceArtifactManifest.mjs';
 
@@ -18,7 +19,9 @@ const evidence = { sourceHead: git('rev-parse', 'HEAD'), sourceTree: git('rev-pa
   runs: [], managedScan: [], classification: 'UNVERIFIED', cleanup: {} };
 
 async function run(id, executable, args, env = process.env) {
-  const record = { id, executable, args, started: new Date().toISOString(), metrics: [] };
+  const host = () => ({ loadAverage: os.loadavg(), freeMemoryBytes: os.freemem(),
+    cpuTimes: os.cpus().map(cpu => cpu.times) });
+  const record = { id, executable, args, started: new Date().toISOString(), metrics: [], hostBefore: host() };
   evidence.runs.push(record);
   const log = fs.createWriteStream(path.join(output, `${id}.log`));
   let raw = '';
@@ -34,6 +37,7 @@ async function run(id, executable, args, env = process.env) {
   clearTimeout(deadline);
   await new Promise(resolve => log.end(resolve));
   record.finished = new Date().toISOString();
+  record.hostAfter = host();
   record.metrics = [...raw.matchAll(/\[zc-perf\] (\{[^\r\n]+\})/g)].map(match => JSON.parse(match[1]));
   return record;
 }
@@ -52,6 +56,8 @@ try {
   process.env.TMPDIR = process.env.TEMP;
   process.env.PERF_CHECKOUT_SHA = evidence.sourceHead;
   const selection = [`--suites=${suites.join(',')}`, '--profile=full'];
+  const buildIdentity = createPerformanceBuildIdentity({ profile: 'full', suiteNames: suites,
+    targetKeys: getPrecompileTargetsForSuites(suites).map(target => target.targetKey) }).buildIdentity;
   const prepare = await node('prepare-binaries', 'preparePerformanceBinaries.mjs', [...selection, '--output=.performance-artifacts/binaries']);
   if (prepare.exitCode !== 0) throw new Error('performance binary preparation failed');
   const fixture = await node('prepare-fixtures', 'preparePerformanceFixtures.mjs', [...selection, '--prepared-binaries=.performance-artifacts/binaries', '--cache-root=.tmp-performance-fixtures/cache']);
@@ -59,12 +65,14 @@ try {
   const fixtureIdentity = createPerformanceFixtureIdentity({ profile: 'full' }).fixtureIdentity;
   for (const suite of suites) {
     await node(`suite-${suite}`, 'runPerformanceSuite.mjs', [`--suite=${suite}`, '--profile=full',
+      `--build-identity=${buildIdentity}`,
       `--prepared-binaries=.performance-artifacts/binaries/${suite}`,
       ...(suite === 'library-content' ? [`--fixture-root=.tmp-performance-fixtures/cache/${fixtureIdentity}`, `--fixture-identity=${fixtureIdentity}`] : [])]);
   }
   const binaryRoot = path.resolve('.performance-artifacts/binaries/workspace-foundation');
   const manifest = validateBinaryManifest(binaryRoot, { expectedCommit: evidence.sourceHead,
-    expectedProfile: 'full', expectedSuites: ['workspace-foundation'], requiredTargets: ['lib'] });
+    expectedProfile: 'full', expectedBuildIdentity: buildIdentity,
+    expectedSuites: ['workspace-foundation'], requiredTargets: ['lib'] });
   evidence.binaryManifest = manifest;
   const test = PERFORMANCE_SUITES['workspace-foundation'].extended.find(item => item.id === 'workspace_foundation_scheduler_pressure');
   for (let index = 1; index <= 3; index++) {
