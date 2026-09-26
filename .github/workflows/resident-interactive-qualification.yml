@@ -179,12 +179,18 @@ jobs:
           $runLog = Join-Path $matrixRoot "managed-scan-causal-matrix.log"
           cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib file_workspace::integration::performance::scheduler::causal_matrix::managed_scan_slot_causal_matrix_1_to_4 -- --exact --ignored --nocapture --test-threads=1 2>&1 | Tee-Object -FilePath $runLog
           $testExitCode = $LASTEXITCODE
-          $metricLines = @(Get-Content -LiteralPath $runLog | Where-Object { $_.StartsWith("[zc-perf] ") })
-          $metrics = @($metricLines | ForEach-Object { $_.Substring(10) | ConvertFrom-Json })
+          $rawLog = Get-Content -LiteralPath $runLog -Raw
+          $metricMatches = [regex]::Matches($rawLog, '\[zc-perf\] (\{[^\r\n]*\})')
+          $metrics = @($metricMatches | ForEach-Object { $_.Groups[1].Value | ConvertFrom-Json })
           $latencyRows = @($metrics | Where-Object { $_.scenario -eq "managed_scan_slot_causal_latency" })
           $structureRows = @($metrics | Where-Object { $_.scenario -eq "managed_scan_slot_causal_structure" })
           $unavailable = @($latencyRows | Where-Object { $_.classification -eq "MATRIX LEVEL UNAVAILABLE" })
-          $disposition = if ($testExitCode -ne 0) { "BLOCKED" } elseif ($unavailable.Count -gt 0) { "MATRIX INCOMPLETE / CAPACITY LIMITED" } else { "MATRIX COMPLETE" }
+          $misses = @($latencyRows | Where-Object { $_.classification -eq "TARGET MISSED" })
+          $latencySlots = @($latencyRows | Sort-Object target_effective_scan_slots | ForEach-Object { [int]$_.target_effective_scan_slots })
+          $structureSlots = @($structureRows | Sort-Object target_effective_scan_slots | ForEach-Object { [int]$_.target_effective_scan_slots })
+          $structureBlocked = @($structureRows | Where-Object { $_.classification -ne "HARD PASS" })
+          $rowsComplete = ($latencyRows.Count -eq 4) -and ($structureRows.Count -eq 4) -and (($latencySlots -join ",") -eq "1,2,3,4") -and (($structureSlots -join ",") -eq "1,2,3,4") -and ($structureBlocked.Count -eq 0)
+          $disposition = if ($testExitCode -ne 0 -or -not $rowsComplete) { "BLOCKED" } elseif ($unavailable.Count -gt 0) { "MATRIX INCOMPLETE / CAPACITY LIMITED" } elseif ($misses.Count -gt 0) { "PERFORMANCE REVIEW REQUIRED" } else { "MATRIX COMPLETE / TARGETS MET" }
           $evidence = [ordered]@{
             sourceHead = $head
             sourceTree = (git rev-parse 'HEAD^{tree}').Trim()
@@ -201,7 +207,7 @@ jobs:
             structureRows = $structureRows
           }
           $evidence | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $matrixRoot "managed-scan-causal-matrix.json") -Encoding utf8
-          if ($latencyRows.Count -ne 4 -or $structureRows.Count -ne 4) { throw "matrix did not emit all eight structured observations" }
+          if (-not $rowsComplete) { throw "matrix did not emit all eight structured observations for slots 1 through 4" }
           if ($testExitCode -ne 0) { throw "causal matrix structural or settlement checks failed; raw evidence retained" }
           if ($unavailable.Count -gt 0) { throw "one or more requested effective slot levels exceeded real scheduler capacity; raw evidence retained" }
       - name: Upload causal matrix raw evidence
