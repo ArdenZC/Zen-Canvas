@@ -362,6 +362,14 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
                 json!(pressure_p95_us),
             ),
             ("sample_count".to_string(), json!(idle_samples.len())),
+            (
+                "idle_first_page_samples_us".to_string(),
+                json!(idle_samples),
+            ),
+            (
+                "pressure_first_page_samples_us".to_string(),
+                json!(pressure_samples),
+            ),
             ("foreground_wait_ms".to_string(), json!(foreground_wait_ms)),
             ("foreground_deadline_ms".to_string(), json!(30_000)),
             (
@@ -402,6 +410,12 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
                 json!(MIN_PRESSURE_FIXTURE_ENTRIES),
             ),
             ("pressure_observed".to_string(), json!(pressure_observed)),
+            (
+                "foreground_admitted".to_string(),
+                json!(foreground_admitted),
+            ),
+            ("scheduler_settled".to_string(), json!(scheduler_settled)),
+            ("runtime_settled".to_string(), json!(runtime_settled)),
             (
                 "pressure_scheduler_background".to_string(),
                 json!(pressure_snapshot.running_background),

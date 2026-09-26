@@ -9,6 +9,8 @@ on:
       - 'scripts/sampleWindowsResident.ps1'
       - 'scripts/qualifyMacosResident.py'
       - 'scripts/runResidentInteractiveQualification.mjs'
+      - 'scripts/qualifyInteractiveBrowser.mjs'
+      - 'scripts/runW3-10PhaseABrowserHarness.mjs'
       - 'src-tauri/**'
       - 'src/**'
 
@@ -21,6 +23,31 @@ env:
   CARGO_BUILD_JOBS: 2
 
 jobs:
+  browser:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: node scripts/qualifyInteractiveBrowser.mjs
+      - name: Upload browser observations
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: interactive-browser-${{ runner.os }}-${{ github.sha }}
+          path: .performance-artifacts/qualification
+          retention-days: 30
   qualification:
     name: Qualification / ${{ matrix.os }}
     strategy:
