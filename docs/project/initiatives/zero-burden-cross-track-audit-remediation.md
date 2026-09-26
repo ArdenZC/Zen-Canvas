@@ -1,6 +1,6 @@
 # Zero-Burden Cross-Track Audit Remediation
 
-Status: **ACTIVE — implementation complete; hosted Windows/macOS CI SUCCESS on Production HEAD `b1040a0c9761549a055099b6d3bb8b5bf526308d`; Draft PR #267 remains open for owner review**
+Status: **ACTIVE — implementation complete; CHANGES REQUESTED / OWNER REVIEW PENDING; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; Draft PR #267 remains open for owner re-review**
 
 Baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9` (tree `5091a6899b5570aeb776eea503b0f1ea62dbacb9`).
 
@@ -8,7 +8,7 @@ Branch: `remediation/zero-burden-cross-track-audit`.
 
 Initial production commit: `6306d6ecb82b475c1495f7ac6b25ec7d255cff29`.
 
-Production HEAD: `b1040a0c9761549a055099b6d3bb8b5bf526308d`.
+Production HEAD: `06531c55f04cbe6a4b47d66305fcf262f74a223a`.
 
 ## Purpose
 
@@ -33,7 +33,7 @@ Resident / Interactive Performance Qualification is the next stage after this PR
 
 ## Validation and closeout
 
-Focused Rust and Browse integration checks, formatter, narrow Clippy and diff checks precede the final hosted Windows/macOS integration pass, run `36214511995` on Production HEAD `b1040a0c9761549a055099b6d3bb8b5bf526308d`. A later docs-only successor must identify that source-head distinction.
+Focused Rust and Browse integration checks, formatter, narrow Clippy and diff checks precede the final hosted Windows/macOS integration pass, run `36217885372` on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`. A later docs-only successor must identify that source-head distinction.
 
 The pull request remains Draft until owner review. Do not request Codex Review, mark Ready, merge or publish a release. Closeout evidence is recorded in [the remediation result](../tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
 
