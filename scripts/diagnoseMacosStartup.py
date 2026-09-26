@@ -80,7 +80,7 @@ def main():
             '-o', 'breakpoint set --name objc_exception_throw',
             '-o', 'breakpoint set --name __rust_foreign_exception',
             '-o', 'process handle SIGABRT --notify true --stop true --pass false',
-            '-o', 'settings set target.run-args --background',
+            '-o', 'settings set target.run-args -- --background',
             '-o', 'run',
             '-o', 'thread backtrace all',
             '-o', 'process status',
