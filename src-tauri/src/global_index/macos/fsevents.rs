@@ -1,6 +1,6 @@
-use super::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
 use super::PendingUpdates;
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
+use crate::platform::macos::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
 use fsevent_sys::core_foundation::{
     kCFAllocatorDefault, kCFRunLoopDefaultMode, kCFStringEncodingUTF8, kCFTypeArrayCallBacks,
     CFArrayAppendValue, CFArrayCreateMutable, CFRelease, CFRunLoopGetCurrent,

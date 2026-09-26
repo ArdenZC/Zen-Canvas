@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-22
+Last verified: 2026-09-26
 
 ## Completed
 
@@ -87,70 +87,32 @@ Final authority:
 
 ## Current
 
-### W6 — Product Maturity Audit
+### Zero-Burden Cross-Track Audit Remediation
 
-Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED; W6-10C DEFERRED / UNVERIFIED — OWNER SKIPPED; FULL SUPPORTED-PLATFORM PASS NOT CLAIMED; PUBLICATION DEFERRED**.
+Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; ZB-01 through ZB-05 COMPLETE / MERGED; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
 
-Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+Authority: [Cross-Track Audit Remediation initiative](initiatives/zero-burden-cross-track-audit-remediation.md) and [result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
 
-Latest completed Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
+The completed foundation sequence is:
 
-**Sequencing state: W6-10A — COMPLETE / CLOSED / MERGED; RC1 — retained and immutable; W6-10B — BLOCKED on missing valid SmartScreen/UAC evidence host; W6-10C — DEFERRED / UNVERIFIED — OWNER SKIPPED; W6-10D/E/F — dependency-gated; full supported-platform PASS — NOT CLAIMED**
+1. [ZB-01 — Database Resident Footprint](tasks/ZB-01-DATABASE-RESIDENT-FOOTPRINT-RESULT.md) — **MERGED**.
+2. [ZB-02 — Idle Polling Removal](tasks/ZB-02-IDLE-POLLING-REMOVAL-RESULT.md) — **MERGED**.
+3. [ZB-03 — Runtime Resource Governance](tasks/ZB-03-RUNTIME-RESOURCE-GOVERNANCE-RESULT.md) — **MERGED**.
+4. [ZB-04 — On-Demand UI Runtime](tasks/ZB-04-ON-DEMAND-UI-RUNTIME-RESULT.md) — **MERGED**.
+5. [ZB-05 — Native Global Search Runtime](tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md) — **MERGED** to `master@316db9a09261dd3f6d3935aae68d261c45485cf9` through PR #266.
+6. **Cross-Track Audit Remediation — CURRENT.**
+7. **Resident / Interactive Performance Qualification — NEXT, after this PR merges.**
+8. **AI Semantic Authority — GATED after foundation and performance qualification; NOT ACTIVE.**
 
-#### Visual authority amendment — Solid / Calm Demo V2
+The current remediation preserves the existing runtime and durable authorities. Routed CI performance suites passed; this is not Resident / Interactive Performance Qualification and does not change release/publication state.
 
-**ACTIVE AUTHORITY AMENDMENT (2026-09-21).** The owner-approved [Solid / Calm Demo V2 freeze](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md) supersedes the earlier Liquid Glass material direction for W6-09 presentation work. V26 remains a structural / navigation / information-architecture / unsuperseded-interaction reference.
+## Release qualification residuals — W6-10
 
-The accepted functional baseline is `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. Presentation migration must preserve it. Existing `88fc6633...` Windows captures remain functional evidence but are historical for final visual parity.
+W6-10A / RC1 remains **COMPLETE / FROZEN**. W6-10B remains **BLOCKED** because B02 SmartScreen and B03 Unknown Publisher/UAC evidence require a valid evidence host. W6-10C remains **DEFERRED / UNVERIFIED — OWNER SKIPPED** without a supported Apple Silicon Mac. Full supported-platform release PASS is **NOT CLAIMED**; RC2 is not authorized; publication remains deferred. See the [W6-10C disposition](tasks/W6-10C-MACOS-RELEASE-QUALIFICATION-DISPOSITION.md) and [W6-10B result](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md).
 
-Before presentation work, verify:
+## Current visual authority — Solid / Calm Demo V2
 
-```bash
-python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
-```
-
-Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10A is complete with RC1 frozen. W6-10B historical qualification is FAIL / BLOCKED. R1 proved clean-profile startup PASS; R2 passed its self-state gates but stopped with blocking B02/B03 UNVERIFIED. See [`W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md`](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md). Owner review/disposition is required; RC1 remains immutable and RC2 is not authorized. W6-10C remains eligible but not active.
-
-
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B-R2 RESULT FAIL / BLOCKED, AWAITING OWNER REVIEW. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
-
-Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
-Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
-W6-08 Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
-Current implementation task: **none**. Windows requires a valid security-presentation evidence host before W6-10B can resume. macOS W6-10C is deferred/unverified for this cycle.
-W6-07 Phase 7 cross-surface consolidation merged through PR #238.
-
-W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
-tree `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
-
-Working rule:
-
-> **Preserve the engine; rebuild the cockpit.**
-
-The frozen implementation sequence is:
-
-1. tokens / typography / shared primitives / native shell;
-2. Files workspace — one global Files entry with Library and Browse Folder internal modes;
-3. Inspector + Search + Command Palette;
-4. Settings;
-5. Organize + Cleanup;
-6. Overview + History + Automation;
-7. cross-surface consolidation.
-
-W6-07 Phases 1–7, W6-08 and W6-09 are complete on the merged baseline. W6-10A
-is complete with RC1 frozen; W6-10B Windows Release Qualification is BLOCKED /
-FAIL (R2 B02/B03 UNVERIFIED); Owner review is required; W6-10C remains eligible
-but not active.
-
-W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
-
-Fresh implementation checkouts must verify the checksum-bound V26 target before side-by-side review:
-
-```bash
-python docs/design/w6-06/07-v26/rebuild-v26.py --verify-only
-```
-
-W6-05 remains the accepted whole-product native evidence baseline. W6-07 must not silently convert its `FAIL`, `DEGRADED` or `UNVERIFIED` states into PASS.
+The owner-approved [Solid / Calm Demo V2 freeze](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md) remains canonical for material and presentation. V26 remains a structural, navigation, information-architecture and unsuperseded-interaction reference. Liquid Glass is revoked. This visual authority is independent of the current engineering initiative.
 
 ## Later planned maturity sequence
 

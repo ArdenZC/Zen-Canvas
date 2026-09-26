@@ -1,4 +1,3 @@
-use super::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
 use super::{KnownEntries, PendingUpdates};
 use crate::global_index::models::{
     normalize_path, GlobalEntryInput, MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL,
@@ -7,6 +6,7 @@ use crate::global_index::models::{
     PROVIDER_MACOS_SPOTLIGHT,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
+use crate::platform::macos::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
 use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{AnyObject, ProtocolObject};

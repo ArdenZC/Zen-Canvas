@@ -53,6 +53,8 @@ pub(super) struct ThumbnailServiceInner {
     pub(super) background_admission_attempts: AtomicUsize,
     #[cfg(test)]
     pub(super) publication_barrier: Arc<PublicationBarrier>,
+    #[cfg(test)]
+    pub(super) disk_publication_barrier: Arc<PublicationBarrier>,
 }
 
 #[derive(Clone)]
@@ -288,6 +290,8 @@ impl ThumbnailService {
                 background_admission_attempts: AtomicUsize::new(0),
                 #[cfg(test)]
                 publication_barrier: Arc::new(PublicationBarrier::new()),
+                #[cfg(test)]
+                disk_publication_barrier: Arc::new(PublicationBarrier::new()),
             }),
         })
     }
@@ -412,6 +416,18 @@ impl ThumbnailService {
         if self.inner.disposed.swap(true, Ordering::AcqRel) {
             return false;
         }
+        let publications = {
+            let state = lock(&self.inner.state);
+            state
+                .inflight
+                .values()
+                .map(|inflight| Arc::clone(&inflight.publication))
+                .collect::<Vec<_>>()
+        };
+        let publication_guards = publications
+            .iter()
+            .map(|publication| lock(publication))
+            .collect::<Vec<_>>();
         let owners = {
             let mut state = lock(&self.inner.state);
             let mut owners = Vec::new();
@@ -430,6 +446,7 @@ impl ThumbnailService {
             self.inner.cache.clear_memory();
             owners
         };
+        drop(publication_guards);
         for (sender, cancelled) in owners {
             cancelled.store(true, Ordering::Release);
             let _ = sender.send(Err(ThumbnailError::Cancelled));
@@ -884,11 +901,22 @@ fn publish_artifact(
             return Err(ThumbnailError::Cancelled);
         }
     }
-    if seed.key.identity.is_durable() {
-        let _ = inner.cache.disk_store(&seed.key, &artifact.bytes);
-    }
+    let disk_stored = if seed.key.identity.is_durable() {
+        inner
+            .cache
+            .disk_store(&seed.key, &artifact.bytes)
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    #[cfg(test)]
+    inner.disk_publication_barrier.wait_if_armed();
     let state = lock(&inner.state);
     if !can_publish_locked(inner, &state, seed) {
+        drop(state);
+        if disk_stored && inner.disposed.load(Ordering::Acquire) {
+            inner.cache.disk_remove(&seed.key);
+        }
         return Err(ThumbnailError::Cancelled);
     }
     inner

@@ -228,6 +228,17 @@ fn wait_until_count(counter: &AtomicUsize, expected: usize) {
     );
 }
 
+fn wait_until_zero(counter: &AtomicUsize) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if counter.load(Ordering::Acquire) == 0 {
+            return;
+        }
+        thread::yield_now();
+    }
+    assert_eq!(counter.load(Ordering::Acquire), 0);
+}
+
 fn service<G, R>(
     gate: Arc<G>,
     renderer: Arc<R>,

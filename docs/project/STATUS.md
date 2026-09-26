@@ -1,13 +1,12 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-23
+Last verified: 2026-09-26
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@7df0841bfb8dab1cd62d96650659f103355f0211`; tree `a4531ef6a519f670bcfbc365b1cb8ae060b8f48e` (W6-10B-R2 blocked-result merge). Merge-after hosted CI `35837244510` is **SUCCESS**.
-- Current initiative / sequencing state: **W6 — Product Maturity Audit remains ACTIVE — implementation; W6-10A is COMPLETE / CLOSED / MERGED; RC1 remains unchanged; W6-10B is BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED on B02/B03; W6-10C is DEFERRED / UNVERIFIED — OWNER SKIPPED because no real supported Mac host is available; full supported-platform PASS is NOT CLAIMED; publication remains DEFERRED**.
-- W6-08 Cross-Platform Quick Preview: **COMPLETE through PR #240**.
-- Current W6-10 task authority: **none active**. Windows [Issue #253](https://github.com/ArdenZC/Zen-Canvas/issues/253) is CLOSED with B02/B03 evidence-host blockers; macOS [Issue #255](https://github.com/ArdenZC/Zen-Canvas/issues/255) is CLOSED / not planned for this cycle. See [W6-10C Owner Disposition](tasks/W6-10C-MACOS-RELEASE-QUALIFICATION-DISPOSITION.md).
+- Latest merged production baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9`; tree `5091a6899b5570aeb776eea503b0f1ea62dbacb9` (ZB-05 / PR #266). Exact-head hosted CI `36175937658` is **SUCCESS**.
+- Current engineering initiative: **Zero-Burden Cross-Track Audit Remediation — IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING** on `remediation/zero-burden-cross-track-audit`, based on the exact merged baseline above. Production source is `06531c55f04cbe6a4b47d66305fcf262f74a223a`; hosted Windows/macOS CI [36217885372](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36217885372) is **SUCCESS** on that exact source, and pre-closeout Final HEAD `075f044ccea2613605b01fb794b428e582618c83` passed [36218506275](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36218506275). [PR #267](https://github.com/ArdenZC/Zen-Canvas/pull/267) is owner-approved for merge. Authority: [current initiative](initiatives/zero-burden-cross-track-audit-remediation.md); execution result: [remediation result](tasks/ZB-CROSS-TRACK-AUDIT-REMEDIATION-RESULT.md).
+- Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
 - Functional / authority disposition: **ACCEPTED**. First-entry Browse, admitted ephemeral-session truth, Preview Core/Read Gate, PDF range/lazy/continuous rendering, Markdown, image transport, provider ordering, pinned-source semantics, Details and cancellation behavior are frozen against presentation-only migration.
@@ -17,7 +16,6 @@ Last verified: 2026-09-23
 - Production-head hosted CI: [35608830144](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35608830144) — **SUCCESS**. Evidence/docs-head CI: [35611907483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35611907483) — **SUCCESS**.
 - Solid / Calm presentation migration is **IMPLEMENTED / MERGED through PR #242**; accepted presentation production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. Owner Windows exact-head native product and Solid / Calm visual acceptance are **PASS**; W6-09 is **COMPLETE / CLOSED / MERGED**.
 - Full supported-platform native PASS is **NOT CLAIMED**. Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, accessibility qualification and remaining lifecycle/mutation residuals are explicitly accepted for W6-10; see the [W6-09 closeout result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
-- W6 parent remains **ACTIVE — implementation**. W6-10A is **COMPLETE / CLOSED / MERGED**. W6-10B remains **BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED**; B02 SmartScreen and B03 Unknown Publisher/UAC are UNVERIFIED, while RC1 self-state gates passed. W6-10C is **DEFERRED / UNVERIFIED — OWNER SKIPPED** due lack of a real supported Mac host. RC1 remains immutable; RC2 is not authorized. Full supported-platform release PASS is **NOT CLAIMED**. Publication remains deferred.
 
 ## Current visual authority
 
@@ -28,15 +26,15 @@ Last verified: 2026-09-23
 
 ## Current initiative
 
-**W6 — Product Maturity Audit**
+**Zero-Burden Cross-Track Audit Remediation**
 
-Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 RETAINED; W6-10B BLOCKED — SECURITY PRESENTATION EVIDENCE HOST REQUIRED; W6-10C DEFERRED / UNVERIFIED — OWNER SKIPPED; FULL SUPPORTED-PLATFORM PASS NOT CLAIMED; PUBLICATION DEFERRED**
+Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING; hosted Windows/macOS CI SUCCESS on Production HEAD `06531c55f04cbe6a4b47d66305fcf262f74a223a`; PR #267 is owner-approved for merge**.
 
-Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+Authority: [Zero-Burden Cross-Track Audit Remediation](initiatives/zero-burden-cross-track-audit-remediation.md).
 
-Latest completed track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
+Baseline: `master@316db9a09261dd3f6d3935aae68d261c45485cf9`. Production HEAD: `06531c55f04cbe6a4b47d66305fcf262f74a223a`. The initiative closes the bounded runtime, privacy, correctness-test and documentation-truth findings. It does not reopen release qualification or authorize publication.
 
-Current implementation task: **none**. Windows remains blocked pending a valid SmartScreen/UAC evidence host. macOS W6-10C is [DEFERRED / UNVERIFIED — OWNER SKIPPED](tasks/W6-10C-MACOS-RELEASE-QUALIFICATION-DISPOSITION.md). RC1 remains immutable; RC2 is not authorized.
+W6 release residuals remain as recorded below: W6-10B is blocked on a valid SmartScreen/UAC evidence host; W6-10C is deferred/unverified without a supported Mac host; RC1 remains immutable, RC2 is not authorized, and publication remains deferred.
 
 ## Release, schema and platform truth
 

@@ -182,19 +182,19 @@ impl ThumbnailCache {
         })
     }
 
-    pub(super) fn disk_store(&self, key: &GenerationKey, bytes: &[u8]) -> io::Result<()> {
+    pub(super) fn disk_store(&self, key: &GenerationKey, bytes: &[u8]) -> io::Result<bool> {
         let Some(cache_dir) = self.cache_dir.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
         if bytes.len() as u64 > self.max_disk_entry_bytes {
-            return Ok(());
+            return Ok(false);
         }
         ensure_cache_dir(cache_dir).map_err(io::Error::other)?;
         let target = cache_dir.join(format!("{}.thumb", key.logical_key()));
         reject_cache_symlink(&target).map_err(io::Error::other)?;
         if let Ok(metadata) = fs::symlink_metadata(&target) {
             if is_safe_regular_file(&metadata) && metadata.len() <= self.max_disk_entry_bytes {
-                return Ok(());
+                return Ok(false);
             }
         }
         let pending = cache_dir.join(format!(".pending-thumbnail-{}", uuid::Uuid::new_v4()));
@@ -209,10 +209,21 @@ impl ThumbnailCache {
             Ok::<(), io::Error>(())
         })();
         let _ = fs::remove_file(&pending);
-        if result.is_ok() {
-            trim_disk_cache(cache_dir, self.disk_max_entries, self.disk_max_bytes);
+        result?;
+        trim_disk_cache(cache_dir, self.disk_max_entries, self.disk_max_bytes);
+        Ok(true)
+    }
+
+    pub(super) fn disk_remove(&self, key: &GenerationKey) {
+        let Some(path) = self.cache_file_path(key) else {
+            return;
+        };
+        if fs::symlink_metadata(&path)
+            .ok()
+            .is_some_and(|metadata| is_safe_regular_file(&metadata))
+        {
+            let _ = fs::remove_file(path);
         }
-        result
     }
 
     fn cache_file_path(&self, key: &GenerationKey) -> Option<PathBuf> {

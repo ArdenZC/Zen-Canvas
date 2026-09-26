@@ -711,6 +711,8 @@ jobs:
             --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
+      - name: Native macOS lifecycle blocking lifetime
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --lib platform::macos::lifecycle::native_tests -- --nocapture --test-threads=1
       - name: macOS race validation (serial, once)
         env:
           ZEN_CANVAS_MACOS_RACE_ITERATIONS: "10000"

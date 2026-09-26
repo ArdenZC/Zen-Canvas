@@ -17,6 +17,7 @@ pub mod native_preview;
 pub mod package;
 pub mod qos;
 pub mod quick_look;
+pub(crate) mod run_loop;
 #[cfg(target_os = "macos")]
 pub mod strategy;
 pub mod types;
