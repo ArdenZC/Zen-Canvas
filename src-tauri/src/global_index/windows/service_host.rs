@@ -306,25 +306,21 @@ impl ServiceRuntime {
         }
         // Only durable indexing state comes from the desktop snapshot. The
         // service always uses the fresh native mount path and provider data.
-        let current_provider = current.volume.provider.clone();
-        let mut volume = current.volume;
-        volume.enabled = snapshot.enabled;
-        volume.index_status = snapshot.index_status.clone();
-        volume.journal_id = snapshot.journal_id.clone();
-        volume.journal_cursor = snapshot.journal_cursor.clone();
-        volume.last_full_index_at = snapshot.last_full_index_at;
-        volume.last_incremental_sync_at = snapshot.last_incremental_sync_at;
-        // A prior permission failure can persist the recursive fallback even
-        // though fresh discovery still reports an NTFS MFT/USN capability.
-        // Preserve that durable provider decision for normal resume calls;
-        // an explicit rebuild resets it in the desktop coordinator.
-        if snapshot.provider == PROVIDER_WINDOWS_RECURSIVE_FALLBACK
-            && current_provider == PROVIDER_WINDOWS_MFT_USN
-        {
-            volume.provider = PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
-        }
+        let volume = merge_durable_source_state(current.volume, snapshot);
         Ok(GlobalSourceDescriptor { volume })
     }
+}
+
+fn merge_durable_source_state(mut current: GlobalVolume, snapshot: &GlobalVolume) -> GlobalVolume {
+    current.enabled = snapshot.enabled;
+    current.index_status = snapshot.index_status.clone();
+    current.journal_id = snapshot.journal_id.clone();
+    current.journal_cursor = snapshot.journal_cursor.clone();
+    current.last_full_index_at = snapshot.last_full_index_at;
+    current.last_incremental_sync_at = snapshot.last_incremental_sync_at;
+    // Provider capability stays from fresh native discovery. A persisted
+    // recursive fallback is not consent and cannot override NTFS MFT/USN.
+    current
 }
 
 fn provider_snapshot_is_compatible(current: &str, snapshot: &str) -> bool {
@@ -887,6 +883,7 @@ fn service_state_name(state: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::global_index::models::INDEX_STATUS_DISCOVERED;
 
     #[test]
     fn service_contract_uses_stable_name_and_console_switch() {
@@ -896,6 +893,16 @@ mod tests {
             r"C:\Program Files\Zen Canvas\Zen Canvas.exe"
         )
         .contains("--index-service"));
+    }
+
+    #[test]
+    fn service_runtime_uses_the_shared_direct_mft_provider() {
+        let runtime = ServiceRuntime::new();
+
+        assert_eq!(
+            runtime.provider.status().expect("direct provider status"),
+            "windows_mft_usn"
+        );
     }
 
     #[test]
@@ -910,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn persisted_recursive_fallback_is_compatible_with_fresh_ntfs_discovery() {
+    fn persisted_recursive_fallback_snapshot_is_accepted_for_native_normalization() {
         assert!(provider_snapshot_is_compatible(
             PROVIDER_WINDOWS_MFT_USN,
             PROVIDER_WINDOWS_RECURSIVE_FALLBACK
@@ -919,5 +926,34 @@ mod tests {
             PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
             PROVIDER_WINDOWS_MFT_USN
         ));
+
+        let mut current = GlobalVolume {
+            id: "volume".to_string(),
+            platform: "windows".to_string(),
+            stable_volume_id: "stable".to_string(),
+            display_name: "C".to_string(),
+            mount_path: "C:\\".to_string(),
+            filesystem_type: "ntfs".to_string(),
+            drive_kind: "fixed".to_string(),
+            enabled: true,
+            provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+            index_status: INDEX_STATUS_DISCOVERED.to_string(),
+            last_error: None,
+            journal_id: None,
+            journal_cursor: None,
+            last_full_index_at: None,
+            last_incremental_sync_at: None,
+            entry_count: 0,
+            created_at: 1,
+            updated_at: 1,
+        };
+        let mut snapshot = current.clone();
+        snapshot.provider = PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+        snapshot.index_status = "permission_required".to_string();
+        snapshot.last_full_index_at = Some(10);
+        current = merge_durable_source_state(current, &snapshot);
+        assert_eq!(current.provider, PROVIDER_WINDOWS_MFT_USN);
+        assert_eq!(current.index_status, "permission_required");
+        assert_eq!(current.last_full_index_at, Some(10));
     }
 }

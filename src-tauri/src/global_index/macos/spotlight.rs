@@ -1,3 +1,4 @@
+use super::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
 use super::{KnownEntries, PendingUpdates};
 use crate::global_index::models::{
     normalize_path, GlobalEntryInput, MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL,
@@ -5,6 +6,7 @@ use crate::global_index::models::{
     MACOS_FILE_ATTRIBUTE_FILE_PROVIDER, MACOS_FILE_ATTRIBUTE_ICLOUD, MACOS_FILE_ATTRIBUTE_PACKAGE,
     PROVIDER_MACOS_SPOTLIGHT,
 };
+use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -26,6 +28,22 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
+
+pub(super) struct SpotlightWatcherHandle {
+    stopped: Arc<AtomicBool>,
+    stop_signal: Arc<NativeRunLoopStopSignal>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl SpotlightWatcherHandle {
+    pub(super) fn stop(mut self) {
+        self.stopped.store(true, Ordering::Release);
+        self.stop_signal.request_stop();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SpotlightCollectionSummary {
@@ -139,13 +157,31 @@ pub fn spawn_update_watcher(
     pending: Arc<Mutex<PendingUpdates>>,
     known_entries: Arc<Mutex<KnownEntries>>,
     stopped: Arc<AtomicBool>,
-) -> Result<JoinHandle<()>, String> {
-    thread::Builder::new()
+    wake: Arc<GlobalIndexWakeSlot>,
+) -> Result<SpotlightWatcherHandle, String> {
+    let stop_signal = Arc::new(NativeRunLoopStopSignal::default());
+    let stop_signal_for_thread = stop_signal.clone();
+    let stopped_for_handle = stopped.clone();
+    let thread = thread::Builder::new()
         .name("zen-canvas-macos-spotlight".to_string())
         .spawn(move || {
-            autoreleasepool(|_| run_update_watcher(&volume_id, &pending, &known_entries, &stopped));
+            autoreleasepool(|_| {
+                run_update_watcher(
+                    &volume_id,
+                    &pending,
+                    &known_entries,
+                    &stopped,
+                    &wake,
+                    &stop_signal_for_thread,
+                )
+            });
         })
-        .map_err(|error| format!("macos_spotlight_thread_start_failed: {error}"))
+        .map_err(|error| format!("macos_spotlight_thread_start_failed: {error}"))?;
+    Ok(SpotlightWatcherHandle {
+        stopped: stopped_for_handle,
+        stop_signal,
+        thread: Some(thread),
+    })
 }
 
 fn run_update_watcher(
@@ -153,12 +189,15 @@ fn run_update_watcher(
     pending: &Arc<Mutex<PendingUpdates>>,
     known_entries: &Arc<Mutex<KnownEntries>>,
     stopped: &AtomicBool,
+    wake: &Arc<GlobalIndexWakeSlot>,
+    stop_signal: &NativeRunLoopStopSignal,
 ) {
     let query = new_local_computer_query();
     let center = NSNotificationCenter::defaultCenter();
     let pending_for_block = pending.clone();
     let known_entries_for_block = known_entries.clone();
     let volume_id_for_block = volume_id.to_string();
+    let wake_for_block = wake.clone();
     let update_block = RcBlock::new(move |notification: NonNull<NSNotification>| {
         let notification = unsafe { notification.as_ref() };
         let Some(user_info) = notification.userInfo() else {
@@ -203,6 +242,7 @@ fn run_update_watcher(
         }
         if let Ok(mut pending) = pending_for_block.lock() {
             pending.append_incremental(entries, stale_entry_ids, full_reconcile);
+            wake_for_block.notify(GlobalIndexWakeReason::ProviderChange);
         }
     });
     let query_object: &AnyObject = query.as_ref();
@@ -215,23 +255,31 @@ fn run_update_watcher(
         )
     };
     if !query.startQuery() {
-        if let Ok(mut pending) = pending.lock() {
-            pending.last_error = Some("macos_spotlight_realtime_updates_unavailable".to_string());
-        }
+        record_realtime_start_failure(pending, wake);
         let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
         let observer_object: &AnyObject = protocol_object.as_ref();
         unsafe { center.removeObserver(observer_object) };
         return;
     }
     let run_loop = NSRunLoop::currentRunLoop();
-    while !stopped.load(Ordering::Acquire) {
-        let deadline = NSDate::dateWithTimeIntervalSinceNow(0.25);
-        run_loop.runUntilDate(&deadline);
+    let stop_action = cross_thread_stop_action(run_loop.getCFRunLoop());
+    stop_signal.install(stop_action);
+    if !stopped.load(Ordering::Acquire) {
+        run_loop.run();
     }
+    stop_signal.clear();
     query.stopQuery();
     let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
     let observer_object: &AnyObject = protocol_object.as_ref();
     unsafe { center.removeObserver(observer_object) };
+}
+
+fn record_realtime_start_failure(pending: &Mutex<PendingUpdates>, wake: &GlobalIndexWakeSlot) {
+    super::record_async_watcher_error(
+        pending,
+        wake,
+        "macos_spotlight_realtime_updates_unavailable",
+    );
 }
 
 fn new_local_computer_query() -> Retained<NSMetadataQuery> {
@@ -489,11 +537,12 @@ fn path_from_object(object: &AnyObject) -> Option<String> {
 mod tests {
     use super::super::super::models::normalize_path;
     use super::{
-        classify_spotlight_update, mac_file_identity, stream_local_computer_entries,
-        SpotlightUpdateAction,
+        classify_spotlight_update, mac_file_identity, record_realtime_start_failure,
+        stream_local_computer_entries, SpotlightUpdateAction,
     };
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn macos_paths_use_platform_normalization() {
@@ -524,6 +573,24 @@ mod tests {
         assert_eq!(
             classify_spotlight_update(true, true),
             SpotlightUpdateAction::Reconcile
+        );
+    }
+
+    #[test]
+    fn realtime_start_failure_uses_shared_error_and_wake_invariant() {
+        let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
+        let wake = Arc::new(crate::global_index::wake::GlobalIndexWakeSlot::default());
+
+        record_realtime_start_failure(&pending, &wake);
+
+        assert_eq!(wake.snapshot().notifications, 1);
+        assert_eq!(
+            pending
+                .lock()
+                .expect("pending updates")
+                .last_error
+                .as_deref(),
+            Some("macos_spotlight_realtime_updates_unavailable")
         );
     }
 

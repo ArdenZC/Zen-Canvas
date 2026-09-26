@@ -521,27 +521,35 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build Zen Canvas")
         .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
-                match zen_canvas_tauri::app_control::exit_requested_action(code) {
-                    zen_canvas_tauri::app_control::ExitRequestedAction::StayResident => {
-                        api.prevent_exit();
+            match event {
+                tauri::RunEvent::Resumed => {
+                    if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
+                        coordinator.notify_runtime_resume();
                     }
-                    zen_canvas_tauri::app_control::ExitRequestedAction::Exit => {
-                        if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
-                            if let Err(error) = coordinator.shutdown() {
-                                eprintln!("Global index shutdown failed (non-fatal): {error}");
+                }
+                tauri::RunEvent::ExitRequested { code, api, .. } => {
+                    match zen_canvas_tauri::app_control::exit_requested_action(code) {
+                        zen_canvas_tauri::app_control::ExitRequestedAction::StayResident => {
+                            api.prevent_exit();
+                        }
+                        zen_canvas_tauri::app_control::ExitRequestedAction::Exit => {
+                            if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
+                                if let Err(error) = coordinator.shutdown() {
+                                    eprintln!("Global index shutdown failed (non-fatal): {error}");
+                                }
                             }
-                        }
-                        if let Some(worker) = app.try_state::<ManagedAiWorker>() {
-                            worker.shutdown();
-                        }
-                        if let Some(lifecycle) = app.try_state::<
-                            zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController,
-                        >() {
-                            lifecycle.stop();
+                            if let Some(worker) = app.try_state::<ManagedAiWorker>() {
+                                worker.shutdown();
+                            }
+                            if let Some(lifecycle) = app.try_state::<
+                                zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController,
+                            >() {
+                                lifecycle.stop();
+                            }
                         }
                     }
                 }
+                _ => {}
             }
         });
 }

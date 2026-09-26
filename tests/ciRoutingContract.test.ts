@@ -110,6 +110,32 @@ describe("CI change routing", () => {
     expect(appPreview.windows_native_preview_handler_changed).toBe(false);
   });
 
+  it("routes Global Index and exact-service qualification inputs to the hosted Windows lane only", () => {
+    for (const changedPath of [
+      "src-tauri/src/global_index/windows/mft.rs",
+      "src-tauri/src/global_index/windows/service_host.rs",
+      "src-tauri/native-qa/global_index_probe.rs",
+      "scripts/qualifyWindowsGlobalIndexService.ps1",
+      ".github/workflows/ci.yml",
+    ]) {
+      expect(
+        route([changedPath]).windows_global_index_service_qualification_changed,
+        changedPath,
+      ).toBe(true);
+    }
+
+    for (const changedPath of [
+      "src-tauri/src/file_ops.rs",
+      "src/App.tsx",
+      "docs/project/tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md",
+    ]) {
+      expect(
+        route([changedPath]).windows_global_index_service_qualification_changed,
+        changedPath,
+      ).toBe(false);
+    }
+  });
+
   it("routes DB core and schema changes to every 100k suite without selecting 1M", () => {
     const scope = route(["src-tauri/src/db/schema.rs"]);
     expect(scope.full_validation).toBe(false);

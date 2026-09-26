@@ -1,7 +1,7 @@
 use crate::global_index::coordinator::GlobalIndexError;
 use crate::global_index::models::{
-    GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_DISCOVERED, PROVIDER_WINDOWS_MFT_USN,
-    PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
+    GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_DISCOVERED, INDEX_STATUS_UNAVAILABLE,
+    PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_UNSUPPORTED,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW, GetVolumeNameForVolumeMountPointW,
@@ -68,7 +68,7 @@ fn describe_volume(mount_path: &str, drive_kind_code: u32) -> Option<GlobalSourc
     let provider = if is_ntfs {
         PROVIDER_WINDOWS_MFT_USN
     } else {
-        PROVIDER_WINDOWS_RECURSIVE_FALLBACK
+        PROVIDER_WINDOWS_UNSUPPORTED
     };
     let now = crate::global_index::models::unix_now();
     Some(GlobalSourceDescriptor {
@@ -85,12 +85,17 @@ fn describe_volume(mount_path: &str, drive_kind_code: u32) -> Option<GlobalSourc
                 }
             },
             mount_path: mount_path.to_string(),
-            filesystem_type,
+            filesystem_type: filesystem_type.clone(),
             drive_kind: drive_kind(drive_kind_code).to_string(),
-            enabled: drive_kind_code == DRIVE_FIXED,
+            enabled: source_enabled_by_default(drive_kind_code, is_ntfs),
             provider: provider.to_string(),
-            index_status: INDEX_STATUS_DISCOVERED.to_string(),
-            last_error: None,
+            index_status: if is_ntfs {
+                INDEX_STATUS_DISCOVERED.to_string()
+            } else {
+                INDEX_STATUS_UNAVAILABLE.to_string()
+            },
+            last_error: (!is_ntfs)
+                .then(|| format!("windows_global_index_unsupported_filesystem:{filesystem_type}")),
             journal_id: None,
             journal_cursor: None,
             last_full_index_at: None,
@@ -100,6 +105,10 @@ fn describe_volume(mount_path: &str, drive_kind_code: u32) -> Option<GlobalSourc
             updated_at: now,
         },
     })
+}
+
+fn source_enabled_by_default(drive_kind_code: u32, native_provider_supported: bool) -> bool {
+    drive_kind_code == DRIVE_FIXED && native_provider_supported
 }
 
 fn volume_guid(mount_path: &str) -> Option<String> {
@@ -151,5 +160,13 @@ mod tests {
     #[test]
     fn wide_string_ignores_trailing_buffer() {
         assert_eq!(wide_string(&[b'A' as u16, 0, b'B' as u16]), "A");
+    }
+
+    #[test]
+    fn only_native_supported_fixed_volumes_are_enabled_by_default() {
+        assert!(source_enabled_by_default(DRIVE_FIXED, true));
+        assert!(!source_enabled_by_default(DRIVE_FIXED, false));
+        assert!(!source_enabled_by_default(DRIVE_REMOVABLE, true));
+        assert!(!source_enabled_by_default(DRIVE_REMOTE, true));
     }
 }

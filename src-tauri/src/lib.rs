@@ -126,6 +126,11 @@ pub use watcher::{
 };
 
 pub fn database_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    #[cfg(feature = "native-qa")]
+    if let Some(profile_root) = std::env::var_os("ZC_NATIVE_QA_PROFILE_ROOT") {
+        return Ok(PathBuf::from(profile_root).join("zen-canvas.sqlite3"));
+    }
+
     let dir = app
         .path()
         .app_data_dir()

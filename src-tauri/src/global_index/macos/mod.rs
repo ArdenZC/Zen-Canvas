@@ -6,6 +6,7 @@
 //! Spotlight remains the source of file metadata.
 
 mod fsevents;
+mod run_loop;
 mod spotlight;
 
 use super::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
@@ -16,13 +17,13 @@ use super::models::{
     INDEX_STATUS_SPOTLIGHT_UNAVAILABLE, INDEX_STATUS_UNAVAILABLE,
     PROVIDER_MACOS_FSEVENTS_RECONCILE, PROVIDER_MACOS_SPOTLIGHT,
 };
+use super::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use std::thread::JoinHandle;
 
 pub(crate) const MAX_PENDING_SPOTLIGHT_ENTRIES: usize = 4096;
 
@@ -33,6 +34,19 @@ pub(crate) struct PendingUpdates {
     pub full_reconcile: bool,
     pub last_event_id: Option<u64>,
     pub last_error: Option<String>,
+}
+
+pub(super) fn record_async_watcher_error(
+    pending: &Mutex<PendingUpdates>,
+    wake: &GlobalIndexWakeSlot,
+    error: impl Into<String>,
+) {
+    let mut pending = pending
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pending.last_error = Some(error.into());
+    drop(pending);
+    wake.notify(GlobalIndexWakeReason::ProviderChange);
 }
 
 impl PendingUpdates {
@@ -151,13 +165,18 @@ pub struct MacosSpotlightProvider {
     stopped: Arc<AtomicBool>,
     pending: Arc<Mutex<PendingUpdates>>,
     known_entries: Arc<Mutex<KnownEntries>>,
-    spotlight_watcher: Mutex<Option<JoinHandle<()>>>,
+    spotlight_watcher: Mutex<Option<spotlight::SpotlightWatcherHandle>>,
     fsevents_watcher: Mutex<Option<fsevents::FseventsHandle>>,
     baseline_established: AtomicBool,
+    wake: Arc<GlobalIndexWakeSlot>,
 }
 
 impl MacosSpotlightProvider {
     pub fn new() -> Self {
+        Self::with_wake(Arc::new(GlobalIndexWakeSlot::default()))
+    }
+
+    pub(crate) fn with_wake(wake: Arc<GlobalIndexWakeSlot>) -> Self {
         Self {
             stopped: Arc::new(AtomicBool::new(false)),
             pending: Arc::new(Mutex::new(PendingUpdates::default())),
@@ -165,6 +184,7 @@ impl MacosSpotlightProvider {
             spotlight_watcher: Mutex::new(None),
             fsevents_watcher: Mutex::new(None),
             baseline_established: AtomicBool::new(false),
+            wake,
         }
     }
 
@@ -183,6 +203,7 @@ impl MacosSpotlightProvider {
                     self.pending.clone(),
                     self.known_entries.clone(),
                     self.stopped.clone(),
+                    self.wake.clone(),
                 )
                 .map_err(GlobalIndexError::Provider)?,
             );
@@ -198,6 +219,7 @@ impl MacosSpotlightProvider {
                     Path::new("/"),
                     self.pending.clone(),
                     self.stopped.clone(),
+                    self.wake.clone(),
                     since_event_id,
                 )
                 .map_err(GlobalIndexError::Provider)?,
@@ -209,7 +231,7 @@ impl MacosSpotlightProvider {
     fn stop_watchers(&self) {
         if let Ok(mut watcher) = self.spotlight_watcher.lock() {
             if let Some(handle) = watcher.take() {
-                let _ = handle.join();
+                handle.stop();
             }
         }
         if let Ok(mut watcher) = self.fsevents_watcher.lock() {
@@ -227,6 +249,18 @@ impl MacosSpotlightProvider {
                 last_error: Some("macOS native index update lock poisoned".to_string()),
                 ..PendingUpdates::default()
             })
+    }
+
+    fn take_pending_or_report_error(
+        &self,
+        volume_id: &str,
+        sink: &mut dyn GlobalIndexSink,
+    ) -> Result<PendingUpdates, GlobalIndexError> {
+        let pending = self.take_pending();
+        if let Some(error) = pending.last_error.clone() {
+            return Err(Self::report_native_error(sink, volume_id, &error)?);
+        }
+        Ok(pending)
     }
 
     fn remember_entries(&self, entries: &[GlobalEntryInput]) {
@@ -370,9 +404,6 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         self.stopped.store(false, Ordering::Release);
         sink.mark_volume_entries_stale(&source.volume.id)?;
         self.clear_known_entries();
-        let summary = self.stream_spotlight_entries(sink, &source.volume.id, cancel)?;
-        Self::record_collection_state(sink, &source.volume.id, summary)?;
-        self.baseline_established.store(true, Ordering::Release);
         if let Err(error) = self.start_watchers(
             &source.volume.id,
             source
@@ -384,6 +415,9 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             let error = error.to_string();
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
+        let summary = self.stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+        Self::record_collection_state(sink, &source.volume.id, summary)?;
+        self.baseline_established.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -394,10 +428,18 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
         self.stopped.store(false, Ordering::Release);
-        let mut pending = self.take_pending();
-        if let Some(error) = pending.last_error.clone() {
+        if let Err(error) = self.start_watchers(
+            &source.volume.id,
+            source
+                .volume
+                .journal_cursor
+                .as_deref()
+                .and_then(|value| value.parse::<u64>().ok()),
+        ) {
+            let error = error.to_string();
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
+        let mut pending = self.take_pending_or_report_error(&source.volume.id, sink)?;
         let needs_baseline_reconcile = !self.baseline_established.load(Ordering::Acquire);
         if pending.full_reconcile || needs_baseline_reconcile {
             sink.mark_volume_entries_stale(&source.volume.id)?;
@@ -417,18 +459,16 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             let event_id = event_id.to_string();
             sink.checkpoint(&source.volume.id, None, Some(&event_id))?;
         }
-        if let Err(error) = self.start_watchers(
-            &source.volume.id,
-            source
-                .volume
-                .journal_cursor
-                .as_deref()
-                .and_then(|value| value.parse::<u64>().ok()),
-        ) {
-            let error = error.to_string();
-            return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
-        }
         Ok(())
+    }
+
+    fn requires_background_admission(&self, _source: &GlobalSourceDescriptor) -> bool {
+        !self.baseline_established.load(Ordering::Acquire)
+            || self
+                .pending
+                .lock()
+                .map(|pending| pending.full_reconcile)
+                .unwrap_or(true)
     }
 
     fn pause(&self) -> Result<(), GlobalIndexError> {
@@ -657,6 +697,48 @@ mod tests {
                 sink.statuses.last().map(|value| value.1.as_str()),
                 Some(expected_status)
             );
+        }
+    }
+
+    #[test]
+    fn async_watcher_error_wakes_then_incremental_drain_records_degraded_status() {
+        let cases = [
+            (
+                "macos_spotlight_realtime_updates_unavailable",
+                INDEX_STATUS_SPOTLIGHT_UNAVAILABLE,
+            ),
+            (
+                "macos_fsevents_stream_start_failed",
+                INDEX_STATUS_FSEVENTS_UNAVAILABLE,
+            ),
+        ];
+        for (error_code, expected_status) in cases {
+            let wake = Arc::new(GlobalIndexWakeSlot::default());
+            let provider = MacosSpotlightProvider::with_wake(wake.clone());
+            record_async_watcher_error(&provider.pending, &wake, error_code);
+
+            assert_eq!(wake.snapshot().notifications, 1);
+            assert!(
+                provider.pending.try_lock().is_ok(),
+                "wake ran while lock held"
+            );
+
+            let mut sink = RecordingSink::default();
+            let error = match provider.take_pending_or_report_error("volume", &mut sink) {
+                Err(error) => error,
+                Ok(_) => panic!("pending watcher error must be reported"),
+            };
+            assert!(error.to_string().contains(error_code));
+            assert_eq!(
+                sink.statuses.last().map(|value| value.1.as_str()),
+                Some(expected_status)
+            );
+            assert!(provider
+                .pending
+                .lock()
+                .expect("pending updates")
+                .last_error
+                .is_none());
         }
     }
 

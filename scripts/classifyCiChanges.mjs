@@ -27,6 +27,18 @@ const WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES = [
   "src-tauri/native/",
 ];
 
+const WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS = new Set([
+  ".github/workflows/ci.yml",
+  "src-tauri/src/lib.rs",
+  "src-tauri/src/main.rs",
+  "src-tauri/cargo.toml",
+  "src-tauri/cargo.lock",
+  "src-tauri/native-qa/global_index_probe.rs",
+  "scripts/classifycichanges.mjs",
+  "scripts/classifycichanges.d.mts",
+  "scripts/qualifywindowsglobalindexservice.ps1",
+]);
+
 const HIGH_RISK_PREFIXES = [
   "src-tauri/src/file_ops.rs",
   "src-tauri/src/file_ops/",
@@ -123,6 +135,11 @@ function isNativePerformancePath(path) {
 
 function isWindowsNativePreviewHandlerPath(path) {
   return startsWithAny(path, WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES);
+}
+
+function isWindowsGlobalIndexServiceQualificationPath(path) {
+  return path.startsWith("src-tauri/src/global_index/")
+    || WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS.has(path);
 }
 
 function isHighRiskPath(path) {
@@ -251,6 +268,9 @@ export function classifyCiScope({
     windows_native_preview_handler_changed: requestedFull
       || baseMissing
       || hasAnyPath(normalizedPaths, isWindowsNativePreviewHandlerPath),
+    windows_global_index_service_qualification_changed: requestedFull
+      || baseMissing
+      || hasAnyPath(normalizedPaths, isWindowsGlobalIndexServiceQualificationPath),
     frontend_changed: requestedFull || hasAnyPath(normalizedPaths, isFrontendPath),
     rust_changed: requestedFull || hasAnyPath(normalizedPaths, isRustPath),
     macos_sensitive: requestedFull
@@ -291,6 +311,7 @@ export function classifyCiScope({
     for (const key of [
       "frontend_changed",
       "windows_native_preview_handler_changed",
+      "windows_global_index_service_qualification_changed",
       "rust_changed",
       "macos_sensitive",
       "performance_sensitive",
