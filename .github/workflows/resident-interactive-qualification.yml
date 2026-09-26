@@ -93,7 +93,7 @@ jobs:
             if ("${{ runner.os }}" -eq "macOS") {
               # Cargo package name differs from its existing desktop binary.
               '{"mainBinaryName":"zen-canvas"}' | Set-Content -LiteralPath $taskConfig
-              npx tauri build --features "desktop-runtime native-qa" --bundles app --config $taskConfig -- --locked 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
+              npx tauri build --features "desktop-runtime,native-qa" --bundles app --config $taskConfig -- --locked 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
             } else {
               cargo build --locked --release --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas --bin zb05-global-index-qa 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
             }
