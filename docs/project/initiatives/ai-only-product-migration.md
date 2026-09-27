@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE — implementation — PM-01 Core Experience**
+Status: **ACTIVE — PM-01 DESIGN HOLD pending owner deep-audit closure; production implementation not authorized yet**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -30,11 +30,19 @@ The PR #272 foundation remains authoritative:
 
 Branch: `product/ai-only-core-experience`.
 
+Binding audit amendment: [AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md](../tasks/AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md). While the amendment hold is active, this branch remains docs/design-only.
+
 PM-01 changes product behavior, not the core authority model.
 
-### Shared AI readiness
+### AI readiness
 
-Provide one product-level projection for semantic-feature readiness. It must distinguish at least loading, disabled/not-connected, configuration/runtime failure and ready. This is UI/product readiness only; backend commands continue to enforce their own policy/security gates.
+Use one shared presentation language, but do not collapse readiness into one boolean.
+
+- provider readiness: loading / disabled / configuration invalid / configured;
+- Organize readiness: provider + eligible Managed Scope + local/cloud scope policy;
+- Cleanup readiness: provider + Cleanup AI enabled + distinct Cleanup local/cloud data-sharing policy.
+
+Network reachability is not polled while idle. Backend commands continue to enforce their own feature-specific policy/security gates.
 
 Every gated state must provide a clear route to AI Settings.
 
@@ -49,9 +57,12 @@ Every gated state must provide a clear route to AI Settings.
 
 ### Cleanup
 
-- A new Cleanup workflow requires AI readiness.
+- A new Cleanup workflow requires Cleanup feature readiness, not merely a globally enabled provider.
 - Deterministic detectors still discover/evidence candidates.
-- Before a candidate can enter new executable Safe Trash preview, it must have the required successful conservative AI assessment for that run/revision.
+- Before a candidate can enter new executable Safe Trash preview, it must have a versioned successful conservative AI assessment bound to the exact current finding revision/identity.
+- Provider batches must cover requested candidate IDs exactly once; missing/duplicate/unknown results fail closed.
+- Provider results publish only through post-request finding-revision/identity CAS, preventing stale AI publication.
+- Cleanup cloud data-sharing consent is separate from Organize Managed Scope consent.
 - AI can only preserve or reduce executability; it cannot create trash/delete authority.
 - Provider failure/cancellation leaves findings inspectable but execution blocked until AI assessment succeeds.
 - Historical runs/history remain readable and restore remains usable.
@@ -86,3 +97,10 @@ Later work may demote/rename legacy Rule Library surfaces, remove stale rule-cen
 ## Non-goals
 
 No agent/tool/shell runtime, RAG/vector store, autonomous filesystem changes, release publication or #270 repair.
+
+
+## Owner deep-audit hold
+
+PM-01 production code is paused while the owner deep-audit amendment is active. The audit found required-AI contract gaps in Cleanup assessment currentness, exact provider coverage, durable assessment binding, feature-specific consent/readiness and diagnostic labeling. These are design-contract corrections, not a rollback of PR #272.
+
+The hold is released only by explicit owner disposition after the amended taskbook and risk truth are reviewed.
