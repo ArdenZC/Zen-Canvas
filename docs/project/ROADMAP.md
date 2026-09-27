@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-27
+Last verified: 2026-09-28
 
 ## Completed
 
@@ -87,25 +87,26 @@ Final authority:
 
 ## Current
 
-### Pre-PM Cleanup AI Data-Sharing Consent Gate
+### PM-01 — AI-only Core Experience
 
-Status: **ACTIVE — implementation — OWNER REVIEW PASSED — READY TO MERGE — issue #284 / PR #285; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS; PM-01 remains NOT ACTIVE until merge.**
+Status: **ACTIVE — implementation — issue #273; branch `product/pm-01-ai-only-core`; fresh baseline `master@17599b3344616a43686a376b790cb8bae1f52fa7`; owner deep-audit hold RELEASED.**
 
-Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md), [activation taskbook](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-ACTIVATION.md), and [result](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md).
+Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure map](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
 Current sequence:
 
 1. Pre-PM foundations through AI Readiness + Consent — **COMPLETE / MERGED**.
-2. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through PR #282 to `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`.
-3. **Pre-PM Cleanup AI Data-Sharing Consent Gate — IMPLEMENTED / EXACT-HEAD CI PASS / OWNER REVIEW PASSED / MERGE PENDING.**
-4. Fresh PM-01 AI-only Core Experience activation — **blocked only on #285 merge; owner review has passed; old #274 remains CLOSED / superseded.**
+2. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through PR #282.
+3. Pre-PM Cleanup AI Data-Sharing Consent Gate — **COMPLETE / MERGED** through PR #285 to `master@17599b3344616a43686a376b790cb8bae1f52fa7`; merge-after CI `36338751754` SUCCESS.
+4. **PM-01 AI-only Core Experience — CURRENT / ACTIVE.**
 5. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane via #283; not a PM-01 merge gate.**
 6. System One or production Preference Memory integration — **NOT AUTHORIZED; separate evidence and architecture gate required.**
-7. PM-02 / PM-03 remain behind PM-01 owner-review gates.
+7. PM-02 Automation Intent + Policies — blocked on PM-01 owner review/merge.
+8. PM-03 migration/product-hierarchy closeout — later separate gate.
 
-The #284 implementation adds no schema migration and no new provider/runtime authority. It keeps Cleanup local/cloud data-sharing consent separate from Managed Scope and Content Understanding policy, with backend enforcement before provider work and fail-closed legacy defaults.
+PM-01 must consume rather than recreate #276/#279/#285 authorities. It may add renderer-consumable **read-only** readiness/explanation projections through existing backend/API/Tauri seams where required, but frontend state must never become permission authority.
 
-#270 remains separate. Release publication remains deferred.
+No System One/Laya/Jev/Preference Memory production integration is in PM-01. #270 remains separate. Release publication remains deferred.
 
 ## Resident / Interactive Performance Qualification
 
