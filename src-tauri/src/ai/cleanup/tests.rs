@@ -573,6 +573,44 @@ fn empty_candidate_request_never_calls_provider_or_publishes_evidence() {
     assert_eq!(provider.calls.load(Ordering::Relaxed), 0);
 }
 
+#[test]
+fn allocated_cleanup_size_does_not_replace_logical_source_length() {
+    let fixture = new_cleanup_ai_fixture();
+    let run = complete_cleanup_analysis_run(fixture.db(), &fixture.source_root);
+    let candidates = active_cleanup_candidates(fixture.db(), &run.id);
+
+    assert_eq!(candidates.len(), 3);
+    for candidate in candidates {
+        let finding = fixture
+            .db()
+            .get_analysis_finding(&candidate.id)
+            .expect("read cleanup finding")
+            .expect("cleanup finding exists");
+        let metadata = fs::symlink_metadata(&candidate.path).expect("read fixture identity");
+
+        assert!(metadata.is_file());
+        assert_eq!(
+            finding.identity_snapshot["size"].as_u64(),
+            Some(candidate.size)
+        );
+        if candidate.size != metadata.len() {
+            assert_eq!(
+                finding.identity_snapshot["logicalSize"].as_u64(),
+                Some(metadata.len())
+            );
+        } else {
+            assert!(finding.identity_snapshot.get("logicalSize").is_none());
+        }
+        assert!(crate::analysis::finding_identity_matches(
+            fixture.db(),
+            &finding
+        ));
+
+        #[cfg(target_os = "macos")]
+        assert_ne!(candidate.size, metadata.len());
+    }
+}
+
 fn test_ai_settings() -> AISettings {
     AISettings {
         enabled: true,
@@ -588,53 +626,6 @@ fn analyze_fixture_candidates(
     candidates: &[StorageCandidate],
     provider: &dyn AIProvider,
 ) -> Result<Vec<AnalysisFindingDto>, String> {
-    let detector_rows = db
-        .list_analysis_run_detectors(&run.id)
-        .map_err(|error| error.to_string())?;
-    for candidate in candidates {
-        let Some(finding) = db
-            .get_analysis_finding(&candidate.id)
-            .map_err(|error| error.to_string())?
-        else {
-            continue;
-        };
-        let identity_current = crate::analysis::finding_identity_matches(db, &finding);
-        let detector = detector_rows
-            .iter()
-            .find(|row| row.detector_id == finding.detector_id);
-        let detector_state = detector.map(|row| (row.status.as_str(), row.revision));
-        if !identity_current
-            || !detector.is_some_and(|row| {
-                matches!(row.status.as_str(), "completed" | "completed_with_warnings")
-            })
-        {
-            let path = finding.path_snapshot.as_deref().unwrap_or_default();
-            let metadata = fs::symlink_metadata(path).ok();
-            let live_identity = metadata.as_ref().map(|metadata| {
-                crate::analysis::candidate_identity(
-                    path,
-                    finding
-                        .identity_snapshot
-                        .get("size")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or_default(),
-                    Some(metadata),
-                )
-            });
-            eprintln!(
-                "cleanup fixture precondition candidate={} path={path:?} identity_current={identity_current} detector={detector_state:?} expected_identity={} live_identity={live_identity:?} metadata={:?}",
-                candidate.id,
-                finding.identity_snapshot,
-                metadata.as_ref().map(|value| {
-                    (
-                        value.len(),
-                        value.is_file(),
-                        value.modified().ok(),
-                    )
-                })
-            );
-        }
-    }
     let expected_revisions = candidates
         .iter()
         .map(|candidate| {

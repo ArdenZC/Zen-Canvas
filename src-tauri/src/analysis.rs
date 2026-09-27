@@ -1328,6 +1328,9 @@ pub(crate) fn candidate_identity(
         .and_then(|item| item.modified().ok())
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .and_then(|duration| i64::try_from(duration.as_nanos()).ok());
+    let logical_size = metadata
+        .filter(|item| item.is_file())
+        .map(fs::Metadata::len);
     let physical = if metadata.is_some_and(fs::Metadata::is_file) {
         capture_physical_identity(Path::new(path))
             .ok()
@@ -1342,12 +1345,20 @@ pub(crate) fn candidate_identity(
     } else {
         None
     };
-    json!({
+    let mut identity = json!({
         "path": normalize_path_text(path),
         "size": candidate_size,
         "modifiedNs": modified_ns,
         "physical": physical
-    })
+    });
+    // Cleanup `size` is a reclaim estimate and can be the allocated byte
+    // count on macOS. Preserve the file's logical length separately only when
+    // those quantities differ, so live identity checks do not confuse them
+    // and existing equal-size snapshots keep their stable shape.
+    if let Some(logical_size) = logical_size.filter(|size| *size != candidate_size) {
+        identity["logicalSize"] = json!(logical_size);
+    }
+    identity
 }
 
 fn physical_identity_value(identity: &crate::fs_safety::PhysicalFileIdentity) -> Value {
@@ -1472,7 +1483,12 @@ fn approved_path_identity_matches(finding: &AnalysisFindingDto) -> bool {
     else {
         return false;
     };
-    let size_matches = metadata.is_dir() || metadata.len() == size;
+    let logical_size = finding
+        .identity_snapshot
+        .get("logicalSize")
+        .and_then(Value::as_u64)
+        .unwrap_or(size);
+    let size_matches = metadata.is_dir() || metadata.len() == logical_size;
     size_matches && candidate_identity(path, size, Some(&metadata)) == finding.identity_snapshot
 }
 
