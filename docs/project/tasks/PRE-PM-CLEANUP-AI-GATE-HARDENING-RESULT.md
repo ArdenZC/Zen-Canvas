@@ -1,18 +1,21 @@
 # Pre-PM Cleanup AI Gate Hardening — Result
 
-Status: **IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE; Draft PR #276 remains open**
+Status: **COMPLETE / MERGED — OWNER REVIEW PASSED; issue #275 CLOSED / completed**
 
 ## Identity and heads
 
 - Issue: [#275 — Pre-PM Cleanup AI Gate Hardening](https://github.com/ArdenZC/Zen-Canvas/issues/275).
 - Branch: `hardening/cleanup-ai-gate`.
-- PR: [#276 — Draft](https://github.com/ArdenZC/Zen-Canvas/pull/276).
+- PR: [#276 — merged](https://github.com/ArdenZC/Zen-Canvas/pull/276).
 - Baseline / activation point: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e` (PR #272 merge commit).
 - Previous Production HEAD reviewed by the owner: `82634370c98f65fefa95f38bc29f1b72ed9af356`.
 - Previous final PR docs HEAD: `f15f868e490ce830ffbbe7fd08634ffed1ce0713`.
 - Repaired Production HEAD: `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e`.
 - Exact-head hosted CI: [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257) — **SUCCESS** on the repaired Production HEAD after rerunning only the failed Windows jobs on the same SHA.
 - Final docs-content HEAD after the Production commit: `9dbd7159e9b6e7bf8b87f4be8e17474c51539600`.
+- Owner-approved pre-merge closeout HEAD: `c887852ed21f94195ccf1dafb172f243983584d7`; exact PR CI [36318542178](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36318542178) — **SUCCESS**.
+- Squash merge: `master@6717438782bd6ca11f3829b02fc198abd3c82934`; merge-after push CI [36319236781](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36319236781) — **SUCCESS**.
+- Issue #275 is **CLOSED / completed**.
 - Exact PR CI on that SHA: [36316604667](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36316604667) — **SUCCESS** (Windows/macOS Rust quality, Windows/macOS release compile, all routed performance shards, and source/governance checks).
 - Production → final docs-content HEAD is docs-only. Changed paths: `docs/project/ARCHITECTURE_MAP.md`, `docs/project/ROADMAP.md`, `docs/project/STATUS.md`, `docs/project/initiatives/pre-pm-cleanup-ai-gate-hardening.md`, and `docs/project/tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md`; `git diff --exit-code be74b5d428be84bf3d4a3af42853c3a59ec3aa2e 9dbd7159e9b6e7bf8b87f4be8e17474c51539600 -- src-tauri` passed with no Rust changes.
 
@@ -73,6 +76,6 @@ No user-facing UI or window permission changed, so visual verification is not ap
 - Existing pre-fix Findings with allocated-byte `size` but no `logicalSize` remain non-current/stale until a fresh Cleanup Analysis Run; equal-size legacy snapshots retain their previous shape.
 - Exact final docs-content HEAD CI [36316604667](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36316604667) passed. Current Final PR HEAD CI [36317296383](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36317296383) also passed. Owner re-review passed in comment `5855703556`.
 
-PM-01 remains **NOT ACTIVE** on the owner design hold in issue #273 / Draft PR #274. #270 remains separate. PR #276 remains **Draft/open**. No Codex Review, Ready transition, merge, or issue close is requested or performed.
+PM-01 remains **NOT ACTIVE** on the owner design hold in issue #273 / Draft PR #274. #270 remains separate. PR #276 is **squash-merged** at `master@6717438782bd6ca11f3829b02fc198abd3c82934`, merge-after CI `36319236781` passed, and issue #275 is **CLOSED / completed**.
 
-Final pre-merge disposition: **OWNER REVIEW PASSED — READY TO MERGE.** After merge, project-truth documents must advance this Track to **COMPLETE / MERGED** and record the merge SHA / merge-after CI.
+Final disposition: **COMPLETE / MERGED — OWNER REVIEW PASSED; merge-after CI passed; no remaining Pre-PM Cleanup AI Gate Hardening blocker.**

@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Gate Hardening
 
-Status: **ACTIVE — implementation — implementation complete; OWNER REVIEW PASSED — READY TO MERGE after owner re-review comment 5855703556; Production HEAD CI passed; Draft PR #276 remains open**
+Status: **COMPLETE / MERGED — owner re-review passed; PR #276 squash-merged to `master@6717438782bd6ca11f3829b02fc198abd3c82934`; merge-after CI `36319236781` SUCCESS; issue #275 closed**
 
 Issue: [#275 — Pre-PM Cleanup AI Gate Hardening](https://github.com/ArdenZC/Zen-Canvas/issues/275)
 
@@ -50,8 +50,8 @@ The macOS storage analyzer may report allocated bytes as the cleanup reclaim est
 - Evidence exists only for eligible unique returned candidates and records successful CAS publication.
 - `ai_assessment` evidence exists != current AI assessment; consumers use the backend predicate or a richer backend status API, never renderer-side evidence JSON interpretation.
 - Focused parsing, publication, safety, durable-lifecycle and race tests pass on the production SHA.
-- Exact-head hosted CI passed and owner re-review passed in comment `5855703556`; merge remains the only closeout gate before this initiative becomes COMPLETE / MERGED. PM-01 remains separately held.
+- Exact-head hosted CI passed; owner re-review passed in comment `5855703556`; PR #276 squash-merged to `master@6717438782bd6ca11f3829b02fc198abd3c82934`; merge-after CI `36319236781` passed; issue #275 is closed. PM-01 remains separately held.
 
-Production-code validation is bound to the exact Production HEAD above. The current-truth docs update follows it as a docs-only successor and remains independently subject to its PR checks.
+Production-code validation remains bound to the repaired Production HEAD above. The owner-approved closeout docs HEAD `c887852ed21f94195ccf1dafb172f243983584d7` was docs-only and passed CI `36318542178`; PR #276 then squash-merged to `master@6717438782bd6ca11f3829b02fc198abd3c82934`, whose merge-after CI `36319236781` passed.
 
-See [the result record](../tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md) and [Draft PR #276](https://github.com/ArdenZC/Zen-Canvas/pull/276).
+See [the result record](../tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md) and [merged PR #276](https://github.com/ArdenZC/Zen-Canvas/pull/276).
