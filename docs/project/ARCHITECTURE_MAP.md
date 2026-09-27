@@ -40,7 +40,7 @@ The normal direction is **durable backend authority → API → replaceable fron
 | Watcher health | backend watcher reconciliation and root revisions | Health projection and refresh coordination |
 | Duplicate detection | durable Dedupe runs/groups/members | Run/group projection |
 | Storage analysis | durable Analysis Run/Finding/Evidence/Decision | Review, local selection interaction and preview requests |
-| Organization | durable Organization Plan/Plan Item ledger | Review projection, pagination and revision-aware interaction |
+| Organization | durable Organization Plan/Plan Item ledger; current Managed AI semantics enter only through a backend resolver as proposal inputs | Review projection, pagination and revision-aware interaction |
 | Rules | Rule Repository V2 and catalog revision | Replaceable rule-library projection |
 | Natural-language rules | durable Rule Proposal | Proposal/review projection |
 | Content | Content Scope Policy, Content Run and Content Artifact | Policy/run/artifact projection and interaction |
@@ -48,9 +48,11 @@ The normal direction is **durable backend authority → API → replaceable fron
 | Cleanup mutation | Safe Trash and cleanup journal | Selection/confirmation/progress projection |
 | Restore | operation/cleanup ledgers plus identity revalidation | Restore intent, confirmation and outcome projection |
 | App settings | persisted versioned settings | Editing/reconciliation projection |
-| Managed AI | existing durable managed-AI queue and provider policy | Configuration/progress projection |
+| Managed AI | existing durable managed-AI queue and provider policy; canonical per-file `SemanticAssessmentV1` lives in `ai_analysis_state.classification_json` | Configuration/progress projection |
 
 Preview in the table means **content Quick Preview**, not Operation Preview. File-operation planning remains owned by the existing mutation/operation authorities and is not merged into W3 Preview Platform.
+
+Managed AI semantic persistence reuses the existing `ai_analysis_state.classification_json` slot. The backend canonicalizes provider output into `SemanticAssessmentV1`, explicitly decodes valid V0 classification rows, and binds each assessment to its Global Index entry, Managed Scope, provider and input fingerprint. The Organization Plan resolver rechecks current File Library/Global Index identity, enabled scope/provider policy, completed queue state and user-correction state before deriving deterministic proposal inputs. `targetTemplate` remains a relative hint; target paths and Operation Preview still come from existing backend builders and operation authorities. Cleanup retains its Analysis Finding lifecycle, and Rule Proposal remains policy-authoring assistance.
 
 ## W1-to-W2 consumer boundary
 
