@@ -89,7 +89,7 @@ Final authority:
 
 ### Resident / Interactive Performance Qualification
 
-Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: one bounded managed-scan traversal/QoS repair plus qualification evidence; issue #268; branch `perf/resident-interactive-qualification`**.
+Status: **ACTIVE — implementation / qualification complete; OWNER PERFORMANCE REVIEW PASSED — READY TO MERGE; Windows TARGET deviation accepted; macOS resident UNVERIFIED / tracked by #270; issue #268; branch `perf/resident-interactive-qualification`**.
 
 Authority: [Resident / Interactive Performance Qualification initiative](initiatives/resident-interactive-performance-qualification.md) and [activation taskbook](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
 
@@ -101,10 +101,10 @@ The completed foundation sequence is:
 4. [ZB-04 — On-Demand UI Runtime](tasks/ZB-04-ON-DEMAND-UI-RUNTIME-RESULT.md) — **MERGED**.
 5. [ZB-05 — Native Global Search Runtime](tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md) — **MERGED** through PR #266.
 6. [Zero-Burden Cross-Track Audit Remediation](initiatives/zero-burden-cross-track-audit-remediation.md) — **COMPLETE / MERGED** through PR #267 to `master@6d38208741d186988468ec92b632dd3669a03aa5`.
-7. **Resident / Interactive Performance Qualification — CURRENT.**
-8. **AI Semantic Authority — GATED after owner-reviewed performance qualification; NOT ACTIVE.**
+7. **Resident / Interactive Performance Qualification — CURRENT / OWNER-APPROVED FOR MERGE.**
+8. **AI Semantic Authority — NEXT mainline engineering stage after PR #269 merges; macOS support remains separately gated by #270.**
 
-Qualification must establish attributable resident-process evidence and credible interactive foreground evidence. The one-CPU traversal repair keeps filesystem work on the scanner worker already carrying background QoS; broader production tuning requires new causal evidence. Existing product targets are not relaxed, historical misses remain, and no new cross-platform absolute RSS cap is invented. AI Semantic Authority stays gated pending owner acceptance.
+Qualification established attributable Windows resident-process evidence and credible interactive foreground evidence. The one-CPU traversal repair keeps filesystem work on the scanner worker already carrying background QoS. Owner performance review accepts the remaining Windows <=2x scheduler-interference TARGET deviation without promoting it to HARD; broader production tuning is not supported by the non-monotonic causal matrix. Existing thresholds are not relaxed, historical misses remain in evidence, and no new cross-platform absolute RSS cap is invented. macOS resident startup remains unverified under #270. AI Semantic Authority is next after PR #269 merges.
 
 ## Release qualification residuals — W6-10
 

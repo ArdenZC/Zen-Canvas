@@ -1,6 +1,6 @@
 # Resident / Interactive Performance Qualification
 
-Status: **ACTIVE / BLOCKED — PERFORMANCE REVIEW REQUIRED; implementation: one bounded managed-scan traversal/QoS repair plus qualification evidence**
+Status: **ACTIVE — implementation / qualification complete; OWNER PERFORMANCE REVIEW PASSED — READY TO MERGE; Windows TARGET deviation accepted; macOS resident UNVERIFIED / tracked by #270; LOCAL TASK HYGIENE PENDING**
 
 Issue: [#268 — Resident / Interactive Performance Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/268)
 
@@ -35,7 +35,7 @@ Close the final Zero-Burden performance gate before AI Semantic Authority. The T
 
 ## Gate to AI
 
-AI Semantic Authority / AI-only Organize-Cleanup remains **GATED / NOT ACTIVE** until owner review accepts this Track. A reproducible interactive TARGET MISS or missing attributable resident evidence keeps the gate closed.
+Owner performance review has accepted this Track for merge. AI Semantic Authority / AI-only Organize-Cleanup remains **NOT ACTIVE until PR #269 merges**, then becomes the next mainline engineering stage. The retained Windows scheduler-interference TARGET miss is an accepted deviation, not a promoted HARD gate. macOS resident evidence remains **UNVERIFIED / BLOCKED BY #270** and continues to gate macOS support specifically.
 
 ## Qualification execution
 
@@ -46,3 +46,13 @@ A Windows background-progress HARD failure, macOS background-process abort and f
 ## Non-goals
 
 Release publication, SmartScreen/UAC evidence, macOS release qualification, visual redesign, Rules migration, onboarding, AI semantic implementation, new Search architecture, new durable authorities, or relaxed performance thresholds are out of scope.
+
+
+## Owner performance review disposition
+
+- Windows resident application/service evidence: **ACCEPTED — HARD PASS / OBSERVATIONAL MEMORY**.
+- Windows managed-scan scheduler interference: **TARGET DEVIATION ACCEPTED AFTER PERFORMANCE REVIEW**. All structural HARD gates pass; absolute first-page p95 remains sub-2 ms; the 1–4 slot matrix is non-monotonic and does not justify further production tuning.
+- Historical Preview target misses: **RETAINED / NOT REPRODUCED ON FINAL EXACT SOURCE / NOT A CURRENT MERGE BLOCKER**. Native UI remains UNVERIFIED.
+- Historical background-progress HARD failure: **RETAINED / NOT REPRODUCED ON FINAL EXACT SOURCE**; additional diagnostics remain in place.
+- macOS resident process: **UNVERIFIED / BLOCKED BY #270**. This blocks macOS resident/release qualification but not mainline AI architecture work after merge.
+- Local task hygiene: **PENDING / NON-BLOCKING**.
