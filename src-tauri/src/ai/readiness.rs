@@ -9,7 +9,7 @@ use super::{
     },
 };
 use crate::{
-    content::{ContentScopePolicyDto, ContentPolicyRevisionRequest},
+    content::ContentScopePolicyDto,
     db::Database,
     global_index::ManagedScope,
 };
