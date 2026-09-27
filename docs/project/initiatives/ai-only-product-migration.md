@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **READY FOR ACTIVATION — NOT ACTIVE — fresh PM-01 implementation must start from current master**
+Status: **PLANNED — READY FOR ACTIVATION — fresh PM-01 implementation must start from current master**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -108,6 +108,6 @@ Production adoption of System One or Preference Memory requires later benchmark 
 
 ## Activation rule
 
-This record is **READY FOR ACTIVATION / NOT ACTIVE**.
+This record is **PLANNED / READY FOR ACTIVATION**.
 
 A fresh PM-01 implementation branch must be created from then-current master after this handoff is merged. That branch must switch STATUS/ROADMAP/this initiative/taskbook to **ACTIVE — implementation** before production code changes begin.

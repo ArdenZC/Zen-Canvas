@@ -27,15 +27,15 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**No active production initiative**
+**No active initiative**
 
-Status: **between initiatives — Pre-PM foundation complete; PM-01 authorized for fresh activation.**
+Status: **between initiatives — no active production implementation; PM-01 is planned and ready for fresh activation.**
 
-Pre-PM Cleanup AI Data-Sharing Consent Gate is **COMPLETE / MERGED** through PR [#285](https://github.com/ArdenZC/Zen-Canvas/pull/285) to `master@17599b3344616a43686a376b790cb8bae1f52fa7`; issue [#284](https://github.com/ArdenZC/Zen-Canvas/issues/284) is **CLOSED / completed** and merge-after CI `36338751754` is **SUCCESS**.
+Pre-PM Cleanup AI Data-Sharing Consent Gate is **COMPLETE / MERGED** through PR #285 to `master@17599b3344616a43686a376b790cb8bae1f52fa7`; issue #284 is **CLOSED / completed** and merge-after CI `36338751754` is **SUCCESS**.
 
-The PM-01 owner design hold is released. The next production Track is [AI-only Product Migration](initiatives/ai-only-product-migration.md), but it is **READY FOR ACTIVATION / NOT ACTIVE** until a fresh implementation branch/PR is created from current master. The old #274 branch/PR remains historical design/deep-audit evidence only.
+The historical PM-01 design hold is released. PM-01 is the next production Track, but production implementation has not started. A fresh branch/PR must be created from current master; closed/superseded #274 remains historical evidence only.
 
-Research issue #283 may proceed independently under the frozen research-only boundary and is not a PM-01 merge gate. #270 remains separate. Release publication remains deferred.
+Research issue #283 remains research-only and non-blocking. #270 remains separate. Release publication remains deferred.
 
 ## Release, schema and platform truth
 

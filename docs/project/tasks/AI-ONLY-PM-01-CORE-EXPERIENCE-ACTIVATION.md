@@ -1,6 +1,6 @@
 # AI-only Product Migration — PM-01 Core Experience Activation
 
-Status: **READY FOR ACTIVATION — NOT ACTIVE**
+Status: **PLANNED — READY FOR ACTIVATION**
 
 Product-direction issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 

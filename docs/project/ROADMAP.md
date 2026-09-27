@@ -87,9 +87,9 @@ Final authority:
 
 ## Current
 
-### Between initiatives — PM-01 ready for fresh activation
+### No active initiative
 
-Status: **no active production implementation. Pre-PM foundation complete through PR #285; PM-01 design hold released.**
+Status: **between initiatives — no active production implementation; PM-01 is planned and ready for fresh activation.**
 
 Current sequence:
 
@@ -98,12 +98,12 @@ Current sequence:
 3. Pre-PM AI Readiness + Consent Contract — **COMPLETE / MERGED** through #279.
 4. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through #282.
 5. Pre-PM Cleanup AI Data-Sharing Consent Gate — **COMPLETE / MERGED** through #285 to `master@17599b3344616a43686a376b790cb8bae1f52fa7`; merge-after CI `36338751754` SUCCESS.
-6. **PM-01 AI-only Core Experience — AUTHORIZED NEXT / READY FOR FRESH ACTIVATION.**
+6. **PM-01 AI-only Core Experience — PLANNED / READY FOR FRESH ACTIVATION.**
 7. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane via #283; not a PM-01 merge gate.**
 8. System One or production Preference Memory integration — **NOT AUTHORIZED; separate evidence + architecture gate required.**
 9. PM-02 / PM-03 remain behind PM-01 owner-review/merge gates.
 
-PM-01 must start from a fresh branch based on then-current master. Closed/superseded #274 must not be rebased into the production implementation. Fresh authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure map](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
+Closed/superseded #274 must not be rebased into production implementation. The fresh PM-01 authority/taskbook and deep-audit closure record are retained outside this current-state section and become current only when a fresh PM-01 branch switches the project to active implementation.
 
 #270 remains separate. Release publication remains deferred.
 
