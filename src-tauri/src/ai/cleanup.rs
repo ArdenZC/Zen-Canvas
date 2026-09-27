@@ -649,6 +649,34 @@ mod tests {
     }
 
     #[test]
+    fn semantic_delete_candidate_does_not_grant_cleanup_trash_authority() {
+        let semantic = crate::ai::semantic::SemanticAssessmentV1::parse_provider_response(
+            r#"{"version":1,"refId":"managed:entry-1","fileType":"Document","purpose":"Work","lifecycle":"Active","context":"","riskLevel":"Normal","suggestedAction":"DeleteCandidate","confidence":0.95,"reason":"possible cleanup candidate","keywords":[],"requiresConfirmation":false}"#,
+            crate::ai::semantic::SemanticSourceBinding {
+                global_entry_id: "entry-1".to_string(),
+                managed_scope_id: "scope-1".to_string(),
+                input_fingerprint: "fingerprint-1".to_string(),
+                provider: "local".to_string(),
+            },
+            "archive.txt",
+            "txt",
+            false,
+        )
+        .expect("semantic suggestion remains advisory");
+        assert_eq!(semantic.suggested_action.as_str(), "DeleteCandidate");
+        assert!(semantic.requires_confirmation);
+
+        // Analysis Finding is evaluated only by its own detector and existing
+        // conservative merge contract; a semantic delete label cannot turn a
+        // review-only finding into Safe Trash permission.
+        let finding = review_candidate("c1", "D:/Downloads/archive.txt");
+        let merged = merge_ai_cleanup_analysis(&finding, &move_to_trash_output("c1"), None);
+        assert_eq!(merged.tier, CleanupTier::Review);
+        assert!(!merged.trash_allowed);
+        assert_ne!(merged.suggested_action, CleanupActionKind::MoveToTrash);
+    }
+
+    #[test]
     fn ai_cannot_upgrade_caution_to_safe() {
         let original = caution_candidate("c1", "D:/VMs/demo.vhdx");
         let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);

@@ -10,6 +10,7 @@ use super::models::{
 };
 use crate::ai::{
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions},
+    semantic::{SemanticAssessmentV1, SemanticSourceBinding},
     settings::{get_ai_settings_for_db, normalize_ai_settings, provider_for_settings, AISettings},
 };
 use crate::db::{Database, DbError};
@@ -18,7 +19,6 @@ use crate::{
     scheduler::{AcquireError, ResourceHints, WorkRequest, WorkScheduler},
 };
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -55,47 +55,6 @@ enum ValidationDisposition {
     Valid,
     Blocked(&'static str),
     Stale(&'static str),
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ManagedClassificationResult {
-    ref_id: String,
-    file_type: String,
-    purpose: String,
-    lifecycle: String,
-    risk_level: String,
-    suggested_action: String,
-    confidence: f64,
-    reason: String,
-}
-
-impl ManagedClassificationResult {
-    fn parse(job: &ManagedAiJob, response: &str) -> Result<String, String> {
-        let parsed: Self = serde_json::from_str(response)
-            .map_err(|error| format!("managed_ai_invalid_json: {error}"))?;
-        let expected_ref = format!("managed:{}", job.global_entry_id);
-        if parsed.ref_id != expected_ref {
-            return Err("managed_ai_ref_id_mismatch".to_string());
-        }
-        for (field, value) in [
-            ("fileType", parsed.file_type.as_str()),
-            ("purpose", parsed.purpose.as_str()),
-            ("lifecycle", parsed.lifecycle.as_str()),
-            ("riskLevel", parsed.risk_level.as_str()),
-            ("suggestedAction", parsed.suggested_action.as_str()),
-            ("reason", parsed.reason.as_str()),
-        ] {
-            if value.trim().is_empty() {
-                return Err(format!("managed_ai_missing_{field}"));
-            }
-        }
-        if !parsed.confidence.is_finite() || !(0.0..=1.0).contains(&parsed.confidence) {
-            return Err("managed_ai_confidence_out_of_range".to_string());
-        }
-        serde_json::to_string(&parsed)
-            .map_err(|error| format!("managed_ai_result_encode_failed: {error}"))
-    }
 }
 
 impl Database {
@@ -471,6 +430,20 @@ impl Database {
         model: &str,
         response: &str,
     ) -> Result<(), DbError> {
+        let canonical_response = SemanticAssessmentV1::decode_stored(
+            response,
+            SemanticSourceBinding {
+                global_entry_id: job.global_entry_id.clone(),
+                managed_scope_id: job.managed_scope_id.clone(),
+                input_fingerprint: job.input_fingerprint.clone(),
+                provider: job.provider.clone(),
+            },
+            &job.name,
+            &job.extension,
+            false,
+        )
+        .and_then(|assessment| assessment.canonical_json())
+        .map_err(DbError::Validation)?;
         let mut conn = self.conn()?;
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = unix_now();
@@ -507,27 +480,40 @@ impl Database {
             transaction.commit()?;
             return Ok(());
         }
-        transaction.execute(
-            "UPDATE ai_job_items SET status = 'completed', updated_at = ?2, last_error = NULL WHERE job_id = ?1",
-            params![job.id, now],
-        )?;
-        transaction.execute(
+        let state_updated = transaction.execute(
             r#"
             UPDATE ai_analysis_state
             SET status = 'completed', model = ?2, classification_json = ?3,
                 content_summary = 'metadata_only', last_error = NULL, updated_at = ?4
             WHERE global_entry_id = ?1
               AND input_fingerprint = ?5
+              AND provider = ?6
               AND user_corrected = 0
             "#,
             params![
                 job.global_entry_id,
                 model,
-                response,
+                canonical_response,
                 now,
-                job.input_fingerprint
+                job.input_fingerprint,
+                job.provider
             ],
         )?;
+        if state_updated != 1 {
+            return Err(DbError::Validation(
+                "managed_ai_analysis_state_binding_changed".to_string(),
+            ));
+        }
+        let item_updated = transaction.execute(
+            "UPDATE ai_job_items SET status = 'completed', updated_at = ?2, last_error = NULL
+             WHERE job_id = ?1 AND global_entry_id = ?3 AND status = 'running'",
+            params![job.id, now, job.global_entry_id],
+        )?;
+        if item_updated != 1 {
+            return Err(DbError::Validation(
+                "managed_ai_job_item_binding_changed".to_string(),
+            ));
+        }
         transaction.execute(
             r#"
             UPDATE ai_jobs
@@ -902,12 +888,8 @@ fn process_job(db: &Database, job: &ManagedAiJob, settings: &AISettings) {
             if !apply_validation(db, job, expected_provider) {
                 return;
             }
-            match ManagedClassificationResult::parse(job, &response) {
-                Ok(canonical) => {
-                    let canonical = canonical
-                        .chars()
-                        .take(MAX_STORED_RESPONSE_BYTES)
-                        .collect::<String>();
+            match parse_semantic_assessment(job, &response) {
+                Ok(canonical) if canonical.len() <= MAX_STORED_RESPONSE_BYTES => {
                     if let Err(error) = db.complete_managed_ai_job(job, &settings.model, &canonical)
                     {
                         let _ = db.fail_managed_ai_job(
@@ -915,6 +897,9 @@ fn process_job(db: &Database, job: &ManagedAiJob, settings: &AISettings) {
                             &sanitize_worker_error(error.to_string(), settings),
                         );
                     }
+                }
+                Ok(_) => {
+                    let _ = db.fail_managed_ai_job(job, "managed_ai_response_too_large");
                 }
                 Err(error) => {
                     let _ = db.fail_managed_ai_job(job, &error);
@@ -929,6 +914,22 @@ fn process_job(db: &Database, job: &ManagedAiJob, settings: &AISettings) {
             let _ = db.fail_managed_ai_job(job, &error);
         }
     }
+}
+
+fn parse_semantic_assessment(job: &ManagedAiJob, response: &str) -> Result<String, String> {
+    let assessment = SemanticAssessmentV1::parse_provider_response(
+        response,
+        SemanticSourceBinding {
+            global_entry_id: job.global_entry_id.clone(),
+            managed_scope_id: job.managed_scope_id.clone(),
+            input_fingerprint: job.input_fingerprint.clone(),
+            provider: job.provider.clone(),
+        },
+        &job.name,
+        &job.extension,
+        false,
+    )?;
+    assessment.canonical_json()
 }
 
 fn apply_validation(db: &Database, job: &ManagedAiJob, provider: &str) -> bool {
@@ -969,7 +970,7 @@ pub(crate) fn build_managed_ai_request(job: &ManagedAiJob, settings: &AISettings
         messages: vec![
             AIChatMessage {
                 role: "system".to_string(),
-                content: "Classify one explicitly managed file from metadata only. Return exactly one JSON object with refId, fileType, purpose, lifecycle, riskLevel, suggestedAction, confidence (0 to 1), and reason. Never infer or request file contents.".to_string(),
+                content: "Classify one explicitly managed file from metadata only. Return exactly one JSON object for SemanticAssessmentV1: version=1, refId, fileType, purpose, lifecycle, context, riskLevel, suggestedAction, optional relative targetTemplate, optional suggestedName, confidence from 0 to 1, reason, keywords array, and requiresConfirmation. Do not include sourceBinding, filesystem paths, operation IDs, permission claims, tools, or file contents. targetTemplate is only a relative folder hint; never return an absolute path or traversal.".to_string(),
             },
             AIChatMessage {
                 role: "user".to_string(),
@@ -1043,7 +1044,7 @@ fn sync_job_item_and_analysis_status(
     Ok(())
 }
 
-fn metadata_fingerprint(
+pub(crate) fn metadata_fingerprint(
     volume_id: &str,
     platform_file_id: &str,
     name: &str,
@@ -1114,9 +1115,15 @@ mod tests {
         schema::{AIProviderKind, AIProviderPresetId},
         settings::{save_ai_settings_with_store, InMemoryCredentialStore},
     };
+    use crate::db::{
+        AnalyzeOrganizationPlanItemsRequest, CreateOrganizationPlanRequestV1, LibrarySelectionV1,
+        OrganizationDecisionMutation, OrganizationPlanRevisionRequest,
+        OrganizationPlanSelectionRequest, QueryOrganizationPlanItemsRequest,
+        UpdateOrganizationPlanDecisionsRequest,
+    };
     use crate::global_index::models::{
-        AddManagedScopeRequest, GlobalEntryInput, GlobalVolume, INDEX_STATUS_READY,
-        PROVIDER_WINDOWS_MFT_USN,
+        AddManagedScopeRequest, GlobalEntryInput, GlobalVolume, UpdateManagedScopePolicyRequest,
+        INDEX_STATUS_READY, PROVIDER_WINDOWS_MFT_USN,
     };
     use crate::scheduler::{
         PlatformResourcePolicy, ResourceCapacities, ResourcePolicyDecision, SchedulerConfig,
@@ -1163,8 +1170,10 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .expect("clock")
                 .as_nanos();
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join(".tmp-tests")
+            let base = std::env::var_os("ZC_TEST_DATA_ROOT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".tmp-tests"));
+            let path = base
                 .join("zb-02-managed-ai-worker")
                 .join(format!("{}-{nonce}", std::process::id()));
             std::fs::create_dir_all(&path).expect("create task-local worker test directory");
@@ -1227,6 +1236,16 @@ mod tests {
         served_tx: mpsc::Sender<String>,
         expected_requests: usize,
     ) {
+        run_local_ollama_with_semantics(listener, stop_rx, served_tx, expected_requests, false);
+    }
+
+    fn run_local_ollama_with_semantics(
+        listener: TcpListener,
+        stop_rx: mpsc::Receiver<()>,
+        served_tx: mpsc::Sender<String>,
+        expected_requests: usize,
+        suggest_move: bool,
+    ) {
         let mut served = 0;
         while served < expected_requests {
             if stop_rx.try_recv().is_ok() {
@@ -1254,17 +1273,37 @@ mod tests {
                         .as_str()
                         .expect("managed reference ID")
                         .to_string();
-                    let classification = serde_json::json!({
-                        "refId": reference,
-                        "fileType": "document",
-                        "purpose": "work",
-                        "lifecycle": "active",
-                        "riskLevel": "low",
-                        "suggestedAction": "keep",
-                        "confidence": 0.9,
-                        "reason": "deterministic idle worker test"
-                    })
-                    .to_string();
+                    let classification = if suggest_move {
+                        serde_json::json!({
+                            "version": 1,
+                            "refId": reference,
+                            "fileType": "Document",
+                            "purpose": "Work",
+                            "lifecycle": "Active",
+                            "context": "project notes",
+                            "riskLevel": "Normal",
+                            "suggestedAction": "Move",
+                            "targetTemplate": "Work/{year}",
+                            "suggestedName": "organized-invoice.pdf",
+                            "confidence": 0.95,
+                            "reason": "organized project notes",
+                            "keywords": ["notes", "project"],
+                            "requiresConfirmation": false
+                        })
+                        .to_string()
+                    } else {
+                        serde_json::json!({
+                            "refId": reference,
+                            "fileType": "document",
+                            "purpose": "work",
+                            "lifecycle": "active",
+                            "riskLevel": "low",
+                            "suggestedAction": "keep",
+                            "confidence": 0.9,
+                            "reason": "deterministic idle worker test"
+                        })
+                        .to_string()
+                    };
                     let body = serde_json::json!({
                         "message": { "content": classification }
                     })
@@ -1359,6 +1398,34 @@ mod tests {
         }
     }
 
+    fn query_global_entry_id(db: &Database, path: &str) -> String {
+        db.conn()
+            .expect("Global Index lookup connection")
+            .query_row(
+                "SELECT id FROM global_entries WHERE path = ?1",
+                rusqlite::params![path],
+                |row| row.get(0),
+            )
+            .expect("Global Index row for library path")
+    }
+
+    fn assert_plan_is_not_executable(db: &Database, plan_id: &str, revision: i64) {
+        let dry_run = db
+            .get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+                plan_id: plan_id.to_string(),
+                expected_plan_revision: revision,
+                item_ids: Vec::new(),
+                all_accepted: true,
+            })
+            .expect("revalidate the Plan against current Managed AI state");
+        assert_eq!(dry_run.items.len(), 1);
+        assert!(
+            !dry_run.items[0].executable,
+            "invalidated assessment must not execute: {:?}",
+            dry_run.items[0]
+        );
+    }
+
     fn job() -> ManagedAiJob {
         ManagedAiJob {
             id: "job".to_string(),
@@ -1377,16 +1444,427 @@ mod tests {
     #[test]
     fn result_schema_rejects_wrong_reference_and_confidence() {
         let wrong_ref = r#"{"refId":"managed:other","fileType":"document","purpose":"work","lifecycle":"active","riskLevel":"low","suggestedAction":"keep","confidence":0.9,"reason":"test"}"#;
-        assert!(ManagedClassificationResult::parse(&job(), wrong_ref).is_err());
+        assert!(parse_semantic_assessment(&job(), wrong_ref).is_err());
         let wrong_confidence = r#"{"refId":"managed:entry","fileType":"document","purpose":"work","lifecycle":"active","riskLevel":"low","suggestedAction":"keep","confidence":2.0,"reason":"test"}"#;
-        assert!(ManagedClassificationResult::parse(&job(), wrong_confidence).is_err());
+        assert!(parse_semantic_assessment(&job(), wrong_confidence).is_err());
     }
 
     #[test]
     fn result_schema_accepts_complete_canonical_json() {
         let response = r#"{"refId":"managed:entry","fileType":"document","purpose":"work","lifecycle":"active","riskLevel":"low","suggestedAction":"keep","confidence":0.9,"reason":"test"}"#;
-        let canonical = ManagedClassificationResult::parse(&job(), response).expect("valid schema");
+        let canonical = parse_semantic_assessment(&job(), response).expect("valid legacy schema");
         assert!(canonical.contains("\"confidence\":0.9"));
+        assert!(canonical.contains("\"version\":1"));
+    }
+
+    #[test]
+    fn organization_plan_consumes_only_a_live_managed_v1_assessment() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind local Ollama fixture");
+        listener
+            .set_nonblocking(true)
+            .expect("make local Ollama fixture nonblocking");
+        let address = listener.local_addr().expect("local Ollama address");
+        let (served_tx, served_rx) = mpsc::channel();
+        let (server_stop_tx, server_stop_rx) = mpsc::channel();
+        let server = LocalOllamaServer {
+            stop_tx: server_stop_tx,
+            thread: Some(thread::spawn(move || {
+                run_local_ollama_with_semantics(listener, server_stop_rx, served_tx, 1, true);
+            })),
+        };
+
+        let test_dir = TestDatabaseDirectory::new();
+        let managed_root = test_dir.0.join("Managed");
+        let source_path = managed_root.join("invoice.pdf");
+        let target_directory = managed_root.join("Work").join("2020");
+        std::fs::create_dir_all(&target_directory).expect("create existing preview target");
+        let source_bytes = b"managed project notes";
+        std::fs::write(&source_path, source_bytes).expect("write task-owned source fixture");
+        let path_text = |path: &std::path::Path| path.to_string_lossy().replace('\\', "/");
+        let source_text = path_text(&source_path);
+        let managed_text = path_text(&managed_root);
+        let modified_at = 1_577_836_800_i64;
+
+        let db = Database::open(test_dir.database_path()).expect("open worker database");
+        let mut volume = worker_test_volume();
+        volume.mount_path = managed_text.clone();
+        db.upsert_global_volume(&volume)
+            .expect("insert semantic test volume");
+        let mut entry = GlobalEntryInput {
+            volume_id: volume.id.clone(),
+            platform_file_id: "semantic-e2e:source".to_string(),
+            parent_platform_file_id: "semantic-e2e:managed-root".to_string(),
+            name: "invoice.pdf".to_string(),
+            path: source_text.clone(),
+            extension: "pdf".to_string(),
+            is_directory: false,
+            size: source_bytes.len() as i64,
+            created_at_fs: Some(modified_at),
+            modified_at_fs: Some(modified_at),
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+            last_seen_at: modified_at,
+        };
+        db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+            .expect("insert current Global Index entry");
+        {
+            let conn = db.conn().expect("seed File Library source");
+            conn.execute(
+                "INSERT INTO files (
+                    id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+                    file_type, suggested_name, classification_status, is_stale, last_seen_at
+                 ) VALUES (
+                    'semantic-e2e-file', ?1, 'invoice.pdf', 'pdf', ?2, ?3, ?3, 0, 0,
+                    'Other', 'invoice.pdf', 'unclassified', 0, ?3
+                 )",
+                rusqlite::params![source_text, source_bytes.len() as i64, modified_at],
+            )
+            .expect("insert File Library row bound to the same source metadata");
+            conn.execute(
+                "INSERT INTO scan_roots (
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, needs_reconciliation,
+                    created_at, updated_at
+                 ) VALUES (
+                    'semantic-e2e-root', ?1, 'Semantic E2E', 'file_library',
+                    1, 'healthy', 1, 0, 1, 1
+                 )",
+                rusqlite::params![crate::global_index::models::normalize_path(&path_text(
+                    &managed_root
+                ))],
+            )
+            .expect("insert healthy File Library root");
+        }
+
+        let settings = AISettings {
+            enabled: true,
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: format!("http://{address}"),
+            model: "test-model".to_string(),
+            timeout_seconds: 5,
+            ..AISettings::default()
+        };
+        save_ai_settings_with_store(&db, &settings, &InMemoryCredentialStore::default())
+            .expect("enable local test provider");
+
+        let plan = db
+            .create_organization_plan(CreateOrganizationPlanRequestV1 {
+                version: 1,
+                request_id: "semantic-e2e-plan".to_string(),
+                title: Some("Managed semantic plan".to_string()),
+                source: LibrarySelectionV1::Explicit {
+                    file_ids: vec!["semantic-e2e-file".to_string()],
+                },
+                expected_count: Some(1),
+            })
+            .expect("create plan from current library row");
+        let initial_item = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: plan.id.clone(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("read unclassified plan item")
+            .items
+            .remove(0);
+        assert_eq!(
+            initial_item.validity,
+            "needs_analysis",
+            "readiness={}, blocking={:?}, reasons={:?}, actions={:?}",
+            initial_item.effective_readiness,
+            initial_item.blocking_code,
+            initial_item.review_reasons,
+            initial_item.available_actions
+        );
+
+        let scope = db
+            .add_managed_scope(AddManagedScopeRequest {
+                path: managed_text,
+                global_entry_id: None,
+                enabled: true,
+                allow_local_ai: true,
+                allow_cloud_ai: false,
+            })
+            .expect("add current managed scope");
+        let analysis = db
+            .analyze_organization_plan_items(AnalyzeOrganizationPlanItemsRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: plan.revision,
+                item_ids: vec![initial_item.id.clone()],
+            })
+            .expect("enqueue Managed AI analysis through the Plan action");
+        assert!(analysis.requires_refresh);
+
+        let (worker, _idle_rx) = ManagedAiWorker::start_for_test(db.clone());
+        assert_eq!(
+            served_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the local provider received the managed metadata request"),
+            format!("managed:{}", query_global_entry_id(&db, &source_text)),
+        );
+        let wait_until = Instant::now() + Duration::from_secs(10);
+        let stored_assessment = loop {
+            let state = db
+                .conn()
+                .expect("read durable assessment")
+                .query_row(
+                    "SELECT status, classification_json FROM ai_analysis_state
+                     WHERE global_entry_id = ?1",
+                    rusqlite::params![query_global_entry_id(&db, &source_text)],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                )
+                .expect("managed analysis state exists");
+            if state.0 == "completed" {
+                break state.1.expect("completed state has canonical semantics");
+            }
+            assert!(
+                Instant::now() < wait_until,
+                "managed worker did not persist V1"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        worker.shutdown();
+        server.stop_and_join();
+
+        let stored: Value = serde_json::from_str(&stored_assessment).expect("canonical V1 JSON");
+        assert_eq!(stored["version"], 1);
+        assert_eq!(stored["suggestedAction"], "Move");
+        assert_eq!(stored["sourceBinding"]["managedScopeId"], scope.id);
+        assert!(stored["sourceBinding"]["inputFingerprint"]
+            .as_str()
+            .is_some());
+        let current_input_fingerprint = stored["sourceBinding"]["inputFingerprint"]
+            .as_str()
+            .expect("canonical source fingerprint")
+            .to_string();
+
+        let refreshed = db
+            .refresh_organization_plan(OrganizationPlanRevisionRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: plan.revision,
+            })
+            .expect("refresh Plan through the live resolver");
+        let current_item = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: plan.id.clone(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("read semantic proposal")
+            .items
+            .remove(0);
+        let expected_target = path_text(&target_directory.join("organized-invoice.pdf"));
+        assert_eq!(current_item.proposed_target_path, expected_target);
+        assert_eq!(current_item.proposal_kind, "move_rename");
+        assert!(current_item.authoritative_preview_id.is_some());
+        assert!(matches!(
+            current_item.validity.as_str(),
+            "ready" | "needs_review"
+        ));
+
+        let reviewed = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: refreshed.revision,
+                safe_batch: false,
+                mutations: vec![OrganizationDecisionMutation {
+                    item_id: current_item.id.clone(),
+                    expected_item_revision: current_item.revision,
+                    decision: "accepted".to_string(),
+                    edited_filename: None,
+                }],
+            })
+            .expect("record explicit user decision");
+        let dry_run = db
+            .get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: reviewed.revision,
+                item_ids: Vec::new(),
+                all_accepted: true,
+            })
+            .expect("build deterministic Operation Preview dry-run");
+        assert_eq!(dry_run.items.len(), 1);
+        assert_eq!(dry_run.items[0].to, expected_target);
+        assert!(dry_run.items[0].executable);
+        assert!(dry_run.items[0].authoritative_preview_id.is_some());
+
+        let global_entry_id = query_global_entry_id(&db, &source_text);
+        let mut extension_change: Value =
+            serde_json::from_str(&stored_assessment).expect("canonical V1 envelope");
+        extension_change["suggestedName"] = serde_json::json!("invoice.exe");
+        {
+            let conn = db.conn().expect("seed extension-change semantic guard");
+            conn.execute(
+                "UPDATE ai_analysis_state SET classification_json = ?2 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, extension_change.to_string()],
+            )
+            .expect("seed extension-changing assessment");
+        }
+        assert_plan_is_not_executable(&db, &plan.id, reviewed.revision);
+        {
+            let conn = db
+                .conn()
+                .expect("restore canonical semantic after extension guard");
+            conn.execute(
+                "UPDATE ai_analysis_state SET classification_json = ?2 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, stored_assessment],
+            )
+            .expect("restore provider-produced canonical payload");
+        }
+
+        let mut malicious_target: Value =
+            serde_json::from_str(&stored_assessment).expect("canonical V1 envelope");
+        malicious_target["targetTemplate"] = serde_json::json!("../../outside");
+        let mut malicious_absolute_target: Value =
+            serde_json::from_str(&stored_assessment).expect("canonical V1 envelope");
+        malicious_absolute_target["targetPath"] = serde_json::json!("C:/outside/target.txt");
+        for invalid_payload in [
+            "{".to_string(),
+            malicious_target.to_string(),
+            malicious_absolute_target.to_string(),
+        ] {
+            let conn = db.conn().expect("seed malformed semantic guard");
+            conn.execute(
+                "UPDATE ai_analysis_state SET classification_json = ?2 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, invalid_payload],
+            )
+            .expect("seed invalid persisted semantic payload");
+            drop(conn);
+            assert_plan_is_not_executable(&db, &plan.id, reviewed.revision);
+            let conn = db.conn().expect("restore canonical semantic state");
+            conn.execute(
+                "UPDATE ai_analysis_state SET classification_json = ?2 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, stored_assessment],
+            )
+            .expect("restore provider-produced canonical payload");
+        }
+
+        let mut changed_semantics: Value =
+            serde_json::from_str(&stored_assessment).expect("canonical V1 envelope");
+        changed_semantics["reason"] = serde_json::json!("updated semantic after acceptance");
+        {
+            let conn = db.conn().expect("change accepted semantic proposal");
+            conn.execute(
+                "UPDATE ai_analysis_state SET classification_json = ?2 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, changed_semantics.to_string()],
+            )
+            .expect("change current semantic fingerprint");
+        }
+        let changed_plan = db
+            .refresh_organization_plan(OrganizationPlanRevisionRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: reviewed.revision,
+            })
+            .expect("refresh an accepted item after semantic change");
+        let changed_item = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: plan.id.clone(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("read changed semantic proposal")
+            .items
+            .remove(0);
+        assert_eq!(changed_item.validity, "needs_review");
+        assert_eq!(changed_item.decision, "undecided");
+        assert!(
+            changed_item
+                .available_actions
+                .iter()
+                .any(|action| action == "accept_suggestion"),
+            "changed semantic proposal should require a fresh accept action: {changed_item:#?}"
+        );
+
+        let reaccepted = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: changed_plan.revision,
+                safe_batch: false,
+                mutations: vec![OrganizationDecisionMutation {
+                    item_id: changed_item.id.clone(),
+                    expected_item_revision: changed_item.revision,
+                    decision: "accepted".to_string(),
+                    edited_filename: None,
+                }],
+            })
+            .expect("require a fresh decision for the new semantic proposal");
+        let accepted_revision = reaccepted.revision;
+        let changed_dry_run = db
+            .get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: accepted_revision,
+                item_ids: Vec::new(),
+                all_accepted: true,
+            })
+            .expect("preview the newly accepted semantic proposal");
+        assert_eq!(changed_dry_run.items.len(), 1);
+        assert!(changed_dry_run.items[0].executable);
+
+        {
+            let conn = db.conn().expect("seed user-correction guard");
+            conn.execute(
+                "UPDATE ai_analysis_state SET user_corrected = 1 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id],
+            )
+            .expect("mark current AI state user-corrected");
+        }
+        assert_plan_is_not_executable(&db, &plan.id, accepted_revision);
+        {
+            let conn = db.conn().expect("clear test-only user correction");
+            conn.execute(
+                "UPDATE ai_analysis_state SET user_corrected = 0 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id],
+            )
+            .expect("clear test-only user-correction marker");
+        }
+        {
+            let conn = db.conn().expect("seed stale fingerprint guard");
+            conn.execute(
+                "UPDATE ai_analysis_state SET input_fingerprint = 'stale-input-fingerprint'
+                 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id],
+            )
+            .expect("make assessment fingerprint stale");
+        }
+        assert_plan_is_not_executable(&db, &plan.id, accepted_revision);
+        {
+            let conn = db.conn().expect("restore current fingerprint");
+            conn.execute(
+                "UPDATE ai_analysis_state SET input_fingerprint = ?2
+                 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, current_input_fingerprint],
+            )
+            .expect("restore assessment fingerprint after negative check");
+        }
+
+        db.update_managed_scope_policy(UpdateManagedScopePolicyRequest {
+            id: scope.id.clone(),
+            enabled: Some(false),
+            allow_local_ai: None,
+            allow_cloud_ai: None,
+        })
+        .expect("disable current managed scope");
+        assert_plan_is_not_executable(&db, &plan.id, accepted_revision);
+
+        db.update_managed_scope_policy(UpdateManagedScopePolicyRequest {
+            id: scope.id.clone(),
+            enabled: Some(true),
+            allow_local_ai: None,
+            allow_cloud_ai: None,
+        })
+        .expect("restore the test scope before source revalidation");
+        entry.size += 1;
+        db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+            .expect("change Global Index source fingerprint");
+        assert_plan_is_not_executable(&db, &plan.id, accepted_revision);
+
+        entry.size -= 1;
+        db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+            .expect("restore the current Global Index identity");
+        drop(db);
     }
 
     #[test]

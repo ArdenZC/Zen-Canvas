@@ -28,6 +28,7 @@ use super::{
     },
     provider::AIProvider,
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
+    semantic::FILE_TYPES,
     settings::{get_ai_settings_for_db, normalize_ai_settings, AISettings},
     trace::{AITraceContext, AITraceOperation},
 };
@@ -2253,18 +2254,6 @@ fn string_error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-const FILE_TYPES: &[&str] = &[
-    "Document",
-    "Image",
-    "Video",
-    "Audio",
-    "Code",
-    "ArchivePackage",
-    "Installer",
-    "Spreadsheet",
-    "Presentation",
-    "Other",
-];
 const PURPOSES: &[&str] = &[
     "Project",
     "Teaching",

@@ -2343,6 +2343,29 @@ mod tests {
     fn exact_impact_and_apply_are_metadata_only_atomic_and_default_disabled() {
         let (db, path) = test_database();
         seed_managed_pdf(&db);
+        let semantic_authority_counts = |db: &Database| {
+            db.conn()
+                .expect("semantic boundary connection")
+                .query_row(
+                    "SELECT (SELECT COUNT(*) FROM ai_jobs),
+                            (SELECT COUNT(*) FROM ai_analysis_state),
+                            (SELECT COUNT(*) FROM organization_plans),
+                            (SELECT COUNT(*) FROM operation_logs),
+                            (SELECT COUNT(*) FROM operation_batches)",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                        ))
+                    },
+                )
+                .expect("read authority boundary counts")
+        };
+        let authority_counts_before = semantic_authority_counts(&db);
         let proposal =
             create_and_finalize(&db, "Organize PDF files as Work", extension_draft(None));
         let before = {
@@ -2389,6 +2412,11 @@ mod tests {
             .expect("after metadata")
         };
         assert_eq!(before, after);
+        assert_eq!(
+            semantic_authority_counts(&db),
+            authority_counts_before,
+            "Rule Proposal apply cannot write Managed AI assessments, Organization Plans, or file operations"
+        );
         drop(db);
         let _ = std::fs::remove_file(path);
     }

@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 mod cursor;
 mod projection;
 mod queries;
+mod semantic;
 mod validation;
 
 #[cfg(test)]
@@ -32,6 +33,7 @@ use projection::{
     load_indexed_files_for_projection, load_organization_plan_group_projection,
     load_organization_plan_items_for_projection, organization_group_id, organization_group_key,
 };
+use semantic::{current_organization_projection, current_organization_proposal};
 use validation::{
     normalize_decision, normalize_group_decision, organization_item_action_error,
     validate_edited_filename, validate_id, validate_organization_page_size,
@@ -756,16 +758,7 @@ impl Database {
             let source_size = row.size;
             let source_mtime = row.mtime;
             let source_is_dir = row.is_dir;
-            let classification_status = row.classification_status.clone();
-            let suggested_action = row.suggested_action.clone();
-            let preview = operation_preview_from_indexed(row);
-            let proposal = proposal_from_preview(
-                &source_path,
-                &source_name,
-                classification_status.as_str(),
-                suggested_action.as_str(),
-                preview,
-            );
+            let proposal = current_organization_proposal(&tx, &row)?;
             tx.execute(
                 "INSERT INTO organization_plan_items (
                     id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
@@ -1161,17 +1154,7 @@ impl Database {
                     continue;
                 }
             }
-            let source_path = row.path.clone();
-            let source_name = row.name.clone();
-            let classification_status = row.classification_status.clone();
-            let suggested_action = row.suggested_action.clone();
-            let proposal = proposal_from_preview(
-                &source_path,
-                &source_name,
-                classification_status.as_str(),
-                suggested_action.as_str(),
-                operation_preview_from_indexed(row),
-            );
+            let proposal = current_organization_proposal(&tx, &row)?;
             let changed = proposal.fingerprint != old_fingerprint;
             let validity = if changed && matches!(decision.as_str(), "accepted" | "edited") {
                 any_stale = true;
@@ -1901,6 +1884,7 @@ fn load_organization_plan_item_for_projection(
         .unwrap_or(Some(false));
     let current_file = load_indexed_file_by_id(conn, &item.file_id_snapshot)?;
     decorate_organization_item_metadata_with_file(
+        conn,
         &mut item,
         current_file.as_ref(),
         scope_membership,
@@ -2073,22 +2057,18 @@ fn organization_scope_memberships(
 }
 
 fn decorate_organization_item_metadata_with_file(
+    conn: &rusqlite::Connection,
     item: &mut OrganizationPlanItemDto,
     current_file: Option<&IndexedFileRow>,
     managed_scope_membership: Option<bool>,
 ) -> Result<(), DbError> {
-    let preview = current_file
-        .cloned()
-        .and_then(operation_preview_from_indexed);
-    let live_proposal = current_file.map(|file| {
-        proposal_from_preview(
-            &file.path,
-            &file.name,
-            &file.classification_status,
-            &file.suggested_action,
-            preview.clone(),
-        )
+    let live_projection = current_file
+        .map(|file| current_organization_projection(conn, file))
+        .transpose()?;
+    let (live_proposal, preview) = live_projection.map_or((None, None), |projection| {
+        (Some(projection.proposal), projection.preview)
     });
+    let live_proposal = live_proposal.as_ref();
     let live_proposal_changed = live_proposal
         .as_ref()
         .is_some_and(|proposal| proposal.fingerprint != item.proposal_fingerprint);
@@ -2626,13 +2606,7 @@ fn build_organization_dry_run(
                 row.last_classified_mtime.to_string(),
                 row.last_classified_size.to_string(),
             ]);
-            let proposal = proposal_from_preview(
-                &row.path,
-                &row.name,
-                &row.classification_status,
-                &row.suggested_action,
-                operation_preview_from_indexed(row.clone()),
-            );
+            let proposal = current_organization_proposal(conn, row)?;
             if proposal.fingerprint != item.proposal_fingerprint {
                 source_health = "stale";
                 blocking_code = Some("live_proposal_changed".to_string());
