@@ -5,8 +5,9 @@
 - Initiative: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 - Branch: `product/ai-only-core-experience`
 - Baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`
-- Track: **implementation — product behavior/UI plus the minimum backend fail-closed gates**
+- Track: **DESIGN HOLD — owner deep-audit amendment must be satisfied before production implementation resumes**
 - PM-02 Automation architecture: **OUT OF SCOPE**
+- Owner deep-audit amendment: [AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md](AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md) — **BINDING**
 
 ## Mandatory reading
 
@@ -24,16 +25,19 @@
 
 ## A. Product readiness
 
-Introduce a shared frontend product-readiness model for semantic features, based on existing AI settings/runtime capability projections.
+Do **not** implement one global AI-ready boolean.
 
-At minimum distinguish:
+Define a shared presentation model over three distinct backend/product predicates:
 
-- loading;
-- not connected / disabled;
-- configuration/runtime unavailable;
-- ready.
+1. provider readiness — loading / disabled / configuration invalid / configured;
+2. Organize feature readiness — configured provider + eligible Managed Scope + current local/cloud scope policy;
+3. Cleanup feature readiness — configured provider + Cleanup AI enabled + explicit Cleanup local/cloud data-sharing policy.
 
-Do not make frontend readiness a security authority. Backend Organize/Cleanup operations must still fail closed independently.
+Network reachability is not an idle readiness predicate. It remains unknown until an explicit provider request or connection test.
+
+The existing `useAIProcessingModeStore` may remain a lightweight presentation input, but `enabled + provider` is not sufficient to claim feature readiness.
+
+Do not make frontend readiness a security authority. Backend Organize/Cleanup commands must fail closed independently.
 
 Use one reusable Connect AI action that routes to the existing AI Settings section.
 
@@ -84,12 +88,37 @@ Continue:
 For newly created/current runs:
 
 - AI disabled/unavailable blocks starting the semantic cleanup workflow with Connect AI guidance;
-- eligible findings that can be selected for Safe Trash must have a successful AI assessment bound to the current finding/run revision;
-- provider failure/cancel leaves evidence visible but cannot silently fall back to detector-only executable selection;
+- eligible findings that can be selected for Safe Trash must have a **versioned successful AI assessment envelope** bound to the current finding/run revision and current identity;
+- provider failure/cancel leaves deterministic findings visible but cannot silently fall back to detector-only executable selection;
 - AI may raise tier/risk, disable action, or require more review;
 - AI can never grant trash/delete eligibility.
 
-Prefer backend enforcement in Preview/selection eligibility, not only button disabling.
+The required assessment protocol is binding:
+
+```text
+load active finding + expected revision
+→ verify run / scope / path / physical identity
+→ construct bounded provider input
+→ provider call
+→ parse strict schema
+→ prove exact candidate-ID bijection
+→ conservative merge
+→ revalidate finding active + revision + identity
+→ CAS publish versioned assessment envelope
+→ only then mark assessment current
+```
+
+Strict provider coverage means every requested candidate appears exactly once. Missing, duplicate or unknown candidate IDs fail the entire batch and publish no successful assessment for that batch.
+
+The persisted envelope must include at least schema version, finding/run IDs, input/result finding revisions, provider kind/preset/model audit identity, assessed timestamp, deterministic input binding/fingerprint and conservative result payload. Prefer the existing Analysis Finding evidence JSON unless a schema migration is proven necessary.
+
+A user triage decision uses the separate decision revision and does not by itself invalidate an assessment. Any later finding revision change does.
+
+Preview **and** execution must enforce current assessment server-side. Frontend button state is not authority.
+
+Cleanup consent is distinct from Managed Scope consent. A Cleanup AI request always includes the candidate name/metadata and may include parent/full path according to privacy settings. Cloud Cleanup must have explicit Cleanup cloud-consent/policy; an Organize Managed Scope cloud permission cannot be borrowed silently.
+
+Pass explicit `AITraceContext { operation: CleanupAnalysis, ... }` for Cleanup requests so diagnostics are truthful without adding request bodies to trace metadata.
 
 Do not weaken historical restore/recovery.
 
@@ -99,7 +128,7 @@ Replace the current 2-step story with a bounded first-run sequence that presents
 
 1. **Private and reversible** — local index, explicit review, Safe Trash/History;
 2. **Connect AI** — local or cloud mode, with Configure AI CTA and clear skip;
-3. **Choose files + AI scope** — scan/index folder plus explicit Managed Scope consent/policy;
+3. **Choose files + AI scope** — scan/index folder plus explicit **Organize Managed Scope** consent/policy; explain that Cleanup cloud data sharing is a separate permission and never implied by choosing a folder;
 4. **What Zen does** — Files/Search/Preview, AI Organize, AI Cleanup, History/Restore.
 
 Do not embed a second provider-settings implementation. Reuse/navigate to existing AI Settings.
@@ -132,12 +161,20 @@ Required backend:
 - NotManaged current Organization projection never falls back to Rules/legacy files semantic proposal;
 - valid Managed AI semantics still derive deterministic target/preview;
 - already-reviewed valid Plan can proceed without live provider if no new semantic analysis is needed;
+- Cleanup stale-publication CAS: finding revision or identity changes during provider work publish zero successful assessment;
+- Cleanup provider result must exactly cover requested IDs; missing/duplicate/unknown IDs fail closed;
+- current assessment envelope binding and invalidation across reassessment/finding revision changes;
+- user decision revision does not itself invalidate a current assessment;
 - Cleanup preview/execution eligibility fails closed without required current AI assessment;
+- cloud Cleanup without explicit Cleanup consent fails closed even when the same path has Managed Scope cloud permission;
+- Cleanup diagnostics identify `CleanupAnalysis`;
 - AI assessment cannot elevate Cleanup executability.
 
 Required frontend:
+- provider readiness vs Organize/Cleanup feature readiness are rendered distinctly;
 - AI unavailable Organize gate + Settings CTA;
 - AI unavailable Cleanup gate + Settings CTA;
+- Cleanup cloud-consent missing state + policy CTA;
 - AI-ready Organize primary AI analysis flow;
 - managed-scope missing state;
 - Cleanup AI failure/cancel leaves execution blocked;
@@ -177,3 +214,10 @@ Never self-declare owner PASS/Ready/Merge.
 ## Scope guard
 
 No PM-02 Automation schema/runtime, autonomous/scheduled execution, agent/tool/shell runtime, RAG/vector store, release publication or #270 repair. Preserve all #272 deterministic mutation authorities.
+
+
+## Owner deep-audit stop condition
+
+The binding owner amendment is [AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md](AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md).
+
+Do not start production implementation while #274 is under the owner deep-audit hold. The hold is lifted only by an explicit owner comment after the amended taskbook/risk truth is reviewed.
