@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Gate Hardening
 
-Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW; production-head CI passed; Draft PR #276 remains open**
+Status: **ACTIVE — implementation — implementation complete; READY FOR OWNER REVIEW; production-head CI passed; Draft PR #276 remains open**
 
 Issue: [#275 — Pre-PM Cleanup AI Gate Hardening](https://github.com/ArdenZC/Zen-Canvas/issues/275)
 

@@ -45,6 +45,7 @@ Hosted macOS CI then exposed a second source-identity mismatch: Cleanup's reclai
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings` — **passed**.
 - Hosted exact-head run [36310434782](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36310434782) — **SUCCESS**. Windows/macOS Rust quality, release compiles, all routed performance shards, Windows native filesystem smoke, macOS lifecycle/race/Quick Look steps, source checkout and validation contracts passed. Docs-only and unrelated optional package lanes were skipped by routing.
 - Earlier exact-head CI attempts `36307749089`, `36308871887` and `36309515624` were diagnostic failures on preceding commits; the last exposed the macOS allocated-size/logical-size mismatch. They are superseded for acceptance by the successful run on `82634370`.
+- The first current-truth docs successor at `76001458` failed source governance because the active initiative statuses omitted the required `ACTIVE` and `implementation` mode declaration. The current-truth status, roadmap and initiative record now retain owner-review readiness while following that contract; local `npm run test:governance` passes. The current PR-head run is the hosted validation authority for this correction.
 
 ## Visual/native verification
 

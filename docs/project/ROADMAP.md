@@ -89,7 +89,7 @@ Final authority:
 
 ### Pre-PM Cleanup AI Gate Hardening
 
-Status: **CURRENT — implementation complete; READY FOR OWNER REVIEW; production-head CI passed; Draft PR #276; issue #275; branch `hardening/cleanup-ai-gate`**.
+Status: **ACTIVE — implementation — implementation complete; READY FOR OWNER REVIEW; production-head CI passed; Draft PR #276; issue #275; branch `hardening/cleanup-ai-gate`**.
 
 Authority: [Pre-PM Cleanup AI Gate Hardening](initiatives/pre-pm-cleanup-ai-gate-hardening.md) and [result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
 

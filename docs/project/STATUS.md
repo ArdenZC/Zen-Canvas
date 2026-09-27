@@ -5,7 +5,7 @@ Last verified: 2026-09-27
 ## Current execution truth
 
 - Latest merged production baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`, the merge commit for AI Semantic Authority Foundation / PR #272. Its exact-head validation remains recorded in [the foundation result](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-RESULT.md).
-- Current engineering initiative: **Pre-PM Cleanup AI Gate Hardening — IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW** on `hardening/cleanup-ai-gate`, issue [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275), Draft PR [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276). Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; validated Production HEAD: `82634370c98f65fefa95f38bc29f1b72ed9af356`. Exact-head hosted CI [36310434782](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36310434782) is **SUCCESS**. This current-truth update is a docs-only successor; its PR checks validate the documentation change separately from the production-code evidence.
+- Current engineering initiative: **ACTIVE — Pre-PM Cleanup AI Gate Hardening — IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW** on `hardening/cleanup-ai-gate`, issue [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275), Draft PR [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276). Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; validated Production HEAD: `82634370c98f65fefa95f38bc29f1b72ed9af356`. Exact-head hosted CI [36310434782](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36310434782) is **SUCCESS**. This current-truth update is a docs-only successor; its PR checks validate the documentation change separately from the production-code evidence.
 - PM-01 is **NOT ACTIVE** and remains on the owner design hold associated with issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273) / Draft PR [#274](https://github.com/ArdenZC/Zen-Canvas/pull/274). This correctness gate does not authorize PM-01 implementation. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and is not reclassified.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -29,7 +29,7 @@ Last verified: 2026-09-27
 
 **Pre-PM Cleanup AI Gate Hardening**
 
-Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW; Production HEAD CI passed; Draft PR #276; no PM-01 product implementation**.
+Status: **ACTIVE — implementation — implementation complete; READY FOR OWNER REVIEW; Production HEAD CI passed; Draft PR #276; no PM-01 product implementation**.
 
 Authority: [Pre-PM Cleanup AI Gate Hardening](initiatives/pre-pm-cleanup-ai-gate-hardening.md). Issue: [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275). Branch: `hardening/cleanup-ai-gate`. Draft PR: [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276). Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
 
