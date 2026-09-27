@@ -87,19 +87,20 @@ Final authority:
 
 ## Current
 
-### AI Semantic Authority Foundation
+### Pre-PM Cleanup AI Gate Hardening
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE; issue #271; branch `ai/semantic-authority-foundation`**.
+Status: **CURRENT — implementation complete; READY FOR OWNER REVIEW; production-head CI passed; Draft PR #276; issue #275; branch `hardening/cleanup-ai-gate`**.
 
-Authority: [AI Semantic Authority Foundation](initiatives/ai-semantic-authority-foundation.md) and [activation taskbook](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-ACTIVATION.md).
+Authority: [Pre-PM Cleanup AI Gate Hardening](initiatives/pre-pm-cleanup-ai-gate-hardening.md) and [result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
 
 Completed sequence:
 
 1. ZB-01 through ZB-05 — **MERGED**.
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
 3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269 to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
-4. **AI Semantic Authority Foundation — CURRENT / OWNER-APPROVED FOR MERGE.**
-5. **AI-only Product Migration (Organize / Cleanup / Automation / Rules navigation / Onboarding) — NEXT after PR #272 merges.**
+4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272 to `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
+5. **Pre-PM Cleanup AI Gate Hardening — CURRENT; implementation complete and ready for owner review in Draft PR #276.**
+6. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. Revisit only after this correctness gate and the separate owner design hold are resolved.
 
 macOS resident/release support remains separately gated by #270. Release publication remains deferred.
 
