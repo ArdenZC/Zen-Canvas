@@ -67,8 +67,10 @@ pub(super) fn analyze_cleanup_candidates_with_configured_provider(
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
-    let readiness =
-        crate::ai::readiness::cleanup_ai_readiness_from_settings(settings.clone(), settings_revision);
+    let readiness = crate::ai::readiness::cleanup_ai_readiness_from_settings(
+        settings.clone(),
+        settings_revision,
+    );
     if readiness.state != crate::ai::readiness::AIReadinessState::Ready {
         return Err(format!(
             "AI cleanup analysis is not ready: {}",

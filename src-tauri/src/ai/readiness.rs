@@ -375,8 +375,10 @@ pub fn managed_ai_readiness_is_current(
 fn cleanup_disclosure(settings: Option<&AISettings>) -> AIDataDisclosure {
     AIDataDisclosure {
         provider_payload_includes_file_name: true,
-        provider_payload_includes_parent_path: settings.is_some_and(|settings| settings.send_parent_path),
-        provider_payload_includes_full_path: settings.is_some_and(|settings| settings.send_full_path),
+        provider_payload_includes_parent_path: settings
+            .is_some_and(|settings| settings.send_parent_path),
+        provider_payload_includes_full_path: settings
+            .is_some_and(|settings| settings.send_full_path),
         provider_payload_includes_file_content: false,
         provider_content_is_bounded: false,
     }
@@ -451,10 +453,7 @@ pub fn cleanup_ai_readiness(db: &Database) -> CleanupAIReadiness {
     cleanup_readiness_from_snapshot(provider_snapshot_with_store(db, &SystemCredentialStore))
 }
 
-pub fn cleanup_ai_readiness_is_current(
-    db: &Database,
-    expected_binding_fingerprint: &str,
-) -> bool {
+pub fn cleanup_ai_readiness_is_current(db: &Database, expected_binding_fingerprint: &str) -> bool {
     cleanup_ai_readiness(db).binding_fingerprint == expected_binding_fingerprint
 }
 
@@ -1000,11 +999,9 @@ mod tests {
             api_key_action: ApiKeyAction::Preserve,
             ..settings
         };
-        save_ai_settings_with_store(&db, &disabled_settings, &store)
-            .expect("disable cleanup AI");
+        save_ai_settings_with_store(&db, &disabled_settings, &store).expect("disable cleanup AI");
 
-        let readiness =
-            cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        let readiness = cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
         assert_eq!(readiness.state, AIReadinessState::Disabled);
         assert_eq!(readiness.reason, "cleanup_ai_disabled");
     }
@@ -1024,7 +1021,10 @@ mod tests {
         save_ai_settings_with_store(&db, &consented, &store).expect("save consent");
         let after_consent =
             cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
-        assert_ne!(initial.binding_fingerprint, after_consent.binding_fingerprint);
+        assert_ne!(
+            initial.binding_fingerprint,
+            after_consent.binding_fingerprint
+        );
 
         let disclosure_changed = AISettings {
             send_parent_path: false,
@@ -1032,13 +1032,23 @@ mod tests {
             api_key_action: ApiKeyAction::Preserve,
             ..consented
         };
-        save_ai_settings_with_store(&db, &disclosure_changed, &store)
-            .expect("save disclosure");
+        save_ai_settings_with_store(&db, &disclosure_changed, &store).expect("save disclosure");
         let after_disclosure =
             cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
-        assert_ne!(after_consent.binding_fingerprint, after_disclosure.binding_fingerprint);
-        assert!(!after_disclosure.disclosure.provider_payload_includes_parent_path);
-        assert!(after_disclosure.disclosure.provider_payload_includes_full_path);
+        assert_ne!(
+            after_consent.binding_fingerprint,
+            after_disclosure.binding_fingerprint
+        );
+        assert!(
+            !after_disclosure
+                .disclosure
+                .provider_payload_includes_parent_path
+        );
+        assert!(
+            after_disclosure
+                .disclosure
+                .provider_payload_includes_full_path
+        );
     }
 
     #[test]
