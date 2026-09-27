@@ -359,6 +359,7 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
     label: name,
     shell: summarizeBrowserTiming(shellSamples, PREVIEW_PERFORMANCE_CONTRACT.shellFirstVisibleTargetP95Ms),
     useful: summarizeBrowserTiming(usefulSamples, PREVIEW_PERFORMANCE_CONTRACT.usefulRepresentationTargetP95Ms),
+    ...(process.env.ZC_QUALIFICATION_OUTPUT ? { shellSamples, usefulSamples } : {}),
   };
 }
 
@@ -423,6 +424,13 @@ try {
   }, null, 2));
   console.log(`[w3-10-phase-a-browser] OBSERVED shell/useful DOM timing matrix sourceHead=${SOURCE_HEAD} actualSha=${ACTUAL_CHECKOUT_SHA} tree=${ACTUAL_CHECKOUT_TREE}`);
   console.log(JSON.stringify({ metricDefinition: PREVIEW_PERFORMANCE_CONTRACT.metricDefinition, viewports: VIEWPORTS, evidence }, null, 2));
+  if (process.env.ZC_QUALIFICATION_OUTPUT) {
+    const output = path.resolve(process.env.ZC_QUALIFICATION_OUTPUT);
+    const boundary = path.resolve('.performance-artifacts/qualification') + path.sep;
+    assert(output.startsWith(boundary), 'Qualification output must stay inside its evidence boundary');
+    await mkdir(path.dirname(output), { recursive: true });
+    await writeFile(output, JSON.stringify({ sourceHead: SOURCE_HEAD, actualCheckoutSha: ACTUAL_CHECKOUT_SHA, actualCheckoutTree: ACTUAL_CHECKOUT_TREE, evidence }, null, 2));
+  }
 } finally {
   await browser.close();
   await server.close();

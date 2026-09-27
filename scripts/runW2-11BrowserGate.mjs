@@ -502,6 +502,54 @@ async function browseLoadMoreButton(list) {
     .first();
 }
 
+// Optional qualification instrumentation over the existing integrated fixture.
+// The browser boundary is accepted dblclick -> visible target / child batch;
+// real filesystem enumeration remains covered by Workspace Foundation.
+async function qualifyBrowseTransition(page) {
+  const list = await openBrowseRoot(page);
+  await switchView(page, 'list');
+  const search = page.locator('[data-file-library-local-search="true"]');
+  await search.fill('');
+  const samples = [];
+  for (let index = 0; index < 23; index++) {
+    const rootCrumb = page.locator('[data-browse-breadcrumbs="true"] button').first();
+    if (await rootCrumb.isEnabled()) await rootCrumb.click();
+    const child = list.locator('[role="option"]').filter({ hasText: 'w2-11-child-folder' }).first();
+    await child.waitFor({ state: 'visible' });
+    await page.evaluate(() => {
+      const sample = { acceptedAt: null, feedbackMs: null, usefulMs: null };
+      window.__zcQualificationBrowse = sample;
+      const check = () => {
+        if (sample.acceptedAt === null) return;
+        const crumbs = document.querySelector('[data-browse-breadcrumbs="true"]');
+        if (!crumbs?.textContent?.includes('w2-11-child-folder')) return;
+        if (sample.feedbackMs === null) sample.feedbackMs = performance.now() - sample.acceptedAt;
+        const workspace = document.querySelector('[data-browse-known-count="8"]');
+        if (workspace?.querySelector('[data-shared-file-list-source="browse"] [role="option"]')) {
+          sample.usefulMs = performance.now() - sample.acceptedAt;
+          observer.disconnect();
+        }
+      };
+      const observer = new MutationObserver(check);
+      observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+      document.addEventListener('dblclick', () => { sample.acceptedAt = performance.now(); check(); }, { capture: true, once: true });
+    });
+    await child.dblclick();
+    await page.waitForFunction(() => window.__zcQualificationBrowse?.usefulMs !== null);
+    const sample = await page.evaluate(() => ({ ...window.__zcQualificationBrowse }));
+    if (index >= 3) samples.push(sample);
+  }
+  const p95 = field => samples.map(sample => sample[field]).sort((a, b) => a - b)[Math.ceil((samples.length - 1) * 0.95)];
+  // Restore the existing plateau scenario's root/query before its independent
+  // resource lifecycle checks; timing setup is not part of that workload.
+  await page.locator('[data-browse-breadcrumbs="true"] button').first().click();
+  await search.fill('slow-b');
+  await page.getByText(/slow-b-\d+\.txt/).first().waitFor({ state: 'visible' });
+  return { measurementBoundary: 'browser_accepted_dblclick_to_visible_target_and_mock_entry_batch',
+    warmupCount: 3, sampleCount: samples.length, feedbackP95Ms: p95('feedbackMs'),
+    usefulP95Ms: p95('usefulMs'), feedbackTargetP95Ms: 100, usefulTargetP95Ms: 250, samples };
+}
+
 async function runIntegratedScene(viewport, deviceScaleFactor) {
   const context = await browser.newContext({ viewport, deviceScaleFactor });
   await installInstrumentation(context);
@@ -724,6 +772,7 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
       await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.file-library-workspace[data-mode="browse"]') !== null);
     }
+    if (process.env.ZC_BROWSE_QUALIFICATION_OUTPUT) metrics.browseQualification = await qualifyBrowseTransition(page);
     const resourcePlateau = await runResourcePlateau(page);
     const finalResources = await readResourceSnapshot(page);
     metrics.resources = {
@@ -803,6 +852,13 @@ try {
     await runDprProbe({ width: 980, height: 680 }, 2)
   ];
   passed = true;
+  if (process.env.ZC_BROWSE_QUALIFICATION_OUTPUT) {
+    const output = path.resolve(process.env.ZC_BROWSE_QUALIFICATION_OUTPUT);
+    assert(output.startsWith(path.resolve('.performance-artifacts/qualification') + path.sep), 'Qualification output escapes evidence boundary');
+    await mkdir(path.dirname(output), { recursive: true });
+    await writeFile(output, JSON.stringify({ sourceHead: SOURCE_HEAD, actualSha: ACTUAL_CHECKOUT_SHA, actualTree: ACTUAL_CHECKOUT_TREE,
+      evidence: results.slice(0, 2).map(result => ({ viewport: result.viewport, ...result.browseQualification })) }, null, 2));
+  }
   const integratedSummary = results.slice(0, 2).map((result) => {
     const stats = result.resources.stats;
     return {

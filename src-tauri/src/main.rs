@@ -18,7 +18,17 @@ use zen_canvas_tauri::{
     ScanJobManager,
 };
 
+#[inline]
+fn qualification_startup_checkpoint(name: &str) {
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint={name}");
+
+    #[cfg(not(feature = "native-qa"))]
+    let _ = name;
+}
+
 fn main() {
+    qualification_startup_checkpoint("process_main_entered");
     let launch_args = std::env::args().collect::<Vec<_>>();
     #[cfg(windows)]
     if launch_args
@@ -79,7 +89,9 @@ fn main() {
             Some(vec!["--background"]),
         ))
         .setup(move |app| {
+            qualification_startup_checkpoint("tauri_setup_entered");
             let db = open_database(app.handle()).map_err(io::Error::other)?;
+            qualification_startup_checkpoint("database_ready");
             db.recover_dedupe_runs().map_err(io::Error::other)?;
             db.recover_analysis_runs().map_err(io::Error::other)?;
             db.recover_content_runs().map_err(io::Error::other)?;
@@ -157,7 +169,9 @@ fn main() {
             app.manage(zen_canvas_tauri::app_control::MainWindowReadinessState::default());
             app.manage(zen_canvas_tauri::app_control::MainWindowLifecycleState::default());
             app.manage(zen_canvas_tauri::app_control::MainWindowSessionState::default());
+            qualification_startup_checkpoint("core_runtime_owners_ready");
             zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
+            qualification_startup_checkpoint("tray_ready");
             let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
             let launch_at_login = app.autolaunch();
             let app_settings = match settings::sync_launch_at_login_from_system(
@@ -171,6 +185,7 @@ fn main() {
                     app_settings
                 }
             };
+            qualification_startup_checkpoint("autostart_sync_complete");
             db.prune_operation_logs(app_settings.restore_retention_days)
                 .map_err(io::Error::other)?;
             if let Err(error) = db.prune_organization_plans() {
@@ -186,6 +201,7 @@ fn main() {
             ) {
                 eprintln!("Global search hotkey setup failed (non-fatal): {error}");
             }
+            qualification_startup_checkpoint("hotkey_setup_complete");
             db.sync_file_library_watcher_roots(&app_settings.default_scan_folders)
                 .map_err(io::Error::other)?;
             let watcher_manager = app.state::<FileWatcherManager>();
@@ -207,6 +223,7 @@ fn main() {
             ) {
                 eprintln!("File watcher init failed (non-fatal): {error}");
             }
+            qualification_startup_checkpoint("watcher_setup_complete");
 
             let lifecycle_coordinator = global_index_coordinator.clone();
             let lifecycle_app = app.handle().clone();
@@ -295,6 +312,8 @@ fn main() {
                 )
                 .map_err(|error| error.to_string())?;
             #[cfg(target_os = "macos")]
+            qualification_startup_checkpoint("mac_lifecycle_ready");
+            #[cfg(target_os = "macos")]
             zen_canvas_tauri::scheduler::WorkScheduler::global()
                 .set_native_policy_notifications_available(true);
             app.manage(lifecycle);
@@ -312,6 +331,7 @@ fn main() {
                     .collect::<Vec<_>>()
                     .join(",")
             );
+            qualification_startup_checkpoint("setup_complete");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

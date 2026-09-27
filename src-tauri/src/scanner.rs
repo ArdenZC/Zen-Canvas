@@ -915,6 +915,7 @@ fn acquire_scan_resource_lease(
 #[cfg(all(test, feature = "performance-test-tauri"))]
 pub(crate) struct PerformanceManagedScan {
     pub(crate) run_id: String,
+    pub(crate) run_ids: Vec<String>,
     pub(crate) worker: std::thread::JoinHandle<()>,
 }
 
@@ -936,11 +937,36 @@ pub(crate) fn start_performance_managed_scan<R>(
 where
     R: Runtime + 'static,
 {
+    start_performance_managed_scan_roots(app, db, jobs, dedupe_jobs, vec![root], job_id, job_kind)
+}
+
+/// Start one real managed-session worker over several fixture roots. The
+/// causal matrix uses this to hold total workload constant while varying only
+/// how many scanner workers contend for the existing scheduler leases.
+#[cfg(all(test, feature = "performance-test-tauri"))]
+pub(crate) fn start_performance_managed_scan_roots<R>(
+    app: AppHandle<R>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+    roots: Vec<PathBuf>,
+    job_id: String,
+    job_kind: &str,
+) -> Result<PerformanceManagedScan, String>
+where
+    R: Runtime + 'static,
+{
     if !matches!(job_kind, "foreground" | "background") {
         return Err("performance scan job kind must be foreground or background".to_string());
     }
+    if roots.is_empty() {
+        return Err("performance managed scan requires at least one root".to_string());
+    }
     let request = ManagedScanRequest {
-        roots: vec![root.to_string_lossy().into_owned()],
+        roots: roots
+            .iter()
+            .map(|root| root.to_string_lossy().into_owned())
+            .collect(),
         request_key: Some(job_id.clone()),
         dedupe: false,
     };
@@ -953,20 +979,26 @@ where
     if !admission.created || admission.runs.is_empty() {
         return Err("performance managed scan admission did not create a run".to_string());
     }
-    let run_id = admission
+    let run_ids = admission
         .runs
-        .first()
+        .iter()
         .map(|run| run.id.clone())
+        .collect::<Vec<_>>();
+    let run_id = run_ids
+        .first()
+        .cloned()
         .ok_or_else(|| "performance managed scan admission returned no run".to_string())?;
     let guards = match register_scan_guards(&jobs, &admission.runs) {
         Ok(guards) => guards,
         Err(error) => {
-            let _ = db.request_scan_cancellation(&run_id);
+            for run_id in &run_ids {
+                let _ = db.request_scan_cancellation(run_id);
+            }
             return Err(error);
         }
     };
     let session_id = admission.session.id.clone();
-    let run_ids = admission.runs;
+    let admitted_runs = admission.runs;
     let legacy = LegacyScanContext {
         job_kind: job_kind.to_string(),
         include_entries: true,
@@ -974,7 +1006,7 @@ where
     let worker_session_id = session_id.clone();
     let work = ManagedSessionWork {
         session_id: worker_session_id,
-        runs: run_ids,
+        runs: admitted_runs,
         guards,
         legacy: Some(legacy),
     };
@@ -983,7 +1015,11 @@ where
             eprintln!("Performance managed scan session failed: {error}");
         }
     });
-    Ok(PerformanceManagedScan { run_id, worker })
+    Ok(PerformanceManagedScan {
+        run_id,
+        run_ids,
+        worker,
+    })
 }
 
 /// Mirror the production cancellation boundary after the test-only worker has
@@ -1007,8 +1043,16 @@ pub(crate) fn cancel_performance_managed_scan(
     Ok(())
 }
 
-fn scan_walk_parallelism(resource_lease: &ResourceLease) -> usize {
-    resource_lease.resources().cpu.max(1) as usize
+fn scan_walk_parallelism(resource_lease: &ResourceLease) -> Parallelism {
+    let admitted_cpu_parallelism = resource_lease.resources().cpu.max(1) as usize;
+    if admitted_cpu_parallelism == 1 {
+        // Keep traversal on the scanner worker that already carries the
+        // scheduler's background QoS. A one-thread Rayon pool would move the
+        // actual filesystem work to a different, unscoped worker.
+        Parallelism::Serial
+    } else {
+        Parallelism::RayonNewPool(admitted_cpu_parallelism)
+    }
 }
 
 fn run_managed_session<R: Runtime>(
@@ -1187,9 +1231,7 @@ fn run_scan_run<R: Runtime>(
     }
 
     let walker = WalkDir::new(&root)
-        .parallelism(Parallelism::RayonNewPool(scan_walk_parallelism(
-            &resource_lease,
-        )))
+        .parallelism(scan_walk_parallelism(&resource_lease))
         .skip_hidden(true)
         .follow_links(false)
         .process_read_dir(move |_depth, path, _state, children| {
@@ -2117,7 +2159,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_walk_parallelism_is_bounded_by_scheduler_grant() {
+    fn scan_walk_uses_serial_traversal_for_one_cpu_lease() {
         use crate::scheduler::{
             adapters::ManagedScanResourceLeaseAdapter, PermissiveResourcePolicy,
             ResourceCapacities, SchedulerConfig, WorkScheduler,
@@ -2136,12 +2178,48 @@ mod tests {
                 CancellationToken::new(),
             )
             .expect("scan resource lease");
-        let configured_parallelism = scan_walk_parallelism(&lease);
 
         assert_eq!(lease.resources().cpu, 1);
-        assert!(configured_parallelism <= lease.resources().cpu as usize);
-        assert!(configured_parallelism <= scheduler.snapshot().granted.cpu as usize);
-        assert_eq!(configured_parallelism, 1);
+        assert!(matches!(scan_walk_parallelism(&lease), Parallelism::Serial));
+        assert_eq!(scheduler.snapshot().granted.cpu, 1);
+        drop(lease);
+    }
+
+    #[test]
+    fn scan_walk_uses_bounded_rayon_pool_for_multi_cpu_lease() {
+        use crate::file_workspace::WorkClass;
+        use crate::scheduler::{
+            CancellationToken, PermissiveResourcePolicy, ResourceCapacities, ResourceHints,
+            SchedulerConfig, WorkRequest, WorkScheduler,
+        };
+
+        let scheduler = WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(4, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        );
+        let lease = scheduler
+            .try_acquire(
+                WorkRequest::new(
+                    "scan-fixture-multi-cpu",
+                    WorkClass::Background,
+                    ResourceHints {
+                        cpu: 3,
+                        io: 1,
+                        open_handles: 1,
+                        ..ResourceHints::empty()
+                    },
+                )
+                .with_cancellation(CancellationToken::new()),
+            )
+            .expect("multi-cpu scheduler lease");
+
+        assert_eq!(lease.resources().cpu, 3);
+        assert_eq!(scheduler.snapshot().granted.cpu, lease.resources().cpu);
+        assert!(matches!(
+            scan_walk_parallelism(&lease),
+            Parallelism::RayonNewPool(3)
+        ));
         drop(lease);
     }
 
