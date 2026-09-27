@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Data-Sharing Consent Gate
 
-Status: **ACTIVE — implementation — narrow PM-01 hold-release blocker**
+Status: **READY FOR OWNER REVIEW — implementation complete; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
 
 Owner: Zen Canvas
 
@@ -129,6 +129,26 @@ This Track does not make Cleanup AI mandatory for all new execution. PM-01 owns 
 - #270;
 - release publication.
 
+## Implemented result
+
+Production HEAD: `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`.
+
+Exact-head CI: `36332783985` — **SUCCESS**.
+
+Implemented:
+
+- fail-closed `cleanup_local_ai_allowed` / `cleanup_cloud_ai_allowed` in existing AI settings;
+- legacy missing fields -> false through the existing versioned serde/default path;
+- Cleanup-specific derived readiness/binding/disclosure in `crate::ai::readiness`;
+- configured-provider backend enforcement before provider construction/work;
+- explicit local/cloud Cleanup permission controls and truthful disclosure copy in existing AI Settings;
+- current path-disclosure settings participate in Cleanup binding;
+- no database schema migration;
+- no Managed Scope or Content consent reuse;
+- no change to Cleanup Finding/current-assessment/Preview/Safe Trash/journal/Restore authority.
+
+See [result](../tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md).
+
 ## Acceptance
 
-Owner review and merge are required before PM-01 hold release.
+**READY FOR OWNER REVIEW.** Owner review and merge are still required before PM-01 hold release.

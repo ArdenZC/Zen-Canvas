@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Data-Sharing Consent Gate — Activation
 
-Status: **ACTIVE — implementation authorized only for the bounded consent gate**
+Status: **READY FOR OWNER REVIEW — bounded implementation complete; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
 
 Issue: #284
 
@@ -134,3 +134,12 @@ Pre-owner disposition only:
 ## 9. Stop condition
 
 Do not activate PM-01, touch #270, or begin research production integration in this Track.
+
+
+## 10. Implementation closeout
+
+Accepted Production HEAD candidate: `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`.
+
+Exact-head CI `36332783985`: **SUCCESS** across frontend tests/build/browser gates, Windows/macOS Rust fmt/tests/Clippy, native hardening/lifecycle gates and Windows/macOS release compile.
+
+No production changes are authorized after this point unless owner review finds a concrete blocker. Current disposition: **READY FOR OWNER REVIEW**.

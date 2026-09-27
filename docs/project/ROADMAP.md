@@ -89,21 +89,21 @@ Final authority:
 
 ### Pre-PM Cleanup AI Data-Sharing Consent Gate
 
-Status: **ACTIVE — implementation — issue #284; branch `hardening/cleanup-ai-consent`; PM-01 remains NOT ACTIVE.**
+Status: **READY FOR OWNER REVIEW — issue #284 / Draft PR #285; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS; PM-01 remains NOT ACTIVE until merge.**
 
-Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md) and [activation taskbook](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-ACTIVATION.md).
+Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md), [activation taskbook](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-ACTIVATION.md), and [result](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md).
 
 Current sequence:
 
 1. Pre-PM foundations through AI Readiness + Consent — **COMPLETE / MERGED**.
 2. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through PR #282 to `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`.
-3. **Pre-PM Cleanup AI Data-Sharing Consent Gate — CURRENT / ACTIVE.**
-4. Fresh PM-01 AI-only Core Experience activation — **BLOCKED only on #284 owner review/merge; old #274 is CLOSED / superseded.**
+3. **Pre-PM Cleanup AI Data-Sharing Consent Gate — IMPLEMENTED / EXACT-HEAD CI PASS / OWNER REVIEW PENDING.**
+4. Fresh PM-01 AI-only Core Experience activation — **blocked only on #284/#285 owner review + merge; old #274 remains CLOSED / superseded.**
 5. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane via #283; not a PM-01 merge gate.**
 6. System One or production Preference Memory integration — **NOT AUTHORIZED; separate evidence and architecture gate required.**
 7. PM-02 / PM-03 remain behind PM-01 owner-review gates.
 
-This correction does not reverse the sequencing decision that PM-01 is the next product implementation mainline. It closes the one remaining consent prerequisite before that activation.
+The #284 implementation adds no schema migration and no new provider/runtime authority. It keeps Cleanup local/cloud data-sharing consent separate from Managed Scope and Content Understanding policy, with backend enforcement before provider work and fail-closed legacy defaults.
 
 #270 remains separate. Release publication remains deferred.
 
