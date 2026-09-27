@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Gate Hardening — Result
 
-Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW after the final docs-only PR check; repaired Production HEAD CI passed; Draft PR #276 remains open**
+Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW; final docs-content HEAD CI passed; Draft PR #276 remains open**
 
 ## Identity and heads
 
@@ -12,7 +12,9 @@ Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW after the final 
 - Previous final PR docs HEAD: `f15f868e490ce830ffbbe7fd08634ffed1ce0713`.
 - Repaired Production HEAD: `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e`.
 - Exact-head hosted CI: [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257) — **SUCCESS** on the repaired Production HEAD after rerunning only the failed Windows jobs on the same SHA.
-- Final docs-only PR HEAD and its CI run will be recorded after that head is created and validated.
+- Final docs-content HEAD after the Production commit: `9dbd7159e9b6e7bf8b87f4be8e17474c51539600`.
+- Exact PR CI on that SHA: [36316604667](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36316604667) — **SUCCESS** (Windows/macOS Rust quality, Windows/macOS release compile, all routed performance shards, and source/governance checks).
+- Production → final docs-content HEAD is docs-only. Changed paths: `docs/project/ARCHITECTURE_MAP.md`, `docs/project/ROADMAP.md`, `docs/project/STATUS.md`, `docs/project/initiatives/pre-pm-cleanup-ai-gate-hardening.md`, and `docs/project/tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md`; `git diff --exit-code be74b5d428be84bf3d4a3af42853c3a59ec3aa2e 9dbd7159e9b6e7bf8b87f4be8e17474c51539600 -- src-tauri` passed with no Rust changes.
 
 ## Owner review response
 
@@ -67,8 +69,8 @@ No user-facing UI or window permission changed, so visual verification is not ap
 - [x] Focused Cleanup, durable Analysis, formatting, Clippy, and diff checks passed.
 - [x] Exact repaired Production HEAD hosted CI passed.
 - Existing pre-fix Findings with allocated-byte `size` but no `logicalSize` remain non-current/stale until a fresh Cleanup Analysis Run; equal-size legacy snapshots retain their previous shape.
-- Final docs-only PR-head CI and owner re-review remain pending.
+- Exact final docs-content HEAD CI [36316604667](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36316604667) passed. Owner re-review remains pending.
 
 PM-01 remains **NOT ACTIVE** on the owner design hold in issue #273 / Draft PR #274. #270 remains separate. PR #276 remains **Draft/open**. No Codex Review, Ready transition, merge, or issue close is requested or performed.
 
-Final disposition: **READY FOR OWNER RE-REVIEW after final docs-only PR validation; never OWNER REVIEW PASSED.**
+Final disposition: **READY FOR OWNER RE-REVIEW; never OWNER REVIEW PASSED.**
