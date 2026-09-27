@@ -540,28 +540,58 @@ fn candidate_identity_fingerprint(
     fingerprint_json(&identity)
 }
 
-#[cfg(test)]
-pub(super) fn has_current_ai_assessment(db: &Database, finding: &AnalysisFindingDto) -> bool {
-    if finding.status != "active" || !crate::analysis::finding_identity_matches(db, finding) {
+/// Reports whether the current durable Cleanup Finding has a live AI assessment.
+/// Callers must use this backend predicate rather than interpreting evidence JSON.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Reserved backend currentness authority for PM-01 while that initiative is inactive."
+    )
+)]
+pub(crate) fn has_current_ai_assessment(db: &Database, finding_id: &str) -> bool {
+    let Ok(Some(finding)) = db.get_analysis_finding(finding_id) else {
+        return false;
+    };
+    if finding.id != finding_id
+        || finding.status != "active"
+        || !crate::analysis::finding_identity_matches(db, &finding)
+    {
         return false;
     }
     let Some(assessment) = finding.evidence_summary.get("aiAssessment") else {
         return false;
     };
+    if assessment["schema"] != "cleanup_ai_assessment_v1"
+        || assessment["assessment"].as_object().is_none()
+    {
+        return false;
+    }
     let coverage = &assessment["coverage"];
     let publication = &assessment["publication"];
     let Some(requested_ids) = coverage["requestedCandidateIds"].as_array() else {
         return false;
     };
-    let ids = requested_ids
+    let Some(ids) = requested_ids
         .iter()
-        .filter_map(serde_json::Value::as_str)
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    if ids.len() != requested_ids.len()
+        .map(|id| id.as_str().map(str::to_string))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let Some(requested_count) = u64::try_from(ids.len()).ok() else {
+        return false;
+    };
+    if ids.is_empty()
+        || ids.iter().any(String::is_empty)
+        || ids.len() != requested_ids.len()
+        || coverage["requestedCount"].as_u64() != Some(requested_count)
         || ids.iter().filter(|id| *id == &finding.id).count() != 1
         || candidate_set_fingerprint(&ids).ok().as_deref()
             != coverage["candidateSetFingerprint"].as_str()
+        || coverage["returnedCount"]
+            .as_u64()
+            .is_none_or(|count| count == 0 || count > requested_count)
         || coverage["status"] != "returned_exactly_once"
         || coverage["candidateId"] != finding.id
         || coverage["returnedCandidateId"] != finding.id
@@ -591,7 +621,7 @@ pub(super) fn has_current_ai_assessment(db: &Database, finding: &AnalysisFinding
         return false;
     };
     let Ok(candidate_fingerprint) =
-        candidate_identity_fingerprint(finding, expected_revision, &source_fingerprint)
+        candidate_identity_fingerprint(&finding, expected_revision, &source_fingerprint)
     else {
         return false;
     };
@@ -603,7 +633,16 @@ pub(super) fn has_current_ai_assessment(db: &Database, finding: &AnalysisFinding
     let Ok(run) = db.get_analysis_run(&finding.run_id) else {
         return false;
     };
-    if !matches!(run.status.as_str(), "completed" | "completed_with_warnings")
+    let Some(expected_run_revision) = coverage["analysisRunRevision"].as_i64() else {
+        return false;
+    };
+    if run.id != finding.run_id
+        || run.scope.get("kind").and_then(serde_json::Value::as_str)
+            != Some("approved_cleanup_paths")
+        || !matches!(run.status.as_str(), "completed" | "completed_with_warnings")
+        // Publishing AI assessments refreshes the run aggregate once in the
+        // same transaction, after capturing this pre-publication revision.
+        || expected_run_revision.checked_add(1) != Some(run.revision)
         || run.source_snapshot_hash != coverage["analysisSourceSnapshotHash"]
         || run.detector_set_hash != coverage["detectorSetHash"]
     {
@@ -631,11 +670,17 @@ pub(super) fn has_current_ai_assessment(db: &Database, finding: &AnalysisFinding
     if coverage["providerPolicyRevision"].as_str() != Some(settings_revision.as_str()) {
         return false;
     }
-    db.list_analysis_finding_evidence(&finding.id)
-        .map(|evidence| {
-            evidence
-                .iter()
-                .any(|item| item.evidence_kind == "ai_assessment" && item.value == *assessment)
+    let Ok(evidence) = db.list_analysis_finding_evidence(&finding.id) else {
+        return false;
+    };
+    evidence
+        .iter()
+        .filter(|item| {
+            item.evidence_kind == "ai_assessment"
+                && item.subject_kind == "analysis_finding"
+                && item.subject_id.as_deref() == Some(finding.id.as_str())
+                && item.value == *assessment
         })
-        .unwrap_or(false)
+        .count()
+        == 1
 }

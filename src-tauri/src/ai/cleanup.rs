@@ -133,10 +133,17 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
 #[path = "cleanup/publication.rs"]
 mod publication;
 use publication::analyze_cleanup_candidates_with_configured_provider;
+#[cfg_attr(
+    not(test),
+    expect(
+        unused_imports,
+        reason = "Reserved backend currentness API for PM-01; no renderer command is exposed."
+    )
+)]
+pub(crate) use publication::has_current_ai_assessment;
 #[cfg(test)]
 use publication::{
-    analyze_cleanup_candidates_with_provider, cleanup_ai_coverage, has_current_ai_assessment,
-    CleanupAiProviderContext,
+    analyze_cleanup_candidates_with_provider, cleanup_ai_coverage, CleanupAiProviderContext,
 };
 
 fn call_ai_cleanup_provider(

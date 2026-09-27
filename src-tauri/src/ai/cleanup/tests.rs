@@ -250,9 +250,17 @@ fn exact_coverage_publishes_only_unique_returned_candidates() {
         .get_analysis_finding(&ids[2])
         .expect("read assessed candidate")
         .expect("assessed candidate exists");
-    assert!(!has_current_ai_assessment(fixture.db(), &duplicate));
-    assert!(!has_current_ai_assessment(fixture.db(), &omitted));
-    assert!(has_current_ai_assessment(fixture.db(), &assessed));
+    assert!(!has_current_ai_assessment(fixture.db(), &duplicate.id));
+    assert!(!has_current_ai_assessment(fixture.db(), &omitted.id));
+    assert!(!has_current_ai_assessment(
+        fixture.db(),
+        "fabricated-candidate"
+    ));
+    assert!(has_current_ai_assessment(fixture.db(), &assessed.id));
+    assert_eq!(
+        assessed.evidence_summary["aiAssessment"]["publication"]["compareAndSwap"],
+        "succeeded"
+    );
     for id in [&ids[0], &ids[1]] {
         assert_eq!(
             fixture
@@ -308,7 +316,7 @@ fn reordered_provider_response_is_bound_by_exact_candidate_id() {
             finding.evidence_summary["aiAssessment"]["assessment"]["reason"].as_str(),
             Some(format!("assessment for {}", candidate.id).as_str())
         );
-        assert!(has_current_ai_assessment(fixture.db(), &finding));
+        assert!(has_current_ai_assessment(fixture.db(), &finding.id));
     }
 }
 
@@ -350,7 +358,7 @@ fn malformed_authority_fields_fail_closed_without_evidence() {
         .expect("read malformed candidate")
         .expect("candidate exists");
     assert_eq!(finding.status, "active");
-    assert!(!has_current_ai_assessment(fixture.db(), &finding));
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
     assert_eq!(
         fixture
             .db()
@@ -391,7 +399,7 @@ fn source_change_during_provider_call_makes_result_stale() {
         .expect("read stale source finding")
         .expect("finding exists");
     assert_eq!(finding.status, "stale");
-    assert!(!has_current_ai_assessment(fixture.db(), &finding));
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
     assert!(fixture
         .db()
         .list_analysis_finding_evidence(&candidate.id)
@@ -443,7 +451,7 @@ fn provider_policy_change_during_provider_call_makes_result_stale() {
         .expect("read policy-stale finding")
         .expect("candidate exists");
     assert_eq!(finding.status, "active");
-    assert!(!has_current_ai_assessment(fixture.db(), &finding));
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
     assert!(fixture
         .db()
         .list_analysis_finding_evidence(&candidate.id)
@@ -480,7 +488,7 @@ fn replaced_candidate_set_cannot_receive_old_provider_response() {
         .expect("read replaced candidate")
         .expect("old finding exists");
     assert_eq!(old.status, "superseded");
-    assert!(!has_current_ai_assessment(fixture.db(), &old));
+    assert!(!has_current_ai_assessment(fixture.db(), &old.id));
     assert!(fixture
         .db()
         .list_analysis_finding_evidence(&candidate.id)
@@ -535,7 +543,7 @@ fn overlapping_requests_commit_b_first_and_reject_a_as_stale() {
         .get_analysis_finding(&candidate.id)
         .expect("read concurrent finding")
         .expect("finding exists");
-    assert!(has_current_ai_assessment(fixture.db(), &finding));
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
     assert_eq!(
         fixture
             .db()
@@ -546,6 +554,195 @@ fn overlapping_requests_commit_b_first_and_reject_a_as_stale() {
             .count(),
         1
     );
+}
+
+#[test]
+fn current_assessment_rejects_a_newer_finding_revision() {
+    let fixture = new_cleanup_ai_fixture();
+    let (_run, candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "UPDATE analysis_findings SET revision = revision + 1 WHERE id = ?1",
+            [&candidate.id],
+        )
+        .expect("advance finding revision");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_rejects_changed_live_source_identity() {
+    let fixture = new_cleanup_ai_fixture();
+    let (_run, candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    fs::write(&candidate.path, b"changed after AI publication")
+        .expect("change source after assessment publication");
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_rejects_a_newer_analysis_run_revision() {
+    let fixture = new_cleanup_ai_fixture();
+    let (run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "UPDATE analysis_runs SET revision = revision + 1 WHERE id = ?1",
+            [&run.id],
+        )
+        .expect("advance Analysis Run revision");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_rejects_a_changed_analysis_source_snapshot() {
+    let fixture = new_cleanup_ai_fixture();
+    let (run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "UPDATE analysis_runs SET source_snapshot_hash = 'changed-source-snapshot' WHERE id = ?1",
+            [&run.id],
+        )
+        .expect("change Analysis Run source snapshot hash");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_rejects_a_newer_detector_revision() {
+    let fixture = new_cleanup_ai_fixture();
+    let (run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "UPDATE analysis_run_detectors SET revision = revision + 1 WHERE run_id = ?1 AND detector_id = ?2",
+            rusqlite::params![run.id, crate::analysis::CLEANUP_HEURISTICS_DETECTOR],
+        )
+        .expect("advance detector revision");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_rejects_a_changed_detector_status() {
+    let fixture = new_cleanup_ai_fixture();
+    let (run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "UPDATE analysis_run_detectors SET status = 'failed', revision = revision + 1 WHERE run_id = ?1 AND detector_id = ?2",
+            rusqlite::params![run.id, crate::analysis::CLEANUP_HEURISTICS_DETECTOR],
+        )
+        .expect("change detector status");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_rejects_changed_provider_settings() {
+    let fixture = new_cleanup_ai_fixture();
+    let (_run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let changed_settings = AISettings {
+        model: "changed-after-publication".to_string(),
+        ..test_ai_settings()
+    };
+    let settings_json =
+        serde_json::to_string(&changed_settings).expect("serialize changed AI settings");
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "INSERT INTO app_settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![AI_SETTINGS_KEY, settings_json],
+        )
+        .expect("change persisted AI settings");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_requires_matching_durable_evidence() {
+    let fixture = new_cleanup_ai_fixture();
+    let (_run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "UPDATE analysis_finding_evidence SET value_json = '{}' WHERE finding_id = ?1 AND evidence_kind = 'ai_assessment'",
+            [&finding.id],
+        )
+        .expect("mismatch durable assessment evidence");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn current_assessment_rejects_removed_durable_evidence() {
+    let fixture = new_cleanup_ai_fixture();
+    let (_run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "DELETE FROM analysis_finding_evidence WHERE finding_id = ?1 AND evidence_kind = 'ai_assessment'",
+            [&finding.id],
+        )
+        .expect("remove durable assessment evidence");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+}
+
+#[test]
+fn legacy_misaligned_finding_identity_cannot_keep_a_current_assessment() {
+    let fixture = new_cleanup_ai_fixture();
+    let (_run, candidate, finding) = publish_single_cleanup_assessment(&fixture);
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
+
+    let metadata = fs::metadata(&candidate.path).expect("read source metadata");
+    let mut legacy_identity = finding.identity_snapshot.clone();
+    legacy_identity["size"] = serde_json::json!(metadata.len() + 1);
+    legacy_identity
+        .as_object_mut()
+        .expect("finding identity is an object")
+        .remove("logicalSize");
+    let identity_json =
+        serde_json::to_string(&legacy_identity).expect("serialize legacy source identity");
+    let connection = fixture.db().conn().expect("open fixture database");
+    connection
+        .execute(
+            "UPDATE analysis_findings SET identity_snapshot_json = ?1 WHERE id = ?2",
+            rusqlite::params![identity_json, finding.id],
+        )
+        .expect("restore misaligned legacy identity snapshot");
+    drop(connection);
+
+    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
 }
 
 #[test]
@@ -618,6 +815,32 @@ fn test_ai_settings() -> AISettings {
         batch_size: 10,
         ..AISettings::default()
     }
+}
+
+fn publish_single_cleanup_assessment(
+    fixture: &CleanupAiFixture,
+) -> (AnalysisRunDto, StorageCandidate, AnalysisFindingDto) {
+    let run = complete_cleanup_analysis_run(fixture.db(), &fixture.source_root);
+    let candidate = active_cleanup_candidates(fixture.db(), &run.id)
+        .into_iter()
+        .next()
+        .expect("fixture has a cleanup candidate");
+    let provider =
+        StaticCleanupProvider::new(vec![response_for_ids(std::slice::from_ref(&candidate.id))]);
+    let published = analyze_fixture_candidates(
+        fixture.db(),
+        &run,
+        std::slice::from_ref(&candidate),
+        &provider,
+    )
+    .expect("publish exact candidate assessment");
+    assert_eq!(published.len(), 1);
+    let finding = fixture
+        .db()
+        .get_analysis_finding(&candidate.id)
+        .expect("read published candidate")
+        .expect("published candidate exists");
+    (run, candidate, finding)
 }
 
 fn analyze_fixture_candidates(
