@@ -87,9 +87,9 @@ Final authority:
 
 ## Current
 
-### AI-only Product Migration — PM-01 Core Experience
+### AI-only Product Migration
 
-Status: **ACTIVE — implementation: AI readiness, Organize/Cleanup AI-only semantic product flow and onboarding; issue #273; branch `product/ai-only-core-experience`**.
+Status: **ACTIVE — implementation — PM-01 Core Experience: AI readiness, Organize/Cleanup AI-only semantic product flow and onboarding; issue #273; branch `product/ai-only-core-experience`**.
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md) and [PM-01 activation taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md).
 

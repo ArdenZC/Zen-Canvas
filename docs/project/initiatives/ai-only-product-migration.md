@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE — PM-01 Core Experience**
+Status: **ACTIVE — implementation — PM-01 Core Experience**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 

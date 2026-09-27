@@ -26,9 +26,9 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**AI-only Product Migration — PM-01 Core Experience**
+**AI-only Product Migration**
 
-Status: **ACTIVE — implementation: AI readiness + Organize/Cleanup semantic gating + onboarding migration; Automation/Rules architecture deferred to PM-02**.
+Status: **ACTIVE — implementation — PM-01 Core Experience: AI readiness + Organize/Cleanup semantic gating + onboarding migration; Automation/Rules architecture deferred to PM-02**.
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Branch: `product/ai-only-core-experience`. Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
 
