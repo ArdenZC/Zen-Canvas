@@ -5,7 +5,7 @@ Last verified: 2026-09-27
 ## Current execution truth
 
 - Latest merged production baseline: `master@6717438782bd6ca11f3829b02fc198abd3c82934`, the squash merge for Pre-PM Cleanup AI Gate Hardening / PR #276. Repaired Production HEAD `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e` passed exact-head CI [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257); owner-approved closeout HEAD `c887852ed21f94195ccf1dafb172f243983584d7` passed CI [36318542178](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36318542178); merge-after master CI [36319236781](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36319236781) is **SUCCESS**.
-- Current engineering state: **between initiatives — no active implementation**. Pre-PM Cleanup AI Gate Hardening is **COMPLETE / MERGED** through PR [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276) at `master@6717438782bd6ca11f3829b02fc198abd3c82934`; issue [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275) is **CLOSED / completed** and merge-after CI [36319236781](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36319236781) is **SUCCESS**.
+- Current engineering initiative: **ACTIVE — Pre-PM AI Readiness + Consent Contract — implementation complete; OWNER REVIEW PASSED — READY TO MERGE** on `foundation/ai-readiness-consent`, issue [#278](https://github.com/ArdenZC/Zen-Canvas/issues/278), Draft PR [#279](https://github.com/ArdenZC/Zen-Canvas/pull/279). Activation baseline: `master@6529d6023454cf50afc385b3ac9b503ca4a3a4cd`; accepted Production HEAD: `dc144b6efaa6ae101f7c624ad32228cb85b91d65`; exact-head CI [36324852969](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36324852969) is **SUCCESS**. This Track establishes one backend readiness/consent truth from existing provider settings, credentials, Managed Scope policy and Content Scope Policy; it does not activate PM-01 or change mutation authority. Local task hygiene remains pending because host policy blocked deletion of 10 task-owned SQLite fixtures under `F:\.codex-temp\ai-readiness-consent`; this is not a product or merge blocker.
 - PM-01 is **NOT ACTIVE** and remains on the owner design hold associated with issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273) / Draft PR [#274](https://github.com/ArdenZC/Zen-Canvas/pull/274). This correctness gate does not authorize PM-01 implementation. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and is not reclassified.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -27,14 +27,15 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**No active initiative**
+**Pre-PM AI Readiness + Consent Contract**
 
-Status: **between initiatives — no active implementation; Pre-PM Cleanup AI Gate Hardening is COMPLETE / MERGED through PR #276; PM-01 remains on owner design hold.**
+Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — owner review comment `5857028109`; Production HEAD `dc144b6efaa6ae101f7c624ad32228cb85b91d65`; Final HEAD `a8bc3284bdf98fa697ad49c318eeeab59f224a99`; Final exact-head CI `36327475054` SUCCESS; PM-01 remains NOT ACTIVE.**
 
-Pre-PM Cleanup AI Gate Hardening is **COMPLETE / MERGED** at `master@6717438782bd6ca11f3829b02fc198abd3c82934`; owner re-review passed in comment `5855703556`, issue #275 is closed, and merge-after CI `36319236781` passed. Final evidence: [Pre-PM Cleanup AI Gate Hardening — Result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
+Authority: [Pre-PM AI Readiness + Consent Contract](initiatives/pre-pm-ai-readiness-consent-contract.md). Issue: [#278](https://github.com/ArdenZC/Zen-Canvas/issues/278). Branch: `foundation/ai-readiness-consent`. Draft PR: [#279](https://github.com/ArdenZC/Zen-Canvas/pull/279). Activation baseline: `master@6529d6023454cf50afc385b3ac9b503ca4a3a4cd`. Production HEAD: `dc144b6efaa6ae101f7c624ad32228cb85b91d65`. Result: [Pre-PM AI Readiness + Consent Contract — Result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md).
 
-AI Semantic Authority Foundation / PR #272 is **MERGED** at `d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; Pre-PM Cleanup AI Gate Hardening / PR #276 is **COMPLETE / MERGED** at `6717438782bd6ca11f3829b02fc198abd3c82934`. PM-01 remains **NOT ACTIVE** on owner design hold in #273 / Draft PR #274 and is not activated by this closeout. #270 remains a separate macOS resident/release compatibility issue.
+The Track composes, but does not merge, three existing authorities: AI provider/settings/credentials; Managed Scope metadata-AI policy (`enabled/allow_local_ai/allow_cloud_ai`); and Content Scope Policy (`enabled/local_allowed/cloud_allowed` plus existing Content Run confirmation). Managed metadata consent and Content Understanding consent remain distinct. The production backend now exposes provider, Managed AI and Content AI readiness plus current-binding checks; provider blockers precede per-scope consent, scope identity remains backend-owned, readiness never substitutes for Content Run confirmation, and configuration readiness does not claim live provider connectivity.
 
+PM-01 remains **NOT ACTIVE** on owner design hold in #273 / Draft PR #274. #270 remains a separate macOS resident/release compatibility issue.
 
 ## Release, schema and platform truth
 
