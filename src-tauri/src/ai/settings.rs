@@ -16,7 +16,7 @@ use super::{
     trace::AITraceMode,
 };
 use crate::{
-    db::{Database, DbError},
+    db::{app_setting_value_fingerprint, Database, DbError},
     window_auth::require_main_window,
 };
 
@@ -111,12 +111,25 @@ pub fn get_ai_settings_for_db(db: &Database) -> Result<AISettings, DbError> {
     get_ai_settings_with_store(db, &SystemCredentialStore)
 }
 
+pub(crate) fn get_ai_settings_for_db_with_revision(
+    db: &Database,
+) -> Result<(AISettings, String), DbError> {
+    get_ai_settings_with_store_and_revision(db, &SystemCredentialStore)
+}
+
 pub fn get_ai_settings_with_store(
     db: &Database,
     credentials: &impl CredentialStore,
 ) -> Result<AISettings, DbError> {
+    get_ai_settings_with_store_and_revision(db, credentials).map(|(settings, _)| settings)
+}
+
+fn get_ai_settings_with_store_and_revision(
+    db: &Database,
+    credentials: &impl CredentialStore,
+) -> Result<(AISettings, String), DbError> {
     let conn = db.conn()?;
-    let settings_json = conn
+    let mut settings_json = conn
         .query_row(
             "SELECT value FROM app_settings WHERE key = ?1",
             params![AI_SETTINGS_KEY],
@@ -124,8 +137,8 @@ pub fn get_ai_settings_with_store(
         )
         .optional()?;
 
-    let mut settings = match settings_json {
-        Some(value) => serde_json::from_str(&value)
+    let mut settings = match settings_json.as_deref() {
+        Some(value) => serde_json::from_str(value)
             .map(normalize_ai_settings)
             .map_err(DbError::from)?,
         None => AISettings::default(),
@@ -136,7 +149,16 @@ pub fn get_ai_settings_with_store(
             .map_err(DbError::Validation)?;
         settings.api_key.clear();
         persist_ai_settings_without_secret(db, &settings)?;
+        let conn = db.conn()?;
+        settings_json = conn
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = ?1",
+                params![AI_SETTINGS_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
     }
+    let settings_revision = app_setting_value_fingerprint(settings_json.as_deref());
     settings.api_key = credentials
         .get()
         .map_err(DbError::Validation)?
@@ -155,7 +177,7 @@ pub fn get_ai_settings_with_store(
     }
     settings.api_key_action = ApiKeyAction::Preserve;
     settings.api_key_configured = !settings.api_key.is_empty();
-    Ok(settings)
+    Ok((settings, settings_revision))
 }
 
 pub fn save_ai_settings_for_db(

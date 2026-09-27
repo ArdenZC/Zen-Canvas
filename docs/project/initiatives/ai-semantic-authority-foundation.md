@@ -1,6 +1,6 @@
 # AI Semantic Authority Foundation
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE; backend semantic-authority contract and deterministic consumption adapters only**
+Status: **COMPLETE / MERGED through PR #272 at `d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`**
 
 Issue: [#271 — AI Semantic Authority Foundation](https://github.com/ArdenZC/Zen-Canvas/issues/271)
 
@@ -115,13 +115,15 @@ Rules remain in the product for compatibility and future Policy/Safety/Preferenc
 
 ## Next product stage
 
-After this foundation merges, a separate AI-only Product Migration Track may:
+AI Semantic Authority Foundation merged through PR #272. The separate AI-only PM-01 Product Migration remains **NOT ACTIVE** on the owner design hold associated with issue #273 / Draft PR #274. The current pre-PM correctness gate is tracked separately in [Pre-PM Cleanup AI Gate Hardening](pre-pm-cleanup-ai-gate-hardening.md). This foundation alone does not authorize PM-01 implementation.
+
+A future, separately approved AI-only Product Migration Track may:
 - make Organize and Cleanup explicitly AI-first/AI-required where intended;
 - transform Automation from rule-centric authoring toward AI intent + policy + fresh analysis;
 - demote Rules navigation or reshape Rules into Policy/Preferences/Triggers;
 - redesign first-run onboarding to present AI, Search, Preview, Organize, Cleanup and History/Restore.
 
-Those are deliberately outside this backend foundation.
+Those remain outside this completed backend foundation.
 
 ## Platform residual
 
@@ -130,7 +132,7 @@ Those are deliberately outside this backend foundation.
 
 ## Owner review closeout
 
-Owner review passed on Production HEAD `c0454b280e15eae4f727840e21849cbe6dd7b08f` and docs-only Final HEAD `c9d873319d9a192f78a3f45695d019fbdeb67f18`.
+Owner review passed on Production HEAD `c0454b280e15eae4f727840e21849cbe6dd7b08f` and docs-only Final HEAD `c9d873319d9a192f78a3f45695d019fbdeb67f18`. PR #272 merged to `master` at `d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
 
 Accepted invariants:
 

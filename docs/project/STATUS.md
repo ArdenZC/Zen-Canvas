@@ -4,8 +4,9 @@ Last verified: 2026-09-27
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7` (Resident / Interactive Performance Qualification / PR #269). Final current-head CI [36284385347](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36284385347) is **SUCCESS**.
-- Current engineering initiative: **AI Semantic Authority Foundation — IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE** on `ai/semantic-authority-foundation`, issue [#271](https://github.com/ArdenZC/Zen-Canvas/issues/271). Production HEAD `c0454b280e15eae4f727840e21849cbe6dd7b08f` passed hosted CI [36293630071](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36293630071); pre-closeout Final HEAD `c9d873319d9a192f78a3f45695d019fbdeb67f18` passed [36294160138](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36294160138). macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and does not become a false macOS PASS.
+- Latest merged production baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`, the merge commit for AI Semantic Authority Foundation / PR #272. Its exact-head validation remains recorded in [the foundation result](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-RESULT.md).
+- Current engineering initiative: **ACTIVE — Pre-PM Cleanup AI Gate Hardening — implementation complete; OWNER REVIEW PASSED — READY TO MERGE** on `hardening/cleanup-ai-gate`, issue [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275), Draft PR [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276). Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; repaired Production HEAD: `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e`. Exact-head hosted CI [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257) is **SUCCESS** after a same-head retry of the failed Windows job. The current-truth update is a docs-only successor and remains subject to its own PR checks.
+- PM-01 is **NOT ACTIVE** and remains on the owner design hold associated with issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273) / Draft PR [#274](https://github.com/ArdenZC/Zen-Canvas/pull/274). This correctness gate does not authorize PM-01 implementation. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and is not reclassified.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -26,17 +27,14 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**AI Semantic Authority Foundation**
+**Pre-PM Cleanup AI Gate Hardening**
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE; backend semantic-authority contract/adapters only; no AI-only UI migration yet**.
+Status: **ACTIVE — implementation — current-assessment backend predicate complete; OWNER REVIEW PASSED — READY TO MERGE after owner re-review comment 5855703556; Production HEAD CI passed; Draft PR #276; no PM-01 product implementation**.
 
-Authority: [AI Semantic Authority Foundation](initiatives/ai-semantic-authority-foundation.md). Issue: [#271](https://github.com/ArdenZC/Zen-Canvas/issues/271). Branch: `ai/semantic-authority-foundation`. Activation baseline: `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
+Authority: [Pre-PM Cleanup AI Gate Hardening](initiatives/pre-pm-cleanup-ai-gate-hardening.md). Issue: [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275). Branch: `hardening/cleanup-ai-gate`. Draft PR: [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276). Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
 
-The merged Resident / Interactive Performance Qualification is accepted for the mainline: Windows HARD gates pass, the <=2x scheduler-interference metric remains a reviewed TARGET deviation rather than a HARD gate, and historical misses remain recorded. macOS resident startup remains **UNVERIFIED / BLOCKED BY #270** and continues to gate macOS support/release qualification specifically.
+AI Semantic Authority Foundation / PR #272 is **MERGED** at `d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; see its [result](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-RESULT.md). PM-01 remains **NOT ACTIVE** on owner design hold in #273 / Draft PR #274. This task hardens only Cleanup Analysis Finding revision/source/policy publication, candidate-level evidence and the backend current-assessment predicate; it does not implement AI-only product migration. #270 remains a separate macOS resident/release compatibility issue. Cleanup source identity preserves the reclaim estimate separately from a differing logical file length, addressing macOS allocated-size behavior without changing the cleanup authority chain.
 
-The current AI stage does not authorize autonomous mutation. Its purpose is to make one explicit semantic-assessment contract consumable by the existing durable Managed AI and Organization Plan boundaries while preserving deterministic path derivation, dry run, identity validation, confirmation, operation journal, Safe Trash and Restore. Cleanup may share semantic vocabulary/validation but retains Analysis Finding lifecycle; Rule Proposal remains policy authoring rather than per-file semantic truth.
-
-Rules navigation, Automation UX, onboarding and final AI-only Organize/Cleanup presentation are **NOT part of this Track**. Owner review has passed for the backend foundation; those product changes remain the next separate Track after PR #272 merges.
 
 ## Release, schema and platform truth
 

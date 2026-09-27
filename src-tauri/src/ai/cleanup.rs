@@ -13,10 +13,16 @@ use super::{
     },
     provider::AIProvider,
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions},
-    settings::{get_ai_settings_for_db, normalize_ai_settings, AISettings},
+    settings::{
+        get_ai_settings_for_db_with_revision, normalize_ai_settings, AISettings, AI_SETTINGS_KEY,
+    },
 };
 use crate::{
-    db::Database,
+    db::{
+        AnalysisAiAssessmentPublication, AnalysisAiFindingPrecondition, AnalysisAiPublicationBatch,
+        AnalysisDetectorDto, AnalysisFindingDto, AnalysisRunDto, Database,
+    },
+    ids::new_job_id,
     storage_analyzer::{
         resolve_analysis_candidates_for_cleanup, storage_candidate_from_analysis_finding,
         CleanupActionKind, CleanupTier, StorageCandidate,
@@ -42,7 +48,7 @@ pub struct AICleanupInputCandidate {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct AICleanupAnalysisOutput {
     pub candidate_id: String,
     pub tier: Option<String>,
@@ -56,9 +62,15 @@ pub struct AICleanupAnalysisOutput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct AICleanupAnalysisResponse {
     analyses: Vec<AICleanupAnalysisOutput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct AICleanupAnalysisEnvelope {
+    result: AICleanupAnalysisResponse,
 }
 
 #[tauri::command]
@@ -74,8 +86,9 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
     let db = db.inner().clone();
     let app_for_events = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let settings =
-            normalize_ai_settings(get_ai_settings_for_db(&db).map_err(|error| error.to_string())?);
+        let (settings, settings_revision) =
+            get_ai_settings_for_db_with_revision(&db).map_err(|error| error.to_string())?;
+        let settings = normalize_ai_settings(settings);
         let selections = ids
             .iter()
             .map(|id| {
@@ -90,35 +103,22 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let expected_revisions = selections
+            .iter()
+            .map(|selection| (selection.finding_id.clone(), selection.expected_revision))
+            .collect::<HashMap<_, _>>();
         let candidates = resolve_analysis_candidates_for_cleanup(&db, &job_id, &selections, false)?;
         let updated = analyze_cleanup_candidates_with_configured_provider(
+            &db,
+            &job_id,
             candidates,
+            &expected_revisions,
             &settings,
+            &settings_revision,
             app_data_dir,
         )?;
         let mut persisted = Vec::with_capacity(updated.len());
-        for candidate in updated {
-            let finding = db
-                .get_analysis_finding(&candidate.id)
-                .map_err(|error| error.to_string())?
-                .ok_or_else(|| format!("AI cleanup finding disappeared: {}", candidate.id))?;
-            let assessment = serde_json::json!({
-                "tier": tier_to_string(&candidate.tier),
-                "category": candidate.category,
-                "suggestedAction": action_to_string(&candidate.suggested_action),
-                "reason": candidate.reason,
-                "riskNote": candidate.risk_note,
-                "trashAllowed": candidate.trash_allowed,
-                "selectedByDefault": candidate.selected_by_default
-            });
-            let finding = db
-                .append_analysis_ai_assessment(
-                    &finding.id,
-                    tier_to_string(&candidate.tier),
-                    candidate.trash_allowed,
-                    &assessment,
-                )
-                .map_err(|error| error.to_string())?;
+        for finding in updated {
             if let Ok(run) = db.get_analysis_run(&finding.run_id) {
                 let _ = app_for_events.emit(crate::analysis::ANALYSIS_RUN_UPDATED_EVENT, run);
             }
@@ -130,65 +130,21 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
     .map_err(|error| error.to_string())?
 }
 
-fn analyze_cleanup_candidates_with_configured_provider(
-    candidates: Vec<StorageCandidate>,
-    settings: &AISettings,
-    app_data_dir: Option<PathBuf>,
-) -> Result<Vec<StorageCandidate>, String> {
-    if candidates.is_empty() {
-        return Ok(Vec::new());
-    }
-    if !settings.enabled {
-        return Err("AI cleanup analysis is disabled because AI is not enabled.".to_string());
-    }
-    if !settings.cleanup_ai_enabled {
-        return Err("AI cleanup analysis is disabled in AI settings.".to_string());
-    }
-    let provider: Box<dyn AIProvider> = match settings.provider {
-        AIProviderKind::OpenAICompatible => {
-            Box::new(OpenAICompatibleProvider::new(settings.clone()))
-        }
-        AIProviderKind::Ollama => Box::new(OllamaProvider::new(settings.clone())),
-    };
-    analyze_cleanup_candidates_with_provider(candidates, settings, provider.as_ref(), app_data_dir)
-}
-
-fn analyze_cleanup_candidates_with_provider(
-    candidates: Vec<StorageCandidate>,
-    settings: &AISettings,
-    provider: &dyn AIProvider,
-    app_data_dir: Option<PathBuf>,
-) -> Result<Vec<StorageCandidate>, String> {
-    let mut updated_by_id = HashMap::new();
-    let batch_size = settings.batch_size.max(1);
-    for batch in candidates.chunks(batch_size) {
-        let content = call_ai_cleanup_provider(provider, settings, batch, false)?;
-        let outputs = match parse_ai_cleanup_analysis_response(&content) {
-            Ok(outputs) => outputs,
-            Err(_) => {
-                let retry_content = call_ai_cleanup_provider(provider, settings, batch, true)?;
-                parse_ai_cleanup_analysis_response(&retry_content).map_err(|error| {
-                    format!(
-                        "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
-                    )
-                })?
-            }
-        };
-        for output in outputs {
-            if batch
-                .iter()
-                .any(|candidate| candidate.id == output.candidate_id)
-            {
-                updated_by_id.insert(output.candidate_id.clone(), output);
-            }
-        }
-    }
-    Ok(merge_ai_cleanup_results(
-        &candidates,
-        &updated_by_id,
-        app_data_dir.as_ref(),
-    ))
-}
+#[path = "cleanup/publication.rs"]
+mod publication;
+use publication::analyze_cleanup_candidates_with_configured_provider;
+#[cfg_attr(
+    not(test),
+    expect(
+        unused_imports,
+        reason = "Reserved backend currentness API for PM-01; no renderer command is exposed."
+    )
+)]
+pub(crate) use publication::has_current_ai_assessment;
+#[cfg(test)]
+use publication::{
+    analyze_cleanup_candidates_with_provider, cleanup_ai_coverage, CleanupAiProviderContext,
+};
 
 fn call_ai_cleanup_provider(
     provider: &dyn AIProvider,
@@ -289,20 +245,6 @@ pub(crate) fn parse_ai_cleanup_analysis_response(
         })
         .map_err(|error| ai_cleanup_json_error(content, &error.to_string()))?;
     cleanup_outputs_from_value(value).map_err(|error| ai_cleanup_json_error(content, &error))
-}
-
-fn merge_ai_cleanup_results(
-    candidates: &[StorageCandidate],
-    outputs_by_id: &HashMap<String, AICleanupAnalysisOutput>,
-    app_data_dir: Option<&PathBuf>,
-) -> Vec<StorageCandidate> {
-    candidates
-        .iter()
-        .map(|candidate| match outputs_by_id.get(&candidate.id) {
-            Some(output) => merge_ai_cleanup_analysis(candidate, output, app_data_dir),
-            None => candidate.clone(),
-        })
-        .collect()
 }
 
 pub(crate) fn merge_ai_cleanup_analysis(
@@ -605,8 +547,8 @@ fn cleanup_outputs_from_value(
 
     if let Some(result) = value.get("result") {
         if result.get("analyses").is_some() {
-            return serde_json::from_value::<AICleanupAnalysisResponse>(result.clone())
-                .map(|response| response.analyses)
+            return serde_json::from_value::<AICleanupAnalysisEnvelope>(value)
+                .map(|envelope| envelope.result.analyses)
                 .map_err(|error| format!("result.analyses schema mismatch: {error}"));
         }
     }
@@ -637,276 +579,5 @@ fn sanitize_ai_cleanup_error(message: String, api_key: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ai_cannot_make_trash_disallowed_candidate_allowed() {
-        let original = review_candidate("c1", "D:/Downloads/movie.mkv");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert!(!merged.trash_allowed);
-        assert_ne!(merged.suggested_action, CleanupActionKind::MoveToTrash);
-    }
-
-    #[test]
-    fn semantic_delete_candidate_does_not_grant_cleanup_trash_authority() {
-        let semantic = crate::ai::semantic::SemanticAssessmentV1::parse_provider_response(
-            r#"{"version":1,"refId":"managed:entry-1","fileType":"Document","purpose":"Work","lifecycle":"Active","context":"","riskLevel":"Normal","suggestedAction":"DeleteCandidate","confidence":0.95,"reason":"possible cleanup candidate","keywords":[],"requiresConfirmation":false}"#,
-            crate::ai::semantic::SemanticSourceBinding {
-                global_entry_id: "entry-1".to_string(),
-                managed_scope_id: "scope-1".to_string(),
-                input_fingerprint: "fingerprint-1".to_string(),
-                provider: "local".to_string(),
-            },
-            "archive.txt",
-            "txt",
-            false,
-        )
-        .expect("semantic suggestion remains advisory");
-        assert_eq!(semantic.suggested_action.as_str(), "DeleteCandidate");
-        assert!(semantic.requires_confirmation);
-
-        // Analysis Finding is evaluated only by its own detector and existing
-        // conservative merge contract; a semantic delete label cannot turn a
-        // review-only finding into Safe Trash permission.
-        let finding = review_candidate("c1", "D:/Downloads/archive.txt");
-        let merged = merge_ai_cleanup_analysis(&finding, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Review);
-        assert!(!merged.trash_allowed);
-        assert_ne!(merged.suggested_action, CleanupActionKind::MoveToTrash);
-    }
-
-    #[test]
-    fn ai_cannot_upgrade_caution_to_safe() {
-        let original = caution_candidate("c1", "D:/VMs/demo.vhdx");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Caution);
-        assert!(!merged.trash_allowed);
-    }
-
-    #[test]
-    fn caution_cannot_be_selected_by_default() {
-        let original = caution_candidate("c1", "D:/data/app.db");
-        let mut output = move_to_trash_output("c1");
-        output.selected_by_default = Some(true);
-        let merged = merge_ai_cleanup_analysis(&original, &output, None);
-        assert!(!merged.selected_by_default);
-    }
-
-    #[test]
-    fn program_files_cannot_move_to_trash() {
-        let original = safe_candidate("c1", "C:/Program Files/App/cache");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Caution);
-        assert_ne!(merged.suggested_action, CleanupActionKind::MoveToTrash);
-        assert!(!merged.trash_allowed);
-    }
-
-    #[test]
-    fn windows_path_cannot_move_to_trash() {
-        let original = safe_candidate("c1", "C:/Windows/Temp/demo.tmp");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Caution);
-        assert_ne!(merged.suggested_action, CleanupActionKind::MoveToTrash);
-    }
-
-    #[test]
-    fn appdata_cannot_be_selected_by_default() {
-        let original = safe_candidate("c1", "C:/Users/me/AppData/Local/App/cache");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Review);
-        assert!(!merged.selected_by_default);
-    }
-
-    #[test]
-    fn browser_profile_stays_caution() {
-        let original = caution_candidate(
-            "c1",
-            "C:/Users/me/AppData/Local/Google/Chrome/User Data/Default",
-        );
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Caution);
-        assert!(!merged.trash_allowed);
-    }
-
-    #[test]
-    fn database_file_stays_caution() {
-        let original = caution_candidate("c1", "D:/data/prod.sqlite3");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Caution);
-    }
-
-    #[test]
-    fn virtual_machine_image_stays_caution() {
-        let original = caution_candidate("c1", "D:/VMs/demo.qcow2");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Caution);
-    }
-
-    #[test]
-    fn node_modules_can_remain_safe() {
-        let original = safe_candidate("c1", "D:/Projects/demo/node_modules");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Safe);
-        assert_eq!(merged.suggested_action, CleanupActionKind::MoveToTrash);
-        assert!(merged.trash_allowed);
-    }
-
-    #[test]
-    fn node_modules_can_receive_risk_note() {
-        let original = safe_candidate("c1", "D:/Projects/demo/node_modules");
-        let mut output = move_to_trash_output("c1");
-        output.risk_note = Some("Check npm link and local patches first.".to_string());
-        let merged = merge_ai_cleanup_analysis(&original, &output, None);
-        assert_eq!(
-            merged.risk_note.as_deref(),
-            Some("Check npm link and local patches first.")
-        );
-    }
-
-    #[test]
-    fn unknown_large_item_stays_review() {
-        let original = review_candidate("c1", "D:/Downloads/archive.bin");
-        let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);
-        assert_eq!(merged.tier, CleanupTier::Review);
-        assert!(!merged.trash_allowed);
-    }
-
-    #[test]
-    fn illegal_candidate_id_is_ignored() {
-        let original = safe_candidate("c1", "D:/Projects/demo/node_modules");
-        let mut outputs = HashMap::new();
-        outputs.insert("other".to_string(), move_to_trash_output("other"));
-        let merged = merge_ai_cleanup_results(std::slice::from_ref(&original), &outputs, None);
-        assert_eq!(merged[0].id, original.id);
-        assert_eq!(merged[0].reason, original.reason);
-    }
-
-    #[test]
-    fn illegal_enum_falls_back_to_original() {
-        let original = safe_candidate("c1", "D:/Projects/demo/node_modules");
-        let mut output = move_to_trash_output("c1");
-        output.tier = Some("Danger".to_string());
-        output.suggested_action = Some("DeleteNow".to_string());
-        let merged = merge_ai_cleanup_analysis(&original, &output, None);
-        assert_eq!(merged.tier, CleanupTier::Safe);
-        assert_eq!(merged.suggested_action, CleanupActionKind::MoveToTrash);
-    }
-
-    #[test]
-    fn api_key_is_redacted_from_errors() {
-        let message = sanitize_ai_cleanup_error(
-            "Provider rejected key sk-cleanup-secret".to_string(),
-            "sk-cleanup-secret",
-        );
-        assert!(!message.contains("sk-cleanup-secret"));
-        assert!(message.contains("[redacted]"));
-    }
-
-    #[test]
-    fn cleanup_markdown_wrapped_json_parses() {
-        let content = format!("```json\n{}\n```", cleanup_response("c1"));
-        let outputs = parse_ai_cleanup_analysis_response(&content).expect("parse markdown");
-        assert_eq!(outputs[0].candidate_id, "c1");
-    }
-
-    #[test]
-    fn cleanup_thinking_wrapped_json_parses() {
-        let content = format!(
-            "<think>Risk analysis goes here.</think>\n{}",
-            cleanup_response("c1")
-        );
-        let outputs = parse_ai_cleanup_analysis_response(&content).expect("strip thinking");
-        assert_eq!(outputs[0].candidate_id, "c1");
-    }
-
-    #[test]
-    fn cleanup_direct_array_json_parses() {
-        let content = r#"[{"candidateId":"c1","tier":"Safe","category":"AI category","suggestedAction":"MoveToTrash","confidence":0.95,"reason":"AI reason.","riskNote":"AI risk.","trashAllowed":true,"selectedByDefault":true}]"#;
-        let outputs = parse_ai_cleanup_analysis_response(content).expect("parse direct array");
-        assert_eq!(outputs[0].candidate_id, "c1");
-    }
-
-    #[test]
-    fn cleanup_nested_result_analyses_parses() {
-        let content = r#"{"result":{"analyses":[{"candidateId":"c1","tier":"Safe","category":"AI category","suggestedAction":"MoveToTrash","confidence":0.95,"reason":"AI reason.","riskNote":"AI risk.","trashAllowed":true,"selectedByDefault":true}]}}"#;
-        let outputs = parse_ai_cleanup_analysis_response(content).expect("parse result.analyses");
-        assert_eq!(outputs[0].candidate_id, "c1");
-    }
-
-    fn safe_candidate(id: &str, path: &str) -> StorageCandidate {
-        candidate(
-            id,
-            path,
-            CleanupTier::Safe,
-            CleanupActionKind::MoveToTrash,
-            true,
-            true,
-        )
-    }
-
-    fn review_candidate(id: &str, path: &str) -> StorageCandidate {
-        candidate(
-            id,
-            path,
-            CleanupTier::Review,
-            CleanupActionKind::Reveal,
-            false,
-            false,
-        )
-    }
-
-    fn caution_candidate(id: &str, path: &str) -> StorageCandidate {
-        candidate(
-            id,
-            path,
-            CleanupTier::Caution,
-            CleanupActionKind::Reveal,
-            false,
-            false,
-        )
-    }
-
-    fn candidate(
-        id: &str,
-        path: &str,
-        tier: CleanupTier,
-        suggested_action: CleanupActionKind,
-        trash_allowed: bool,
-        selected_by_default: bool,
-    ) -> StorageCandidate {
-        StorageCandidate {
-            id: id.to_string(),
-            path: path.to_string(),
-            name: path.rsplit('/').next().unwrap_or(path).to_string(),
-            size: 820_000_000,
-            tier,
-            category: "Original category".to_string(),
-            reason: "Original reason.".to_string(),
-            suggested_action,
-            risk_note: Some("Original risk.".to_string()),
-            trash_allowed,
-            selected_by_default,
-        }
-    }
-
-    fn move_to_trash_output(id: &str) -> AICleanupAnalysisOutput {
-        AICleanupAnalysisOutput {
-            candidate_id: id.to_string(),
-            tier: Some("Safe".to_string()),
-            category: Some("AI category".to_string()),
-            suggested_action: Some("MoveToTrash".into()),
-            confidence: Some(0.95),
-            reason: Some("AI reason.".to_string()),
-            risk_note: Some("AI risk.".to_string()),
-            trash_allowed: Some(true),
-            selected_by_default: Some(true),
-        }
-    }
-
-    fn cleanup_response(id: &str) -> String {
-        format!(
-            r#"{{"analyses":[{{"candidateId":"{id}","tier":"Safe","category":"AI category","suggestedAction":"MoveToTrash","confidence":0.95,"reason":"AI reason.","riskNote":"AI risk.","trashAllowed":true,"selectedByDefault":true}}]}}"#
-        )
-    }
-}
+#[path = "cleanup/tests.rs"]
+mod tests;
