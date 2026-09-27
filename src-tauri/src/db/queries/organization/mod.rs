@@ -5477,6 +5477,162 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    fn seed_performance_current_managed_semantics(db: &Database, count: usize) {
+        let mut settings = crate::ai::settings::AISettings::default();
+        settings.enabled = true;
+        let settings_json =
+            serde_json::to_string(&settings).expect("serialize benchmark AI settings");
+        let mut conn = db.conn().expect("benchmark semantic seed connection");
+        let tx = conn
+            .transaction()
+            .expect("benchmark semantic seed transaction");
+        tx.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![crate::ai::settings::AI_SETTINGS_KEY, settings_json],
+        )
+        .expect("enable benchmark AI settings");
+        tx.execute(
+            "INSERT INTO global_volumes (
+                id, platform, stable_volume_id, display_name, mount_path,
+                filesystem_type, drive_kind, enabled, provider, index_status,
+                entry_count, created_at, updated_at
+             ) VALUES (
+                'organization-benchmark-volume', 'test',
+                'organization-benchmark-stable-volume', 'Organization benchmark',
+                '/missing', 'test', 'fixed', 1, 'test', 'ready', 0, 1, 1
+             )",
+            [],
+        )
+        .expect("seed benchmark global volume");
+        tx.execute(
+            "INSERT INTO managed_scopes (
+                id, path, global_entry_id, enabled,
+                allow_local_ai, allow_cloud_ai, created_at, updated_at
+             ) VALUES (
+                'organization-benchmark-scope', '/missing', NULL, 1, 0, 1, 1, 1
+             )",
+            [],
+        )
+        .expect("seed benchmark managed scope");
+
+        for ordinal in 0..count {
+            let file_id = format!("bench-file-{ordinal:05}");
+            let entry_id = format!("bench-global-{ordinal:05}");
+            let managed_entry_id = format!("bench-managed-{ordinal:05}");
+            let job_id = format!("bench-ai-job-{ordinal:05}");
+            let job_item_id = format!("bench-ai-item-{ordinal:05}");
+            let platform_file_id = format!("bench-platform-{ordinal:05}");
+            let source_name = format!("source-{ordinal:05}.txt");
+            let target_name = format!("renamed-{ordinal:05}.txt");
+            let source_path = format!("/missing/{source_name}");
+            let input_fingerprint =
+                crate::global_index::managed_worker::metadata_fingerprint(
+                    "organization-benchmark-volume",
+                    &platform_file_id,
+                    &source_name,
+                    1,
+                    1,
+                    false,
+                );
+            let binding = crate::ai::semantic::SemanticSourceBinding {
+                global_entry_id: entry_id.clone(),
+                managed_scope_id: "organization-benchmark-scope".to_string(),
+                input_fingerprint: input_fingerprint.clone(),
+                provider: "cloud".to_string(),
+            };
+            let provider_response = serde_json::json!({
+                "version": 1,
+                "refId": format!("managed:{entry_id}"),
+                "fileType": "Document",
+                "purpose": "Work",
+                "lifecycle": "Active",
+                "context": "organization benchmark",
+                "riskLevel": "Normal",
+                "suggestedAction": "Rename",
+                "suggestedName": target_name,
+                "confidence": 0.95,
+                "reason": "current semantic benchmark fixture",
+                "keywords": [],
+                "requiresConfirmation": false
+            })
+            .to_string();
+            let assessment = crate::ai::semantic::SemanticAssessmentV1::parse_provider_response(
+                &provider_response,
+                binding,
+                &source_name,
+                "txt",
+                false,
+            )
+            .expect("build benchmark semantic assessment");
+            let canonical = assessment
+                .canonical_json()
+                .expect("encode benchmark semantic assessment");
+
+            tx.execute(
+                "INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at
+                 ) VALUES (
+                    ?1, 'organization-benchmark-volume', ?2, '',
+                    ?3, ?4, ?5, ?5, 'txt',
+                    0, 1, 1, 1, 0, 0, 0, 0, 'test', 1
+                 )",
+                params![
+                    entry_id,
+                    platform_file_id,
+                    source_name,
+                    source_name.to_ascii_lowercase(),
+                    source_path
+                ],
+            )
+            .expect("seed benchmark global entry");
+            tx.execute(
+                "INSERT INTO managed_entries (
+                    id, global_entry_id, managed_scope_id, enabled, created_at, updated_at
+                 ) VALUES (?1, ?2, 'organization-benchmark-scope', 1, 1, 1)",
+                params![managed_entry_id, entry_id],
+            )
+            .expect("seed benchmark managed entry");
+            tx.execute(
+                "INSERT INTO ai_analysis_state (
+                    global_entry_id, status, input_fingerprint, provider, model,
+                    content_summary, classification_json, user_corrected, updated_at
+                 ) VALUES (?1, 'completed', ?2, 'cloud', ?3, 'metadata_only', ?4, 0, 1)",
+                params![entry_id, input_fingerprint, settings.model, canonical],
+            )
+            .expect("seed benchmark current AI state");
+            tx.execute(
+                "INSERT INTO ai_jobs (
+                    id, global_entry_id, managed_scope_id, input_fingerprint,
+                    provider, model, processing_mode, status, attempt_count,
+                    created_at, started_at, completed_at
+                 ) VALUES (
+                    ?1, ?2, 'organization-benchmark-scope', ?3,
+                    'cloud', ?4, 'metadata', 'completed', 1, 1, 1, 1
+                 )",
+                params![job_id, entry_id, input_fingerprint, settings.model],
+            )
+            .expect("seed benchmark completed AI job");
+            tx.execute(
+                "INSERT INTO ai_job_items (
+                    id, job_id, global_entry_id, status, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, 'completed', 1, 1)",
+                params![job_item_id, job_id, entry_id],
+            )
+            .expect("seed benchmark completed AI job item");
+
+            // Keep the legacy File Library row in place because Task 06 still
+            // benchmarks the durable Plan ledger. PM-01 semantic authority is
+            // supplied by the current Managed AI binding above.
+            let _ = file_id;
+        }
+        tx.commit().expect("publish benchmark semantic fixtures");
+    }
+
     #[test]
     #[ignore = "Task 06 100/1k/10k plan ledger, review, dry-run, refresh, WAL and prune benchmark"]
     fn performance_task06_plan_100_1k_10k_repository() {
@@ -5582,6 +5738,10 @@ mod tests {
             }
 
             if count <= 1_000 {
+                seed_performance_current_managed_semantics(&db, count);
+            }
+
+            if count <= 1_000 {
                 let mut conn = db.conn().expect("sync benchmark proposals connection");
                 let tx = conn
                     .transaction()
@@ -5592,22 +5752,15 @@ mod tests {
                     let file = load_indexed_file_by_id(&tx, &file_id)
                         .expect("load benchmark proposal file")
                         .expect("benchmark proposal file exists");
-                    let preview = operation_preview_from_indexed(file.clone());
-                    let proposal = proposal_from_preview(
-                        &file.path,
-                        &file.name,
-                        &file.classification_status,
-                        &file.suggested_action,
-                        preview.clone(),
-                    );
+                    let projection = current_organization_projection(&tx, &file)
+                        .expect("resolve benchmark current semantic proposal");
+                    let preview = projection
+                        .preview
+                        .expect("benchmark semantic proposal has authoritative preview");
                     tx.execute(
                         "UPDATE organization_plan_items SET proposal_fingerprint = ?1,
                                 authoritative_preview_id = ?2 WHERE id = ?3",
-                        params![
-                            proposal.fingerprint,
-                            preview.map(|current| current.id),
-                            item_id,
-                        ],
+                        params![projection.proposal.fingerprint, preview.id, item_id],
                     )
                     .expect("bind benchmark proposal facts");
                 }
@@ -5796,18 +5949,26 @@ mod tests {
                         ],
                     )
                     .expect("seed authoritative execution proposal");
+                    tx.execute(
+                        "UPDATE global_entries
+                         SET path = ?2, path_normalized = ?2, last_seen_at = 2
+                         WHERE id = ?1",
+                        params![
+                            format!("bench-global-{ordinal:05}"),
+                            source_path.to_string_lossy().replace('\\', "/")
+                        ],
+                    )
+                    .expect("move benchmark global identity with execution fixture");
                     let indexed = load_indexed_file_by_id(&tx, &file_id)
                         .expect("load authoritative execution file")
                         .expect("authoritative execution file exists");
-                    let preview = operation_preview_from_indexed(indexed.clone())
-                        .expect("authoritative execution preview");
-                    let proposal = proposal_from_preview(
-                        &indexed.path,
-                        &indexed.name,
-                        &indexed.classification_status,
-                        &indexed.suggested_action,
-                        Some(preview.clone()),
-                    );
+                    let projection = current_organization_projection(&tx, &indexed)
+                        .expect("resolve authoritative execution semantic proposal");
+                    let preview = projection
+                        .preview
+                        .clone()
+                        .expect("authoritative semantic execution preview");
+                    let proposal = projection.proposal;
                     tx.execute(
                         "UPDATE organization_plan_items SET
                             source_path_snapshot = ?2, source_name_snapshot = ?3,
