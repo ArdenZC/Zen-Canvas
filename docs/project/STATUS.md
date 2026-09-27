@@ -5,8 +5,8 @@ Last verified: 2026-09-27
 ## Current execution truth
 
 - Latest merged production baseline: `master@a62c30f037956c3838244e113da881d9c77b7be1`, the squash merge for Pre-PM AI Readiness + Consent Contract / PR #279. Accepted Production HEAD `dc144b6efaa6ae101f7c624ad32228cb85b91d65` passed exact-head CI [36324852969](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36324852969); docs-only Final HEAD `a8bc3284bdf98fa697ad49c318eeeab59f224a99` passed CI [36327475054](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36327475054); owner-approved pre-merge HEAD `e362368abd6409063b0ef0be0b5292f621928e9d` passed CI [36328365116](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36328365116); merge-after master CI [36329213184](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36329213184) is **SUCCESS**.
-- Current engineering initiative: **ACTIVE — Post-Pre-PM Sequencing Review — specification only** on `spec/post-pre-pm-sequencing`, issue [#281](https://github.com/ArdenZC/Zen-Canvas/issues/281). Baseline: `master@81cbfc37fe83b441be85047045fe79490323f7aa`. This Track freezes the sequence between PM-01 production migration and the parallel ZenDecisionBench / Preference Memory / System One research lane; it authorizes no production implementation.
-- PM-01 is **NOT ACTIVE** and remains on the owner design hold associated with issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273) / Draft PR [#274](https://github.com/ArdenZC/Zen-Canvas/pull/274). This correctness gate does not authorize PM-01 implementation. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and is not reclassified.
+- Current engineering initiative: **ACTIVE — Pre-PM Cleanup AI Data-Sharing Consent Gate — implementation** on `hardening/cleanup-ai-consent`, issue [#284](https://github.com/ArdenZC/Zen-Canvas/issues/284). Baseline: `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`. This narrow Track closes the remaining PM-01 deep-audit hold condition: distinct backend-enforced Cleanup local/cloud data-sharing consent. PM-01 remains NOT ACTIVE.
+- PM-01 is **NOT ACTIVE**. Post-Pre-PM Sequencing Review / PR #282 is **COMPLETE / MERGED** at `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`, and old Draft PR #274 is **CLOSED / superseded**. A final narrow blocker remains: Cleanup AI still lacks distinct local/cloud data-sharing consent; issue #284 owns that correction. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270).
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -27,20 +27,17 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**Post-Pre-PM Sequencing Review**
+**Pre-PM Cleanup AI Data-Sharing Consent Gate**
 
-Status: **ACTIVE — specification only — sequencing decision drafted; production implementation remains unauthorized until owner review closes this Track.**
+Status: **ACTIVE — implementation — distinct Cleanup local/cloud consent/readiness/enforcement is authorized; PM-01 remains NOT ACTIVE.**
 
-Authority: [Post-Pre-PM Sequencing Review](initiatives/post-pre-pm-sequencing-review.md). Issue: [#281](https://github.com/ArdenZC/Zen-Canvas/issues/281). Branch: `spec/post-pre-pm-sequencing`. Baseline: `master@81cbfc37fe83b441be85047045fe79490323f7aa`.
+Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md). Issue: [#284](https://github.com/ArdenZC/Zen-Canvas/issues/284). Branch: `hardening/cleanup-ai-consent`. Baseline: `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`.
 
-The draft sequencing decision is:
+Confirmed blocker: Cleanup AI always sends candidate name/metadata and may send parent/full path according to AI privacy settings, but current production has no distinct Cleanup local/cloud data-sharing policy. Managed Scope consent and Content Scope Policy are separate authorities and may not be borrowed.
 
-- **PM-01 is the next production implementation Track**, but it must restart from a fresh branch based on then-current master rather than resuming production work on stale Draft PR #274.
-- **ZenDecisionBench may run in parallel as research-only** and is not a PM-01 merge gate.
-- **Preference Memory Research may run inside the research lane**, but no production Preference Memory authority/schema is authorized by PM-01.
-- **Laya/Jev/System One production adoption remains evidence-gated and later**; research may not modify PM-01 product behavior or existing Zen semantic/mutation authorities.
+This Track may add fail-closed Cleanup local/cloud policy fields to existing versioned AI settings, extend backend readiness with Cleanup context, enforce consent server-side before provider work, and expose explicit settings UX. It must not make Cleanup AI mandatory for execution yet and must not change Cleanup Finding, Operation Preview, Safe Trash, journal or Restore authority.
 
-PM-01 remains **NOT ACTIVE** while this specification Track is current. #274 remains Open/Draft and docs-only historical design/audit evidence until the owner accepts its supersession disposition. #270 remains separate.
+Post-Pre-PM Sequencing Review / #282 is **COMPLETE / MERGED**. Research issue #283 may proceed independently as research-only and is not a PM-01 or #284 merge gate. Old #274 remains closed/superseded. #270 remains separate.
 
 ## Release, schema and platform truth
 

@@ -87,24 +87,25 @@ Final authority:
 
 ## Current
 
-### Post-Pre-PM Sequencing Review
+### Pre-PM Cleanup AI Data-Sharing Consent Gate
 
-Status: **ACTIVE — specification only — issue #281; branch `spec/post-pre-pm-sequencing`; no production implementation authorized.**
+Status: **ACTIVE — implementation — issue #284; branch `hardening/cleanup-ai-consent`; PM-01 remains NOT ACTIVE.**
 
-Authority: [Post-Pre-PM Sequencing Review](initiatives/post-pre-pm-sequencing-review.md) and [sequencing decision](tasks/POST-PRE-PM-SEQUENCING-REVIEW.md).
+Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md) and [activation taskbook](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-ACTIVATION.md).
 
-Frozen draft sequence:
+Current sequence:
 
 1. Pre-PM foundations through AI Readiness + Consent — **COMPLETE / MERGED**.
-2. **Post-Pre-PM Sequencing Review — CURRENT / SPECIFICATION ONLY.**
-3. PM-01 AI-only Core Experience — **next production Track after owner acceptance; fresh activation from then-current master required; stale #274 is not the production baseline.**
-4. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane; may begin after sequencing acceptance; not a PM-01 merge gate.**
-5. System One or production Preference Memory integration — **NOT AUTHORIZED; requires benchmark evidence and a separate production architecture initiative.**
-6. PM-02 / PM-03 — remain behind their existing PM-01 owner-review gates.
+2. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through PR #282 to `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`.
+3. **Pre-PM Cleanup AI Data-Sharing Consent Gate — CURRENT / ACTIVE.**
+4. Fresh PM-01 AI-only Core Experience activation — **BLOCKED only on #284 owner review/merge; old #274 is CLOSED / superseded.**
+5. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane via #283; not a PM-01 merge gate.**
+6. System One or production Preference Memory integration — **NOT AUTHORIZED; separate evidence and architecture gate required.**
+7. PM-02 / PM-03 remain behind PM-01 owner-review gates.
 
-The research lane may inform later PM work but may not change PM-01 product behavior, SemanticAssessmentV1 authority, Organization Plan, Operation Preview, Cleanup Finding, Safe Trash, Restore, production schema or release authority.
+This correction does not reverse the sequencing decision that PM-01 is the next product implementation mainline. It closes the one remaining consent prerequisite before that activation.
 
-PM-01 remains **NOT ACTIVE** during this specification Track. #270 remains separate. Release publication remains deferred.
+#270 remains separate. Release publication remains deferred.
 
 ## Resident / Interactive Performance Qualification
 
