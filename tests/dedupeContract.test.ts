@@ -126,7 +126,7 @@ describe("Task 03 durable analysis contract", () => {
     expect(cleanup).toContain("resolve_analysis_candidates_for_cleanup");
     expect(cleanup).toContain("Storage cleanup finding identity changed");
     expect(cleanup).toContain("move_cleanup_candidates_to_safe_trash");
-    expect(aiCleanupPublication).toContain("append_analysis_ai_assessment");
+    expect(aiCleanupPublication).toContain("publish_analysis_ai_assessments_cas");
     expect(aiCleanup).not.toContain("execute_moves");
     expect(aiCleanupPublication).not.toContain("execute_moves");
     expect(api).toContain("listAnalysisFindings");
