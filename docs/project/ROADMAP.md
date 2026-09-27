@@ -87,23 +87,23 @@ Final authority:
 
 ## Current
 
-### Pre-PM AI Readiness + Consent Contract
+### No active initiative
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE — owner review comment `5857028109`; Production HEAD `dc144b6efaa6ae101f7c624ad32228cb85b91d65`; Final HEAD `a8bc3284bdf98fa697ad49c318eeeab59f224a99`; Final exact-head CI `36327475054` SUCCESS; Draft PR #279; PM-01 remains NOT ACTIVE.**
+Status: **between initiatives — no active implementation.**
 
-Authority: [Pre-PM AI Readiness + Consent Contract](initiatives/pre-pm-ai-readiness-consent-contract.md), [activation brief](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-ACTIVATION.md), and [result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md).
-
-Sequence:
+Current foundation sequence:
 
 1. ZB-01 through ZB-05 — **MERGED**.
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
 3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269.
 4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272.
 5. Pre-PM Cleanup AI Gate Hardening — **COMPLETE / MERGED** through PR #276.
-6. **Pre-PM AI Readiness + Consent Contract — CURRENT / ACTIVE; implementation complete; OWNER REVIEW PASSED — READY TO MERGE in Draft PR #279.**
-7. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. It may consume this foundation only after separate owner release from hold.
+6. Pre-PM AI Readiness + Consent Contract — **COMPLETE / MERGED** through PR #279 to `master@a62c30f037956c3838244e113da881d9c77b7be1`; owner review passed, issue #278 is closed, and merge-after CI `36329213184` succeeded.
+7. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. Completion of the Pre-PM foundations does not automatically activate PM-01.
 
-macOS resident/release support remains separately gated by #270. Release publication remains deferred. Local task hygiene for this Track remains pending under `F:\.codex-temp\ai-readiness-consent` because host policy blocked cleanup; repository precedent treats this as unresolved local hygiene, not a product or merge blocker.
+The completed readiness contract is documented in [the result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md). Local task hygiene remains pending under `F:\.codex-temp\ai-readiness-consent` because host policy blocked cleanup; this is not a product or merge blocker.
+
+macOS resident/release support remains separately gated by #270. Release publication remains deferred.
 
 ## Resident / Interactive Performance Qualification
 

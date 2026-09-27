@@ -1,6 +1,6 @@
 # Pre-PM AI Readiness + Consent Contract
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE**
+Status: **COMPLETE / MERGED — owner review passed; PR #279 squash-merged; merge-after CI SUCCESS; issue #278 closed**
 
 Owner: Zen Canvas
 
@@ -141,14 +141,14 @@ The readiness contract must preserve:
   2. backend readiness implementation;
   3. focused security/contract tests;
   4. docs/result and owner review.
-- PR URL/number: [#279 — Draft](https://github.com/ArdenZC/Zen-Canvas/pull/279).
+- PR URL/number: [#279 — merged](https://github.com/ArdenZC/Zen-Canvas/pull/279).
 - Review owner: direct owner/ChatGPT diff and evidence review; Codex Review is not merge authority.
 
 ## Closeout
 
-- Merge SHA: pending.
+- Merge SHA: `a62c30f037956c3838244e113da881d9c77b7be1`.
 - Production HEAD: `dc144b6efaa6ae101f7c624ad32228cb85b91d65`; owner Production HEAD review accepted documentation closeout in PR comment `5856883781`; final owner review passed in PR comment `5857028109`.
-- Current-truth files updated: Result/Architecture/STATUS/ROADMAP/RISK closeout in progress as a docs-only successor.
+- Current-truth files updated: Result/Architecture/STATUS/ROADMAP/RISK reconciled through the merge and this docs-only closeout.
 - Deferred/unverified items recorded: live provider connectivity is not inferred by configuration readiness; PM-01 hold and #270 remain separate.
 - Local task hygiene: **PENDING — NOT A PRODUCT OR MERGE BLOCKER**. `F:\.codex-temp\ai-readiness-consent` retains 10 task-owned SQLite fixtures after the automatic safety reviewer rejected the bounded cleanup action before execution. No bypass was used.
-- Branch retirement: pending.
+- Merge-after CI: [36329213184](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36329213184) — **SUCCESS**. Issue #278 is **CLOSED / completed**. Branch retirement remains optional repository hygiene after closeout.
