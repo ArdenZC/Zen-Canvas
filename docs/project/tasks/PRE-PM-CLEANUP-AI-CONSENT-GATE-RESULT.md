@@ -1,10 +1,10 @@
 # Pre-PM Cleanup AI Data-Sharing Consent Gate — Result
 
-Status: **OWNER REVIEW PASSED — READY TO MERGE**
+Status: **COMPLETE / MERGED — OWNER REVIEW PASSED**
 
 Issue: [#284](https://github.com/ArdenZC/Zen-Canvas/issues/284)
 
-Draft PR: [#285](https://github.com/ArdenZC/Zen-Canvas/pull/285)
+Merged PR: [#285](https://github.com/ArdenZC/Zen-Canvas/pull/285)
 
 Baseline: `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`
 
@@ -141,8 +141,12 @@ The Cleanup data-sharing consent prerequisite is **implemented and exact-head va
 
 Owner review comment `5857816333`: **PASSED**.
 
-The hold is not formally released until PR #285 merges.
+PR #285 squash-merged to `master@17599b3344616a43686a376b790cb8bae1f52fa7`.
 
-Current disposition:
+Merge-after master CI [36338751754](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36338751754) — **SUCCESS**.
 
-**OWNER REVIEW PASSED — READY TO MERGE**
+Issue #284 — **CLOSED / completed**.
+
+Final disposition:
+
+**COMPLETE / MERGED — PM-01 CONSENT HOLD RELEASED**
