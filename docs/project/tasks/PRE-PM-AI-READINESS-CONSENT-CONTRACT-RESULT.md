@@ -1,12 +1,12 @@
 # Pre-PM AI Readiness + Consent Contract — Result
 
-Status: **IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING**
+Status: **COMPLETE / MERGED — OWNER REVIEW PASSED — LOCAL TASK HYGIENE PENDING**
 
 Issue: [#278](https://github.com/ArdenZC/Zen-Canvas/issues/278)
 
 Branch: `foundation/ai-readiness-consent`
 
-Draft PR: [#279](https://github.com/ArdenZC/Zen-Canvas/pull/279)
+Merged PR: [#279](https://github.com/ArdenZC/Zen-Canvas/pull/279)
 
 Activation baseline: `master@6529d6023454cf50afc385b3ac9b503ca4a3a4cd`
 
@@ -15,6 +15,14 @@ Production HEAD: `dc144b6efaa6ae101f7c624ad32228cb85b91d65`
 Owner Production HEAD review: PR comment `5856883781` — **Production HEAD ACCEPTED — READY FOR DOCUMENTATION CLOSEOUT — LOCAL TASK HYGIENE PENDING**.
 
 Final owner review: PR comment `5857028109` — **OWNER REVIEW PASSED — PRE-PM AI READINESS + CONSENT CONTRACT ACCEPTED**.
+
+Pre-merge owner-truth HEAD: `e362368abd6409063b0ef0be0b5292f621928e9d`; exact-head CI [36328365116](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36328365116) — **SUCCESS**.
+
+Squash merge: `master@a62c30f037956c3838244e113da881d9c77b7be1`.
+
+Merge-after master CI: [36329213184](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36329213184) — **SUCCESS**.
+
+Issue #278: **CLOSED / completed**.
 
 ## 1. Outcome
 
@@ -205,10 +213,8 @@ The rest of this closeout is documentation/current-truth evidence.
 
 ## 13. Owner-review gate
 
-Current pre-merge disposition:
+Final disposition:
 
-**OWNER REVIEW PASSED — READY TO MERGE — LOCAL TASK HYGIENE PENDING.**
+**COMPLETE / MERGED — OWNER REVIEW PASSED — LOCAL TASK HYGIENE PENDING.**
 
-The local hygiene residue is not a product or merge blocker, but it remains truthfully unresolved.
-
-Do not mark this Track `COMPLETE` or `MERGED` until merge closeout occurs.
+The local hygiene residue is not a product or merge blocker, but it remains truthfully unresolved until an authorized owner/local cleanup removes it. PM-01 remains separately held and was not activated by this merge.
