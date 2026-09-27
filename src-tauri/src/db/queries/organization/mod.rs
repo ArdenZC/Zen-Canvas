@@ -5526,15 +5526,14 @@ mod tests {
             let source_name = format!("source-{ordinal:05}.txt");
             let target_name = format!("renamed-{ordinal:05}.txt");
             let source_path = format!("/missing/{source_name}");
-            let input_fingerprint =
-                crate::global_index::managed_worker::metadata_fingerprint(
-                    "organization-benchmark-volume",
-                    &platform_file_id,
-                    &source_name,
-                    1,
-                    1,
-                    false,
-                );
+            let input_fingerprint = crate::global_index::managed_worker::metadata_fingerprint(
+                "organization-benchmark-volume",
+                &platform_file_id,
+                &source_name,
+                1,
+                1,
+                false,
+            );
             let binding = crate::ai::semantic::SemanticSourceBinding {
                 global_entry_id: entry_id.clone(),
                 managed_scope_id: "organization-benchmark-scope".to_string(),
