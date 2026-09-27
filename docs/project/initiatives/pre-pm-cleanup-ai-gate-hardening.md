@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Gate Hardening
 
-Status: **ACTIVE — implementation — implementation complete; READY FOR OWNER RE-REVIEW after owner comment 5855180648; Production HEAD CI passed; Draft PR #276 remains open**
+Status: **ACTIVE — implementation — implementation complete; OWNER REVIEW PASSED — READY TO MERGE after owner re-review comment 5855703556; Production HEAD CI passed; Draft PR #276 remains open**
 
 Issue: [#275 — Pre-PM Cleanup AI Gate Hardening](https://github.com/ArdenZC/Zen-Canvas/issues/275)
 
@@ -50,7 +50,7 @@ The macOS storage analyzer may report allocated bytes as the cleanup reclaim est
 - Evidence exists only for eligible unique returned candidates and records successful CAS publication.
 - `ai_assessment` evidence exists != current AI assessment; consumers use the backend predicate or a richer backend status API, never renderer-side evidence JSON interpretation.
 - Focused parsing, publication, safety, durable-lifecycle and race tests pass on the production SHA.
-- Exact-head hosted CI and owner review remain required before any merge or PM-01 activation.
+- Exact-head hosted CI passed and owner re-review passed in comment `5855703556`; merge remains the only closeout gate before this initiative becomes COMPLETE / MERGED. PM-01 remains separately held.
 
 Production-code validation is bound to the exact Production HEAD above. The current-truth docs update follows it as a docs-only successor and remains independently subject to its PR checks.
 
