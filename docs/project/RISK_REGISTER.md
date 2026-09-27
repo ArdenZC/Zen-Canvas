@@ -15,15 +15,34 @@ Severity guide:
 | R-FS-001 | P0 | Filesystem mutation bypasses identity, preview, journal or recovery boundaries | Backend-owned platform safety, Operation Preview/revalidation, journals, Safe Trash/Restore, supported-platform quality gates | controlled / continuous |
 | R-INDEX-001 | P1 | Partial, stale or unhealthy index coverage is presented as complete/current | durable scan/root/watcher revisions and explicit partial/reconciliation states; UI must not infer completion from loaded rows | controlled / continuous |
 | R-OPS-001 | P0 | Restore or cleanup operates on stale identity or renderer-provided paths | ID-only intents, backend identity revalidation, cleanup/operation ledgers and recovery contracts | controlled / continuous |
-| R-AI-001 | P1 | Provider output or cloud use silently becomes authority/consent | Managed AI/provider policy, explicit content/rule boundaries, no automatic mutation/enable/run/send; onboarding no longer configures AI and existing cloud credential activation remains fail-closed | controlled / continuous |
+| R-AI-001 | P1 | Provider output or cloud use silently becomes authority/consent | Managed AI/provider policy, explicit content/rule boundaries, no automatic mutation/enable/run/send; Organize Managed Scope consent and Cleanup cloud-data consent remain separate; provider output never becomes mutation authority | controlled / continuous |
+| R-AI-002 | P1 | PM-01 could treat stale, partial or deterministic-fallback Cleanup AI output as a current successful assessment and unlock a required-AI execution gate | PM-01 is on owner DESIGN HOLD; required protocol now mandates exact candidate coverage, post-provider finding revision/identity CAS, versioned assessment binding and server-side Preview/execution enforcement | active / PM-01 hold |
+| R-AI-003 | P1 | A single global “AI ready” state could silently borrow Organize Managed Scope consent for Cleanup or misrepresent configured-vs-feature-ready state | Separate provider readiness, Organize feature readiness and Cleanup feature readiness; no idle provider polling; backend feature-specific policy remains authoritative | active / PM-01 hold |
 | R-PERF-001 | P1 | Managed-library/global-search/File Workspace regressions appear only at 100k/1M scale or under background-resource pressure | Query V2 100k/1M gates plus W1 Workspace Foundation 100k Windows/macOS performance lanes and exact-head Full Validation; thresholds may not be silently weakened; W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED` | controlled / continuous |
 | R-PLAT-001 | P2 | macOS provider/external/network-volume and broader race behavior is less verified than core native mutation/local-filesystem paths | Real iCloud/File Provider/external APFS/exFAT/SMB/network and other unavailable fixture claims remain **UNVERIFIED** until genuine evidence exists | active |
+| R-PLAT-002 | P1 | Supported Apple Silicon macOS resident/release behavior is not currently qualified and must not be inferred from Windows or compile evidence | Issue #270 remains the explicit platform blocker; PM-01 may proceed only without claiming macOS resident/release acceptance; publication stays deferred | active / #270 |
 | R-REL-001 | P1 | Release workflow privilege or publication-control drift could turn deferred artifact work into an unauthorized public release | This PR hardens the workflow default, qualification and build jobs to `contents: read`, removes the automatic `v*` tag trigger, keeps final publication isolated to the explicit write-permission job, and retains exact-SHA qualification; active repository tag ruleset `22450038` blocks creation/update/deletion of `refs/tags/v*`; `v0.1.40` remains deferred | controlled / hardened by #227; publication deferred |
-| R-PROD-001 | P1 | Technical release readiness is mistaken for product maturity, causing Zen Canvas to be publicly released before core workflows, coherence and polish meet the product-owner bar | W6-01 established the maturity gate; W6-03 closed its owned M1 hierarchy/progressive-disclosure findings; W6-07 is the current product mainline, while retained W6-05 residuals require explicit disposition before W6-09 and W6-10 remains gated on owner maturity acceptance | active / W6-07 mainline |
+| R-PROD-001 | P1 | Technical release readiness is mistaken for product maturity, causing Zen Canvas to be publicly released before core workflows, coherence and polish meet the product-owner bar | Product reconstruction has advanced through Zero-Burden, performance and AI Semantic Authority; PM-01 AI-only Product Migration is currently design-held on required-AI currentness/consent contracts; W6-10 publication gates remain separate | active / PM-01 design hold |
 | R-W605-001 | P1 | Retained W6-05 product residuals can be rediscovered without an explicit closure or owner disposition before whole-product regression | The pre-W6-09 Residual Product Defect Closure Gate names the five retained areas and requires `CLOSED / FIXED`, `NOT REPRODUCIBLE WITH EVIDENCE`, `ENVIRONMENT-SPECIFIC`, `ACCEPTED DEFER` or `OWNER-ACCEPTED RESIDUAL` with evidence | active / disposition required |
 | R-NATIVE-001 | P2 | Current native evidence is older than the W6-07 production reconstruction and may be mistaken for current product acceptance | W6-05 remains the accepted historical native baseline; W6-09 owns fresh coherent supported-platform regression after reconstruction, and W6-07 changes must not upgrade stale evidence | active / evidence freshness gap |
 | R-SCOPE-001 | P2 | Legacy Library scope callers can drift from the managed Files ownership model during compatibility retirement | TD-001-P3 is an accepted bounded scope-owner contract; its controlled OPEN status records remaining compatibility work without making indefinite cleanup a W6 gate | controlled / TD-001 contract accepted |
 | R-BRANCH-001 | P2 | Historical branches create false signals about unmerged work after squash/integration | Closeout requires ancestor/content-equivalence proof before deletion; branch cleanup remains separate from product correctness | controlled / continuous |
+
+## PM-01 owner deep-audit risk note — 2026-09-27
+
+A cross-stage owner audit was performed before AI-only Product Migration production implementation.
+
+The audit **did not identify a new P0 filesystem mutation bypass** and does not revoke PR #272. It did identify P1 risks that become material only because PM-01 intends to make AI a required semantic gate:
+
+- Cleanup provider results can currently be published after the input finding revision changes because post-provider append has no expected-revision CAS;
+- Cleanup provider output is not currently required to cover requested candidate IDs exactly once, so existing `ai_assessment` evidence does not prove complete provider assessment;
+- existing Cleanup assessment evidence lacks explicit revision/provider/model/version binding suitable for a required gate;
+- Cleanup cloud data sharing is separate from Managed Scope consent, and required Cleanup AI cannot infer permission from the selected scan path;
+- `enabled + provider` is not sufficient to claim Organize/Cleanup feature readiness;
+- current Settings copy overstates Preference Memory because the durable Managed AI SemanticAssessmentV1 worker does not consume learned preference memory;
+- Cleanup diagnostics are currently mislabeled as File Classification because the provider request does not set an explicit Cleanup trace context.
+
+The binding mitigation is [AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md](tasks/AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md). PM-01 production code remains paused until the owner explicitly lifts the hold.
 
 ## No open P0 implementation blocker recorded by G0/W6
 
@@ -41,7 +60,7 @@ These engineering facts remain historical evidence, but publication is not curre
 
 ## W6 product-maturity risk note
 
-After W5 closeout, the product owner explicitly decided that Zen Canvas is not mature enough for public release. W6-01 supplied the evidence-backed reason; W6-02 and W6-03 are now complete/merged, and W6-07 is the active product reconstruction mainline.
+After W5 closeout, the product owner explicitly decided that Zen Canvas is not mature enough for public release. The reconstruction program has since progressed through W6 product work, Zero-Burden runtime work, resident/interactive performance qualification and AI Semantic Authority Foundation. The current product mainline is AI-only Product Migration PM-01, presently on an owner design hold while required-AI currentness/consent contracts are corrected.
 
 Audit: [`tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md`](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
 
@@ -65,11 +84,7 @@ W6-03 closed the remaining owned M1 hierarchy/progressive-disclosure findings:
 - persistent AI prominence in sidebar/Settings outside first-run;
 - global shell/workspace hierarchy fragmentation.
 
-Those findings are not current remaining M1 blockers. Current maturity work is
-the W6-07 product mainline plus explicit disposition of the five retained
-W6-05 residual areas before W6-09. Preview-specific residual closure may be
-owned by W6-08. Current native evidence also remains behind W6-07 production
-changes and is not current acceptance.
+Those historical M1 findings are not current blockers. Current maturity work is the AI-only Product Migration sequence. PM-01 is design-held by the owner deep audit; #270 remains a separate supported-macOS resident/release blocker; publication remains deferred.
 
 The maturity program must continue to favor simplification and progressive disclosure over feature expansion.
 
