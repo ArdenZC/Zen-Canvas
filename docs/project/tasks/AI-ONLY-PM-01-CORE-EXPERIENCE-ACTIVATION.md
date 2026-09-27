@@ -77,7 +77,7 @@ When AI is ready:
 
 Existing valid reviewed items/dry-runs remain executable without live provider if all deterministic authority checks still pass.
 
-## C. Cleanup AI stage becomes required for new execution
+## C. Cleanup AI assessment becomes required semantic evidence for new/current executable findings
 
 Do not move Cleanup into Managed AI queue.
 
@@ -87,8 +87,10 @@ Continue:
 
 For newly created/current runs:
 
-- AI disabled/unavailable blocks starting the semantic cleanup workflow with Connect AI guidance;
+- deterministic detectors may still discover and display facts while the provider is unavailable; they cannot by themselves make a finding PM-01 executable;
+- **generating or refreshing** the semantic Cleanup assessment requires Cleanup feature readiness and, for cloud, current consent;
 - eligible findings that can be selected for Safe Trash must have a **versioned successful AI assessment envelope** bound to the current finding/run revision and current identity;
+- once that assessment is current, later Preview/confirmation/Safe Trash does **not** require a live provider merely to execute already-derived evidence; provider availability is not filesystem execution authority;
 - provider failure/cancel leaves deterministic findings visible but cannot silently fall back to detector-only executable selection;
 - AI may raise tier/risk, disable action, or require more review;
 - AI can never grant trash/delete eligibility.
@@ -174,11 +176,12 @@ Required frontend:
 - provider readiness vs Organize/Cleanup feature readiness are rendered distinctly;
 - AI unavailable Organize gate + Settings CTA;
 - current semantic explanation/reason state and stale/unavailable explanation state;
-- AI unavailable Cleanup gate + Settings CTA;
+- AI unavailable Cleanup **assessment-generation** gate + Settings CTA while deterministic findings remain inspectable;
+- a current already-published Cleanup assessment remains reviewable/executable through deterministic safety even if the provider later becomes unavailable;
 - Cleanup cloud-consent missing state + policy CTA;
 - AI-ready Organize primary AI analysis flow;
 - managed-scope missing state;
-- Cleanup AI failure/cancel leaves execution blocked;
+- Cleanup AI failure/cancel leaves affected findings non-executable until a successful current assessment exists, without blocking unrelated already-assessed findings;
 - onboarding all steps, skip AI, configure-AI navigation, scan folder/managed-scope consent and final capability story;
 - non-semantic Files/Search/Preview/History navigation remains available without AI.
 
