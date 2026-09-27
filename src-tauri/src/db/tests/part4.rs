@@ -718,14 +718,13 @@ fn analysis_ai_assessment_refreshes_run_aggregate_revision_and_durable_evidence(
     complete_test_analysis_run(&db, &run.id, &run.scope_hash, "ai-aggregate-key");
     let before_run = db.get_analysis_run(&run.id).expect("read AI run before assessment");
     let before_finding = active_analysis_finding(&db, &run.id);
-    let assessed = db
-        .append_analysis_ai_assessment(
+    let assessed = publish_test_analysis_ai_assessment(
+        &db,
             &before_finding.id,
             "review",
             false,
             &json!({"source": "targeted-ai-test", "tier": "review"}),
-        )
-        .expect("append AI assessment");
+        );
     let after_run = db.get_analysis_run(&run.id).expect("read AI run after assessment");
     assert_eq!(assessed.revision, before_finding.revision + 1);
     assert_eq!(after_run.revision, before_run.revision + 1);
@@ -1707,13 +1706,13 @@ fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
             |row| row.get(0),
         )
         .expect("read duplicate finding for AI refresh");
-    db.append_analysis_ai_assessment(
+    publish_test_analysis_ai_assessment(
+        &db,
         &duplicate_finding_id,
         "review",
         false,
         &json!({"source": "physical-union-refresh"}),
-    )
-    .expect("refresh physical union after AI assessment");
+    );
     let refreshed = db
         .get_analysis_run(&run.id)
         .expect("read refreshed physical union");
@@ -1736,14 +1735,13 @@ fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
             [],
         )
         .expect("stale duplicate authority");
-    reopened
-        .append_analysis_ai_assessment(
-            &duplicate_finding_id,
-            "review",
-            false,
-            &json!({"source": "stale-group-refresh"}),
-        )
-        .expect("refresh aggregate after duplicate group becomes stale");
+    publish_test_analysis_ai_assessment(
+        &reopened,
+        &duplicate_finding_id,
+        "review",
+        false,
+        &json!({"source": "stale-group-refresh"}),
+    );
     let stale_group_refresh = reopened
         .get_analysis_run(&run.id)
         .expect("read aggregate with stale duplicate group");
@@ -1894,6 +1892,133 @@ fn active_analysis_finding(db: &Database, run_id: &str) -> AnalysisFindingDto {
         .into_iter()
         .next()
         .expect("active analysis finding")
+}
+
+fn publish_test_analysis_ai_assessment(
+    db: &Database,
+    finding_id: &str,
+    requested_tier: &str,
+    requested_trash_allowed: bool,
+    test_evidence: &serde_json::Value,
+) -> AnalysisFindingDto {
+    let finding = db
+        .get_analysis_finding(finding_id)
+        .expect("read test AI finding")
+        .expect("test AI finding exists");
+    let run = db
+        .get_analysis_run(&finding.run_id)
+        .expect("read test AI run");
+    let detector = db
+        .list_analysis_run_detectors(&run.id)
+        .expect("read test AI detector")
+        .into_iter()
+        .find(|detector| detector.detector_id == finding.detector_id)
+        .expect("test AI detector exists");
+    let candidate_ids = vec![finding.id.clone()];
+    let candidate_set_json = serde_json::to_string(&candidate_ids).expect("serialize candidate set");
+    let candidate_set_fingerprint = blake3::hash(candidate_set_json.as_bytes()).to_hex().to_string();
+    let source_fingerprint = blake3::hash(
+        &serde_json::to_vec(&finding.identity_snapshot).expect("serialize source identity"),
+    )
+    .to_hex()
+    .to_string();
+    let candidate_identity = json!({
+        "findingId": finding.id,
+        "findingKey": finding.finding_key,
+        "analysisRunId": finding.run_id,
+        "expectedRevision": finding.revision,
+        "detectorId": finding.detector_id,
+        "detectorVersion": finding.detector_version,
+        "primarySubjectKind": finding.primary_subject_kind,
+        "primarySubjectId": finding.primary_subject_id,
+        "sourceFingerprint": source_fingerprint
+    });
+    let candidate_identity_fingerprint = blake3::hash(
+        &serde_json::to_vec(&candidate_identity).expect("serialize candidate identity"),
+    )
+    .to_hex()
+    .to_string();
+    let settings_value = db
+        .conn()
+        .expect("read AI settings")
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![crate::ai::settings::AI_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .expect("query AI settings");
+    let settings_revision = app_setting_value_fingerprint(settings_value.as_deref());
+    let evidence = json!({
+        "schema": "cleanup_ai_assessment_v1",
+        "coverage": {
+            "status": "returned_exactly_once",
+            "candidateId": finding.id,
+            "returnedCandidateId": finding.id,
+            "requestId": "test-request",
+            "batchId": "test-batch",
+            "requestedCandidateIds": candidate_ids,
+            "candidateSetFingerprint": candidate_set_fingerprint,
+            "requestCandidateSetFingerprint": candidate_set_fingerprint,
+            "requestedCount": 1,
+            "returnedCount": 1,
+            "omittedCount": 0,
+            "duplicateCount": 0,
+            "unknownCount": 0,
+            "analysisRunId": run.id,
+            "analysisRunRevision": run.revision,
+            "analysisSourceSnapshotHash": run.source_snapshot_hash,
+            "detectorSetHash": run.detector_set_hash,
+            "detectorId": detector.detector_id,
+            "detectorVersion": detector.detector_version,
+            "detectorRevision": detector.revision,
+            "expectedFindingRevision": finding.revision,
+            "candidateIdentityFingerprint": candidate_identity_fingerprint,
+            "sourceFingerprint": source_fingerprint,
+            "providerPolicyRevision": settings_revision
+        },
+        "assessment": {
+            "candidateId": finding.id,
+            "testEvidence": test_evidence
+        }
+    });
+    let precondition = AnalysisAiFindingPrecondition {
+        finding_id: finding.id.clone(),
+        finding_key: finding.finding_key.clone(),
+        run_id: finding.run_id.clone(),
+        detector_id: finding.detector_id.clone(),
+        detector_version: finding.detector_version,
+        detector_status: detector.status,
+        detector_revision: detector.revision,
+        scope_hash: finding.scope_hash.clone(),
+        expected_revision: finding.revision,
+        primary_subject_kind: finding.primary_subject_kind.clone(),
+        primary_subject_id: finding.primary_subject_id.clone(),
+        path_snapshot: finding.path_snapshot.clone(),
+        identity_snapshot_json: serde_json::to_string(&finding.identity_snapshot)
+            .expect("serialize finding identity"),
+    };
+    let batch = AnalysisAiPublicationBatch {
+        run_id: run.id,
+        expected_run_revision: run.revision,
+        expected_source_snapshot_hash: run.source_snapshot_hash,
+        expected_detector_set_hash: run.detector_set_hash,
+        settings_key: crate::ai::settings::AI_SETTINGS_KEY.to_string(),
+        expected_settings_revision: settings_revision,
+        expected_candidate_set_fingerprint: candidate_set_fingerprint,
+        preconditions: vec![precondition],
+        assessments: vec![AnalysisAiAssessmentPublication {
+            finding_id: finding.id,
+            requested_tier: requested_tier.to_string(),
+            requested_trash_allowed,
+            evidence,
+        }],
+    };
+    db.publish_analysis_ai_assessments_cas(&batch)
+        .expect("publish test AI assessment")
+        .into_iter()
+        .next()
+        .expect("test AI assessment was published")
 }
 
 fn test_finding_draft(id: &str, finding_key: &str) -> FindingDraft {

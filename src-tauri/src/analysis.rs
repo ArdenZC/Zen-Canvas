@@ -940,7 +940,7 @@ fn duplicate_member_evidence(member: &DedupeGroupMemberDto) -> FindingEvidenceDr
     }
 }
 
-fn build_cleanup_findings(
+pub(crate) fn build_cleanup_findings(
     db: &Database,
     run: &AnalysisRunDto,
     cancel_flag: &Arc<AtomicBool>,

@@ -224,6 +224,44 @@ pub(crate) struct FindingDraft {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct AnalysisAiFindingPrecondition {
+    pub finding_id: String,
+    pub finding_key: String,
+    pub run_id: String,
+    pub detector_id: String,
+    pub detector_version: i64,
+    pub detector_status: String,
+    pub detector_revision: i64,
+    pub scope_hash: String,
+    pub expected_revision: i64,
+    pub primary_subject_kind: String,
+    pub primary_subject_id: String,
+    pub path_snapshot: Option<String>,
+    pub identity_snapshot_json: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AnalysisAiAssessmentPublication {
+    pub finding_id: String,
+    pub requested_tier: String,
+    pub requested_trash_allowed: bool,
+    pub evidence: Value,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AnalysisAiPublicationBatch {
+    pub run_id: String,
+    pub expected_run_revision: i64,
+    pub expected_source_snapshot_hash: String,
+    pub expected_detector_set_hash: String,
+    pub settings_key: String,
+    pub expected_settings_revision: String,
+    pub expected_candidate_set_fingerprint: String,
+    pub preconditions: Vec<AnalysisAiFindingPrecondition>,
+    pub assessments: Vec<AnalysisAiAssessmentPublication>,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct ManagedAnalysisFingerprint {
     pub identity_status: String,
     pub platform_kind: String,
@@ -1398,68 +1436,209 @@ impl Database {
         Ok(())
     }
 
-    /// Append optional AI enrichment without allowing it to become the
-    /// detector, identity, or user-decision authority.  AI may only raise a
-    /// tier or disable an executable action; it can never lower risk or make
-    /// a finding executable.
-    pub(crate) fn append_analysis_ai_assessment(
+    /// Atomically publish only exact, uniquely covered AI assessments against
+    /// the run, detector and finding revisions captured before provider work.
+    /// AI may raise risk or disable an executable action, but cannot lower risk
+    /// or grant filesystem authority.
+    pub(crate) fn publish_analysis_ai_assessments_cas(
         &self,
-        finding_id: &str,
-        requested_tier: &str,
-        requested_trash_allowed: bool,
-        assessment: &Value,
-    ) -> Result<AnalysisFindingDto, DbError> {
-        if !matches!(requested_tier, "safe" | "review" | "caution") {
+        batch: &AnalysisAiPublicationBatch,
+    ) -> Result<Vec<AnalysisFindingDto>, DbError> {
+        if batch.preconditions.is_empty() || batch.assessments.is_empty() {
+            return Ok(Vec::new());
+        }
+        if batch.assessments.iter().any(|assessment| {
+            !matches!(
+                assessment.requested_tier.as_str(),
+                "safe" | "review" | "caution"
+            )
+        }) {
             return Err(DbError::Validation("Invalid AI finding tier.".to_string()));
+        }
+        let mut candidate_ids = batch
+            .preconditions
+            .iter()
+            .map(|precondition| precondition.finding_id.clone())
+            .collect::<Vec<_>>();
+        candidate_ids.sort();
+        candidate_ids.dedup();
+        let candidate_set_json = serde_json::to_string(&candidate_ids)?;
+        let candidate_set_fingerprint = blake3::hash(candidate_set_json.as_bytes())
+            .to_hex()
+            .to_string();
+        if candidate_ids.len() != batch.preconditions.len()
+            || candidate_set_fingerprint != batch.expected_candidate_set_fingerprint
+        {
+            return Err(DbError::Validation(
+                "Cleanup AI candidate set changed; assessment was not published.".to_string(),
+            ));
+        }
+        let mut assessment_ids = HashSet::new();
+        if batch.assessments.iter().any(|assessment| {
+            !candidate_ids.contains(&assessment.finding_id)
+                || !assessment_ids.insert(assessment.finding_id.as_str())
+        }) {
+            return Err(DbError::Validation(
+                "Cleanup AI response contains invalid candidate coverage.".to_string(),
+            ));
+        }
+        for assessment in &batch.assessments {
+            let Some(precondition) = batch
+                .preconditions
+                .iter()
+                .find(|precondition| precondition.finding_id == assessment.finding_id)
+            else {
+                return Err(DbError::Validation(
+                    "Cleanup AI response is not bound to its request manifest.".to_string(),
+                ));
+            };
+            if !analysis_ai_coverage_matches(batch, precondition, assessment)? {
+                return Err(DbError::Validation(
+                    "Cleanup AI response is not exact current candidate coverage.".to_string(),
+                ));
+            }
         }
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let finding = tx
+
+        let run = query_analysis_run(&tx, &batch.run_id)?;
+        if !matches!(run.status.as_str(), "completed" | "completed_with_warnings")
+            || run.revision != batch.expected_run_revision
+            || run.source_snapshot_hash != batch.expected_source_snapshot_hash
+            || run.detector_set_hash != batch.expected_detector_set_hash
+        {
+            return Err(DbError::Validation(
+                "Cleanup AI Analysis Run changed; assessment was not published.".to_string(),
+            ));
+        }
+
+        let settings_value = tx
             .query_row(
+                "SELECT value FROM app_settings WHERE key = ?1",
+                params![batch.settings_key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if crate::db::app_setting_value_fingerprint(settings_value.as_deref())
+            != batch.expected_settings_revision
+        {
+            return Err(DbError::Validation(
+                "AI provider policy changed; cleanup assessment was not published.".to_string(),
+            ));
+        }
+
+        let mut findings_by_id = HashMap::with_capacity(batch.preconditions.len());
+        for precondition in &batch.preconditions {
+            let detector_matches: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM analysis_run_detectors WHERE run_id = ?1 AND detector_id = ?2 AND detector_version = ?3 AND status = ?4 AND revision = ?5)",
+                params![precondition.run_id, precondition.detector_id, precondition.detector_version, precondition.detector_status, precondition.detector_revision],
+                |row| row.get(0),
+            )?;
+            let finding = tx
+                .query_row(
+                    &format!("{ANALYSIS_FINDING_SELECT} LEFT JOIN analysis_finding_decisions AS d ON d.finding_key = f.finding_key WHERE f.id = ?1"),
+                    params![precondition.finding_id],
+                    analysis_finding_from_row,
+                )
+                .optional()?
+                .ok_or_else(|| DbError::Validation("Cleanup AI finding disappeared; assessment was not published.".to_string()))?;
+            let identity_snapshot_json = serde_json::to_string(&finding.identity_snapshot)?;
+            if !detector_matches
+                || finding.status != "active"
+                || finding.id != precondition.finding_id
+                || finding.finding_key != precondition.finding_key
+                || finding.run_id != precondition.run_id
+                || finding.run_id != batch.run_id
+                || finding.detector_id != precondition.detector_id
+                || finding.detector_version != precondition.detector_version
+                || finding.scope_hash != precondition.scope_hash
+                || finding.revision != precondition.expected_revision
+                || finding.primary_subject_kind != precondition.primary_subject_kind
+                || finding.primary_subject_id != precondition.primary_subject_id
+                || finding.path_snapshot != precondition.path_snapshot
+                || identity_snapshot_json != precondition.identity_snapshot_json
+            {
+                return Err(DbError::Validation(
+                    "Cleanup AI finding revision or identity is stale; assessment was not published.".to_string(),
+                ));
+            }
+            findings_by_id.insert(precondition.finding_id.as_str(), finding);
+        }
+
+        let now = current_unix_seconds();
+        let mut published_ids = Vec::with_capacity(batch.assessments.len());
+        for publication in &batch.assessments {
+            let finding = findings_by_id
+                .get(publication.finding_id.as_str())
+                .expect("assessment candidate was validated in the request manifest");
+            let tier = higher_risk_tier(&finding.tier, &publication.requested_tier);
+            let executable =
+                finding.executable && publication.requested_trash_allowed && tier == "safe";
+            let action_kind = if executable {
+                finding.action_kind.clone()
+            } else if finding.action_kind == "safe_trash_candidate" {
+                "reveal".to_string()
+            } else {
+                finding.action_kind.clone()
+            };
+            let published_revision = finding.revision + 1;
+            let mut assessment = publication.evidence.clone();
+            if !assessment.is_object() {
+                return Err(DbError::Validation(
+                    "Cleanup AI assessment evidence is invalid.".to_string(),
+                ));
+            }
+            if let Some(object) = assessment.as_object_mut() {
+                object.insert(
+                    "publication".to_string(),
+                    json!({
+                        "outcome": "published",
+                        "compareAndSwap": "succeeded",
+                        "findingId": finding.id,
+                        "expectedRevision": finding.revision,
+                        "publishedRevision": published_revision,
+                        "analysisRunId": finding.run_id,
+                        "detectorId": finding.detector_id,
+                        "detectorVersion": finding.detector_version
+                    }),
+                );
+            }
+            let mut evidence_summary = finding.evidence_summary.clone();
+            if !evidence_summary.is_object() {
+                evidence_summary = json!({});
+            }
+            if let Some(object) = evidence_summary.as_object_mut() {
+                object.insert("aiAssessment".to_string(), assessment.clone());
+            }
+
+            let changed = tx.execute(
+                "UPDATE analysis_findings SET tier = ?1, action_kind = ?2, executable = ?3, evidence_summary_json = ?4, revision = revision + 1, updated_at = ?5 WHERE id = ?6 AND run_id = ?7 AND finding_key = ?8 AND detector_id = ?9 AND detector_version = ?10 AND scope_hash = ?11 AND primary_subject_kind = ?12 AND primary_subject_id = ?13 AND path_snapshot IS ?14 AND identity_snapshot_json = ?15 AND status = 'active' AND revision = ?16",
+                params![tier, action_kind, bool_to_i64(executable), serde_json::to_string(&evidence_summary)?, now, finding.id, finding.run_id, finding.finding_key, finding.detector_id, finding.detector_version, finding.scope_hash, finding.primary_subject_kind, finding.primary_subject_id, finding.path_snapshot, serde_json::to_string(&finding.identity_snapshot)?, finding.revision],
+            )?;
+            if changed != 1 {
+                return Err(DbError::Validation(
+                    "Cleanup AI compare-and-swap was lost; assessment was not published."
+                        .to_string(),
+                ));
+            }
+            tx.execute(
+                "INSERT INTO analysis_finding_evidence (id, finding_id, evidence_kind, subject_kind, subject_id, path_snapshot, value_json, created_at) VALUES (?1, ?2, 'ai_assessment', 'analysis_finding', ?2, ?3, ?4, ?5)",
+                params![new_job_id("analysis-ai-evidence"), finding.id, finding.path_snapshot, serde_json::to_string(&assessment)?, now],
+            )?;
+            published_ids.push(finding.id.clone());
+        }
+
+        refresh_analysis_run_aggregate_tx(&tx, &batch.run_id, now)?;
+        let mut results = Vec::with_capacity(published_ids.len());
+        for finding_id in published_ids {
+            results.push(tx.query_row(
                 &format!("{ANALYSIS_FINDING_SELECT} LEFT JOIN analysis_finding_decisions AS d ON d.finding_key = f.finding_key WHERE f.id = ?1"),
                 params![finding_id],
                 analysis_finding_from_row,
-            )
-            .optional()?
-            .ok_or_else(|| DbError::Validation("Analysis finding was not found.".to_string()))?;
-        if finding.status != "active" {
-            return Err(DbError::Validation(
-                "Only active findings can receive AI enrichment.".to_string(),
-            ));
+            )?);
         }
-        let tier = higher_risk_tier(&finding.tier, requested_tier);
-        let executable = finding.executable && requested_trash_allowed && tier == "safe";
-        let action_kind = if executable {
-            finding.action_kind.clone()
-        } else if finding.action_kind == "safe_trash_candidate" {
-            "reveal".to_string()
-        } else {
-            finding.action_kind.clone()
-        };
-        let mut evidence_summary = finding.evidence_summary.clone();
-        if !evidence_summary.is_object() {
-            evidence_summary = json!({});
-        }
-        if let Some(object) = evidence_summary.as_object_mut() {
-            object.insert("aiAssessment".to_string(), assessment.clone());
-        }
-        let now = current_unix_seconds();
-        tx.execute(
-            "UPDATE analysis_findings SET tier = ?1, action_kind = ?2, executable = ?3, evidence_summary_json = ?4, revision = revision + 1, updated_at = ?5 WHERE id = ?6 AND status = 'active'",
-            params![tier, action_kind, bool_to_i64(executable), serde_json::to_string(&evidence_summary)?, now, finding_id],
-        )?;
-        tx.execute(
-            "INSERT INTO analysis_finding_evidence (id, finding_id, evidence_kind, subject_kind, subject_id, path_snapshot, value_json, created_at) VALUES (?1, ?2, 'ai_assessment', 'analysis_finding', ?2, ?3, ?4, ?5)",
-            params![new_job_id("analysis-ai-evidence"), finding_id, finding.path_snapshot, serde_json::to_string(assessment)?, now],
-        )?;
-        refresh_analysis_run_aggregate_tx(&tx, &finding.run_id, now)?;
-        let result = tx.query_row(
-            &format!("{ANALYSIS_FINDING_SELECT} LEFT JOIN analysis_finding_decisions AS d ON d.finding_key = f.finding_key WHERE f.id = ?1"),
-            params![finding_id],
-            analysis_finding_from_row,
-        )?;
         tx.commit()?;
-        Ok(result)
+        Ok(results)
     }
 
     pub(crate) fn fail_analysis_run(
@@ -2124,6 +2303,89 @@ fn exact_physical_union(subjects: Vec<ExactPhysicalSubject>) -> i64 {
 
 fn shortest_path_len(paths: &[String]) -> usize {
     paths.iter().map(String::len).min().unwrap_or(usize::MAX)
+}
+
+fn analysis_ai_coverage_matches(
+    batch: &AnalysisAiPublicationBatch,
+    precondition: &AnalysisAiFindingPrecondition,
+    assessment: &AnalysisAiAssessmentPublication,
+) -> Result<bool, DbError> {
+    let coverage = &assessment.evidence["coverage"];
+    let assessment_value = &assessment.evidence["assessment"];
+    let Some(requested_ids) = coverage["requestedCandidateIds"].as_array() else {
+        return Ok(false);
+    };
+    let ids = requested_ids
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let mut sorted_ids = ids.clone();
+    sorted_ids.sort();
+    sorted_ids.dedup();
+    let serialized_ids = serde_json::to_string(&sorted_ids)?;
+    let candidate_set_fingerprint = blake3::hash(serialized_ids.as_bytes()).to_hex().to_string();
+    let request_membership_valid = ids.len() == requested_ids.len()
+        && sorted_ids.len() == ids.len()
+        && ids.iter().all(|id| {
+            batch
+                .preconditions
+                .iter()
+                .any(|candidate| candidate.finding_id == *id)
+        });
+    let identity_snapshot: Value = serde_json::from_str(&precondition.identity_snapshot_json)?;
+    let source_fingerprint = blake3::hash(&serde_json::to_vec(&identity_snapshot)?);
+    let source_fingerprint = source_fingerprint.to_hex().to_string();
+    let candidate_identity = json!({
+        "findingId": precondition.finding_id,
+        "findingKey": precondition.finding_key,
+        "analysisRunId": precondition.run_id,
+        "expectedRevision": precondition.expected_revision,
+        "detectorId": precondition.detector_id,
+        "detectorVersion": precondition.detector_version,
+        "primarySubjectKind": precondition.primary_subject_kind,
+        "primarySubjectId": precondition.primary_subject_id,
+        "sourceFingerprint": source_fingerprint
+    });
+    let candidate_identity_fingerprint = blake3::hash(&serde_json::to_vec(&candidate_identity)?)
+        .to_hex()
+        .to_string();
+    let expected_revision = precondition.expected_revision;
+    let counts_match = coverage["requestedCount"].as_u64() == Some(ids.len() as u64)
+        && coverage["returnedCount"]
+            .as_u64()
+            .is_some_and(|returned| returned > 0)
+        && coverage["omittedCount"].as_u64().is_some()
+        && coverage["duplicateCount"].as_u64().is_some()
+        && coverage["unknownCount"].as_u64().is_some()
+        && coverage["returnedCount"].as_u64().unwrap_or_default()
+            + coverage["omittedCount"].as_u64().unwrap_or_default()
+            + coverage["duplicateCount"].as_u64().unwrap_or_default()
+            == ids.len() as u64;
+    Ok(request_membership_valid
+        && ids
+            .iter()
+            .filter(|id| *id == &assessment.finding_id)
+            .count()
+            == 1
+        && candidate_set_fingerprint == coverage["candidateSetFingerprint"]
+        && batch.expected_candidate_set_fingerprint == coverage["requestCandidateSetFingerprint"]
+        && coverage["status"] == "returned_exactly_once"
+        && coverage["candidateId"] == assessment.finding_id
+        && coverage["returnedCandidateId"] == assessment.finding_id
+        && assessment_value["candidateId"] == assessment.finding_id
+        && coverage["analysisRunId"] == batch.run_id
+        && coverage["analysisRunRevision"].as_i64() == Some(batch.expected_run_revision)
+        && coverage["analysisSourceSnapshotHash"] == batch.expected_source_snapshot_hash
+        && coverage["detectorSetHash"] == batch.expected_detector_set_hash
+        && coverage["detectorId"] == precondition.detector_id
+        && coverage["detectorVersion"].as_i64() == Some(precondition.detector_version)
+        && coverage["detectorRevision"].as_i64() == Some(precondition.detector_revision)
+        && coverage["expectedFindingRevision"].as_i64() == Some(expected_revision)
+        && coverage["candidateIdentityFingerprint"] == candidate_identity_fingerprint
+        && coverage["sourceFingerprint"] == source_fingerprint
+        && coverage["providerPolicyRevision"] == batch.expected_settings_revision
+        && counts_match)
 }
 
 fn refresh_analysis_run_aggregate_tx(

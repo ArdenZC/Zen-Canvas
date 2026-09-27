@@ -5,6 +5,21 @@ mod learning;
 mod queries;
 mod schema;
 mod types;
+
+pub(crate) fn app_setting_value_fingerprint(value: Option<&str>) -> String {
+    let mut hasher = blake3::Hasher::new();
+    match value {
+        Some(value) => {
+            hasher.update(b"value:");
+            hasher.update(value.as_bytes());
+        }
+        None => {
+            hasher.update(b"missing");
+        }
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
 pub use classification::engine::{ExecuteRulesForScopeV2Request, RuleExecutionResultV2};
 pub(crate) use classification::normalized_file_type;
 pub(crate) use classification::{build_target_path, OrganizeRootConfig};
@@ -15,8 +30,10 @@ pub use connection::Database;
 pub use learning::*;
 pub(crate) use queries::analysis::{
     bump_dedupe_authority_tx, invalidate_analysis_findings_for_file_tx,
-    invalidate_analysis_findings_for_group_tx, AnalysisFindingFilter, AnalysisPublishOutcome,
-    FindingDraft, FindingEvidenceDraft, ManagedAnalysisFile, ManagedAnalysisFingerprint,
+    invalidate_analysis_findings_for_group_tx, AnalysisAiAssessmentPublication,
+    AnalysisAiFindingPrecondition, AnalysisAiPublicationBatch, AnalysisFindingFilter,
+    AnalysisPublishOutcome, FindingDraft, FindingEvidenceDraft, ManagedAnalysisFile,
+    ManagedAnalysisFingerprint,
 };
 pub use queries::analysis::{
     AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,
