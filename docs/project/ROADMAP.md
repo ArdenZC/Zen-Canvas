@@ -87,23 +87,23 @@ Final authority:
 
 ## Current
 
-### No active initiative
+### AI-only Product Migration
 
-Status: **between initiatives — no active production implementation; PM-01 is planned and ready for fresh activation.**
+Status: **ACTIVE — implementation — PM-01 Core Experience; issue #273; branch `product/pm-01-ai-only-core-experience`; activation baseline `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.**
 
-Current sequence:
+Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
-1. AI Semantic Authority Foundation — **COMPLETE / MERGED** through #272.
-2. Pre-PM Cleanup AI Gate Hardening — **COMPLETE / MERGED** through #276.
-3. Pre-PM AI Readiness + Consent Contract — **COMPLETE / MERGED** through #279.
-4. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through #282.
-5. Pre-PM Cleanup AI Data-Sharing Consent Gate — **COMPLETE / MERGED** through #285 to `master@17599b3344616a43686a376b790cb8bae1f52fa7`; merge-after CI `36338751754` SUCCESS.
-6. **PM-01 AI-only Core Experience — PLANNED / READY FOR FRESH ACTIVATION.**
-7. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane via #283; not a PM-01 merge gate.**
-8. System One or production Preference Memory integration — **NOT AUTHORIZED; separate evidence + architecture gate required.**
-9. PM-02 / PM-03 remain behind PM-01 owner-review/merge gates.
+Current production sequence:
 
-Closed/superseded #274 must not be rebased into production implementation. The fresh PM-01 authority/taskbook and deep-audit closure record are retained outside this current-state section and become current only when a fresh PM-01 branch switches the project to active implementation.
+1. Pre-PM foundations #272 / #276 / #279 / #285 — **COMPLETE / MERGED**.
+2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
+3. **PM-01 AI-only Core Experience — CURRENT / ACTIVE.**
+4. PM-02 Automation Intent + Policies — **NOT ACTIVE; requires PM-01 owner review/merge**.
+5. PM-03 migration closeout — later.
+6. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only via #283; not a PM-01 merge gate**.
+7. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
+
+PM-01 must consume rather than recreate the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded and must not be rebased into this branch.
 
 #270 remains separate. Release publication remains deferred.
 
