@@ -4,8 +4,8 @@ Last verified: 2026-09-27
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7` (Resident / Interactive Performance Qualification / PR #269). Final current-head CI [36284385347](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36284385347) is **SUCCESS**.
-- Current engineering initiative: **AI Semantic Authority Foundation — IMPLEMENTATION COMPLETE — OWNER REVIEW PASSED — READY TO MERGE** on `ai/semantic-authority-foundation`, issue [#271](https://github.com/ArdenZC/Zen-Canvas/issues/271). Production HEAD `c0454b280e15eae4f727840e21849cbe6dd7b08f` passed hosted CI [36293630071](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36293630071); pre-closeout Final HEAD `c9d873319d9a192f78a3f45695d019fbdeb67f18` passed [36294160138](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36294160138). macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and does not become a false macOS PASS.
+- Latest merged production baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e` (AI Semantic Authority Foundation / PR #272). Final current-head CI [36295127427](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36295127427) is **SUCCESS**.
+- Current engineering initiative: **AI-only Product Migration — PM-01 Core Experience ACTIVE** on `product/ai-only-core-experience`, issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). The reviewed AI Semantic Authority Foundation is **COMPLETE / MERGED** through PR #272. PM-01 owns AI readiness, AI-only Organize/Cleanup product semantics and first-run onboarding; Automation intent/policy architecture is explicitly deferred to PM-02. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270).
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -26,17 +26,22 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**AI Semantic Authority Foundation**
+**AI-only Product Migration — PM-01 Core Experience**
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE; backend semantic-authority contract/adapters only; no AI-only UI migration yet**.
+Status: **ACTIVE — implementation: AI readiness + Organize/Cleanup semantic gating + onboarding migration; Automation/Rules architecture deferred to PM-02**.
 
-Authority: [AI Semantic Authority Foundation](initiatives/ai-semantic-authority-foundation.md). Issue: [#271](https://github.com/ArdenZC/Zen-Canvas/issues/271). Branch: `ai/semantic-authority-foundation`. Activation baseline: `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
+Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Branch: `product/ai-only-core-experience`. Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
 
-The merged Resident / Interactive Performance Qualification is accepted for the mainline: Windows HARD gates pass, the <=2x scheduler-interference metric remains a reviewed TARGET deviation rather than a HARD gate, and historical misses remain recorded. macOS resident startup remains **UNVERIFIED / BLOCKED BY #270** and continues to gate macOS support/release qualification specifically.
+Product contract:
 
-The current AI stage does not authorize autonomous mutation. Its purpose is to make one explicit semantic-assessment contract consumable by the existing durable Managed AI and Organization Plan boundaries while preserving deterministic path derivation, dry run, identity validation, confirmation, operation journal, Safe Trash and Restore. Cleanup may share semantic vocabulary/validation but retains Analysis Finding lifecycle; Rule Proposal remains policy authoring rather than per-file semantic truth.
+- Files, Browse, Global Search, Quick Preview and History/Restore remain usable without AI.
+- New/refreshed Organize proposals require current Managed AI `SemanticAssessmentV1`; there is no silent Rules/legacy-classification semantic fallback.
+- New Cleanup execution requires configured AI and successful conservative AI assessment for executable findings. Deterministic detectors remain the evidence/safety foundation; AI still cannot grant mutation authority.
+- Existing reviewed/durable plans, previews, journals and restore history remain usable according to their deterministic validity even if the provider is offline.
+- Onboarding must explain the AI/safety model, provide a Connect AI path, establish file/index scope and explicit managed-scope consent, and showcase Files/Search/Preview → AI Organize → AI Cleanup → History/Restore.
+- Rules/Automation remain compatibility surfaces during PM-01. PM-02 owns durable AI Automation Intent/Trigger architecture and the Policy/Preference role of Rules.
 
-Rules navigation, Automation UX, onboarding and final AI-only Organize/Cleanup presentation are **NOT part of this Track**. Owner review has passed for the backend foundation; those product changes remain the next separate Track after PR #272 merges.
+The deterministic authorities accepted in PR #272 are frozen: Managed AI semantic ownership, Organization Plan ledger/CAS, Operation Preview, Cleanup Analysis Finding lifecycle, Safe Trash, operation journal and Restore.
 
 ## Release, schema and platform truth
 

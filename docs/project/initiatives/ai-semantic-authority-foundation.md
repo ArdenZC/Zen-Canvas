@@ -1,6 +1,6 @@
 # AI Semantic Authority Foundation
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE; backend semantic-authority contract and deterministic consumption adapters only**
+Status: **COMPLETE / MERGED — owner review passed; PR #272 squash-merged to `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; backend semantic-authority contract and deterministic consumption adapters accepted**
 
 Issue: [#271 — AI Semantic Authority Foundation](https://github.com/ArdenZC/Zen-Canvas/issues/271)
 
@@ -145,3 +145,8 @@ Accepted invariants:
 Hosted CI `36293630071` (Production HEAD) and `36294160138` (pre-closeout Final HEAD) are successful.
 
 The next product stage is a separate AI-only Product Migration Track. #270 remains a separate macOS resident/release compatibility issue.
+
+
+## Merge closeout
+
+PR #272 was squash-merged after current-head CI `36295127427` succeeded. The accepted semantic/mutation authority boundary is now the baseline for AI-only Product Migration #273. Product migration may change presentation and when semantic analysis is required, but it may not make provider output a mutation authority.

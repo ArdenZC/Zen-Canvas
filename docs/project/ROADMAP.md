@@ -87,21 +87,23 @@ Final authority:
 
 ## Current
 
-### AI Semantic Authority Foundation
+### AI-only Product Migration — PM-01 Core Experience
 
-Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE; issue #271; branch `ai/semantic-authority-foundation`**.
+Status: **ACTIVE — implementation: AI readiness, Organize/Cleanup AI-only semantic product flow and onboarding; issue #273; branch `product/ai-only-core-experience`**.
 
-Authority: [AI Semantic Authority Foundation](initiatives/ai-semantic-authority-foundation.md) and [activation taskbook](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-ACTIVATION.md).
+Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md) and [PM-01 activation taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md).
 
-Completed sequence:
+Completed mainline sequence:
 
 1. ZB-01 through ZB-05 — **MERGED**.
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
-3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269 to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
-4. **AI Semantic Authority Foundation — CURRENT / OWNER-APPROVED FOR MERGE.**
-5. **AI-only Product Migration (Organize / Cleanup / Automation / Rules navigation / Onboarding) — NEXT after PR #272 merges.**
+3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED**.
+4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272 to `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
+5. **AI-only Product Migration PM-01 — CURRENT.**
+6. **PM-02 Automation Intent + Policies — NEXT after PM-01 owner review.**
+7. **PM-03 hierarchy/migration closeout — later.**
 
-macOS resident/release support remains separately gated by #270. Release publication remains deferred.
+#270 remains a separate macOS resident/release blocker. Release publication remains deferred.
 
 ## Resident / Interactive Performance Qualification
 
