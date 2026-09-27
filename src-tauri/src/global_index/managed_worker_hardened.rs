@@ -1284,7 +1284,7 @@ mod tests {
                             "riskLevel": "Normal",
                             "suggestedAction": "Move",
                             "targetTemplate": "Work/{year}",
-                            "suggestedName": "organized-notes.txt",
+                            "suggestedName": "organized-invoice.pdf",
                             "confidence": 0.95,
                             "reason": "organized project notes",
                             "keywords": ["notes", "project"],
@@ -1475,7 +1475,7 @@ mod tests {
 
         let test_dir = TestDatabaseDirectory::new();
         let managed_root = test_dir.0.join("Managed");
-        let source_path = managed_root.join("source.txt");
+        let source_path = managed_root.join("invoice.pdf");
         let target_directory = managed_root.join("Work").join("2020");
         std::fs::create_dir_all(&target_directory).expect("create existing preview target");
         let source_bytes = b"managed project notes";
@@ -1494,9 +1494,9 @@ mod tests {
             volume_id: volume.id.clone(),
             platform_file_id: "semantic-e2e:source".to_string(),
             parent_platform_file_id: "semantic-e2e:managed-root".to_string(),
-            name: "source.txt".to_string(),
+            name: "invoice.pdf".to_string(),
             path: source_text.clone(),
-            extension: "txt".to_string(),
+            extension: "pdf".to_string(),
             is_directory: false,
             size: source_bytes.len() as i64,
             created_at_fs: Some(modified_at),
@@ -1516,8 +1516,8 @@ mod tests {
                     id, path, name, extension, size, mtime, ctime, is_dir, state_code,
                     file_type, suggested_name, classification_status, is_stale, last_seen_at
                  ) VALUES (
-                    'semantic-e2e-file', ?1, 'source.txt', 'txt', ?2, ?3, ?3, 0, 0,
-                    'Other', 'source.txt', 'unclassified', 0, ?3
+                    'semantic-e2e-file', ?1, 'invoice.pdf', 'pdf', ?2, ?3, ?3, 0, 0,
+                    'Other', 'invoice.pdf', 'unclassified', 0, ?3
                  )",
                 rusqlite::params![source_text, source_bytes.len() as i64, modified_at],
             )
@@ -1656,7 +1656,7 @@ mod tests {
             .expect("read semantic proposal")
             .items
             .remove(0);
-        let expected_target = path_text(&target_directory.join("organized-notes.txt"));
+        let expected_target = path_text(&target_directory.join("organized-invoice.pdf"));
         assert_eq!(current_item.proposed_target_path, expected_target);
         assert_eq!(current_item.proposal_kind, "move_rename");
         assert!(current_item.authoritative_preview_id.is_some());
@@ -1692,6 +1692,29 @@ mod tests {
         assert!(dry_run.items[0].authoritative_preview_id.is_some());
 
         let global_entry_id = query_global_entry_id(&db, &source_text);
+        let mut extension_change: Value =
+            serde_json::from_str(&stored_assessment).expect("canonical V1 envelope");
+        extension_change["suggestedName"] = serde_json::json!("invoice.exe");
+        {
+            let conn = db.conn().expect("seed extension-change semantic guard");
+            conn.execute(
+                "UPDATE ai_analysis_state SET classification_json = ?2 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, extension_change.to_string()],
+            )
+            .expect("seed extension-changing assessment");
+        }
+        assert_plan_is_not_executable(&db, &plan.id, reviewed.revision);
+        {
+            let conn = db
+                .conn()
+                .expect("restore canonical semantic after extension guard");
+            conn.execute(
+                "UPDATE ai_analysis_state SET classification_json = ?2 WHERE global_entry_id = ?1",
+                rusqlite::params![global_entry_id, stored_assessment],
+            )
+            .expect("restore provider-produced canonical payload");
+        }
+
         let mut malicious_target: Value =
             serde_json::from_str(&stored_assessment).expect("canonical V1 envelope");
         malicious_target["targetTemplate"] = serde_json::json!("../../outside");
