@@ -730,6 +730,8 @@ mod tests {
     fn provider_readiness_rejects_invalid_or_missing_model_configuration() {
         let mut settings = AISettings::default();
         settings.enabled = true;
+        settings.preset = AIProviderPresetId::CustomOpenAICompatible;
+        settings.provider = AIProviderKind::OpenAICompatible;
         settings.model.clear();
         settings.api_key_configured = true;
         settings.api_key = "key".into();
