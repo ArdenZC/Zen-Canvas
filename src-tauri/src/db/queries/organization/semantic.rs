@@ -42,30 +42,12 @@ pub(super) fn current_organization_projection(
     row: &IndexedFileRow,
 ) -> Result<OrganizationCurrentProjection, DbError> {
     match resolve_current_assessment(conn, row)? {
-        AssessmentResolution::NotManaged => {
-            if has_legacy_ai_classification(row) {
-                Ok(OrganizationCurrentProjection {
-                    proposal: unavailable_proposal(row, "managed_ai_semantic_state_required"),
-                    preview: None,
-                })
-            } else {
-                let preview = operation_preview_from_indexed(row.clone());
-                Ok(OrganizationCurrentProjection {
-                    proposal: proposal_from_preview(
-                        &row.path,
-                        &row.name,
-                        &row.classification_status,
-                        &row.suggested_action,
-                        preview.clone(),
-                    ),
-                    preview,
-                })
-            }
+        AssessmentResolution::NotManaged | AssessmentResolution::Pending => {
+            Ok(OrganizationCurrentProjection {
+                proposal: pending_proposal(row),
+                preview: None,
+            })
         }
-        AssessmentResolution::Pending => Ok(OrganizationCurrentProjection {
-            proposal: pending_proposal(row),
-            preview: None,
-        }),
         AssessmentResolution::Unavailable(code) => Ok(OrganizationCurrentProjection {
             proposal: unavailable_proposal(row, code),
             preview: None,

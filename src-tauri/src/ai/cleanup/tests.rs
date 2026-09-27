@@ -206,6 +206,41 @@ fn cleanup_nested_result_analyses_parses() {
 }
 
 #[test]
+fn cleanup_provider_requests_use_cleanup_analysis_trace_context() {
+    let fixture = new_cleanup_ai_fixture();
+    let run = complete_cleanup_analysis_run(fixture.db(), &fixture.source_root);
+    let candidates = active_cleanup_candidates(fixture.db(), &run.id);
+    let ids = candidates
+        .iter()
+        .map(|candidate| candidate.id.clone())
+        .collect::<Vec<_>>();
+    let provider = StaticCleanupProvider::new(vec![response_for_ids(&ids)]);
+
+    analyze_fixture_candidates(fixture.db(), &run, &candidates, &provider)
+        .expect("publish cleanup assessment with trace context");
+
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    let trace = requests[0]
+        .provider_options
+        .trace_context
+        .as_ref()
+        .expect("cleanup provider request has trace context");
+    assert_eq!(trace.operation, AITraceOperation::CleanupAnalysis);
+    assert_eq!(trace.job_id.as_deref(), Some(run.id.as_str()));
+    assert_eq!(trace.target_count, Some(candidates.len()));
+    assert_eq!(trace.batch_size, Some(candidates.len()));
+    assert!(
+        trace
+            .batch_id
+            .as_deref()
+            .is_some_and(|value| value.contains("cleanup-ai-request"))
+    );
+    assert!(!trace.include_sensitive_document_content);
+    assert!(trace.redaction_secrets.is_empty());
+}
+
+#[test]
 fn exact_coverage_publishes_only_unique_returned_candidates() {
     let fixture = new_cleanup_ai_fixture();
     let run = complete_cleanup_analysis_run(fixture.db(), &fixture.source_root);
@@ -1039,6 +1074,7 @@ fn cleanup_output(id: &str, reason: &str) -> serde_json::Value {
 struct StaticCleanupProvider {
     responses: Mutex<VecDeque<String>>,
     callback: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    requests: Mutex<Vec<AIChatRequest>>,
     calls: AtomicUsize,
 }
 
@@ -1047,6 +1083,7 @@ impl StaticCleanupProvider {
         Self {
             responses: Mutex::new(responses.into()),
             callback: Mutex::new(None),
+            requests: Mutex::new(Vec::new()),
             calls: AtomicUsize::new(0),
         }
     }
@@ -1055,13 +1092,25 @@ impl StaticCleanupProvider {
         Self {
             responses: Mutex::new(responses.into()),
             callback: Mutex::new(Some(Box::new(callback))),
+            requests: Mutex::new(Vec::new()),
             calls: AtomicUsize::new(0),
         }
+    }
+
+    fn requests(&self) -> Vec<AIChatRequest> {
+        self.requests
+            .lock()
+            .expect("provider request lock")
+            .clone()
     }
 }
 
 impl AIProvider for StaticCleanupProvider {
-    fn chat_json(&self, _request: AIChatRequest) -> Result<String, AIProviderError> {
+    fn chat_json(&self, request: AIChatRequest) -> Result<String, AIProviderError> {
+        self.requests
+            .lock()
+            .expect("provider request lock")
+            .push(request);
         self.calls.fetch_add(1, Ordering::Relaxed);
         if let Some(callback) = self.callback.lock().expect("provider callback lock").take() {
             callback();
