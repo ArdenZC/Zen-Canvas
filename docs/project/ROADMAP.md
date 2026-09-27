@@ -89,7 +89,7 @@ Final authority:
 
 ### AI Semantic Authority Foundation
 
-Status: **ACTIVE — implementation: backend semantic contract + deterministic consumption adapters; issue #271; branch `ai/semantic-authority-foundation`**.
+Status: **ACTIVE — implementation complete; OWNER REVIEW PASSED — READY TO MERGE; issue #271; branch `ai/semantic-authority-foundation`**.
 
 Authority: [AI Semantic Authority Foundation](initiatives/ai-semantic-authority-foundation.md) and [activation taskbook](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-ACTIVATION.md).
 
@@ -98,14 +98,14 @@ Completed sequence:
 1. ZB-01 through ZB-05 — **MERGED**.
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
 3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269 to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
-4. **AI Semantic Authority Foundation — CURRENT.**
-5. **AI-only Product Migration (Organize / Cleanup / Automation / Onboarding) — NEXT, gated by owner review of this foundation.**
+4. **AI Semantic Authority Foundation — CURRENT / OWNER-APPROVED FOR MERGE.**
+5. **AI-only Product Migration (Organize / Cleanup / Automation / Rules navigation / Onboarding) — NEXT after PR #272 merges.**
 
 macOS resident/release support remains separately gated by #270. Release publication remains deferred.
 
 ## Resident / Interactive Performance Qualification
 
-Status: **ACTIVE — implementation / qualification complete; OWNER PERFORMANCE REVIEW PASSED — READY TO MERGE; Windows TARGET deviation accepted; macOS resident UNVERIFIED / tracked by #270; issue #268; branch `perf/resident-interactive-qualification`**.
+Status: **COMPLETE / MERGED — owner performance review passed; PR #269 squash-merged to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`; Windows TARGET deviation accepted; macOS resident remains UNVERIFIED / tracked by #270**.
 
 Authority: [Resident / Interactive Performance Qualification initiative](initiatives/resident-interactive-performance-qualification.md) and [activation taskbook](tasks/ZB-RESIDENT-INTERACTIVE-PERFORMANCE-QUALIFICATION-ACTIVATION.md).
 
@@ -117,8 +117,8 @@ The completed foundation sequence is:
 4. [ZB-04 — On-Demand UI Runtime](tasks/ZB-04-ON-DEMAND-UI-RUNTIME-RESULT.md) — **MERGED**.
 5. [ZB-05 — Native Global Search Runtime](tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md) — **MERGED** through PR #266.
 6. [Zero-Burden Cross-Track Audit Remediation](initiatives/zero-burden-cross-track-audit-remediation.md) — **COMPLETE / MERGED** through PR #267 to `master@6d38208741d186988468ec92b632dd3669a03aa5`.
-7. **Resident / Interactive Performance Qualification — CURRENT / OWNER-APPROVED FOR MERGE.**
-8. **AI Semantic Authority — NEXT mainline engineering stage after PR #269 merges; macOS support remains separately gated by #270.**
+7. **Resident / Interactive Performance Qualification — COMPLETE / MERGED.**
+8. **AI Semantic Authority Foundation — CURRENT / OWNER-APPROVED FOR MERGE.**
 
 Qualification established attributable Windows resident-process evidence and credible interactive foreground evidence. The one-CPU traversal repair keeps filesystem work on the scanner worker already carrying background QoS. Owner performance review accepts the remaining Windows <=2x scheduler-interference TARGET deviation without promoting it to HARD; broader production tuning is not supported by the non-monotonic causal matrix. Existing thresholds are not relaxed, historical misses remain in evidence, and no new cross-platform absolute RSS cap is invented. macOS resident startup remains unverified under #270. AI Semantic Authority is next after PR #269 merges.
 
