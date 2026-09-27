@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Data-Sharing Consent Gate — Activation
 
-Status: **READY FOR OWNER REVIEW — bounded implementation complete; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
+Status: **ACTIVE — implementation — READY FOR OWNER REVIEW; bounded implementation complete; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
 
 Issue: #284
 

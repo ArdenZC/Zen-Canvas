@@ -89,7 +89,7 @@ Final authority:
 
 ### Pre-PM Cleanup AI Data-Sharing Consent Gate
 
-Status: **READY FOR OWNER REVIEW — issue #284 / Draft PR #285; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS; PM-01 remains NOT ACTIVE until merge.**
+Status: **ACTIVE — implementation — READY FOR OWNER REVIEW — issue #284 / Draft PR #285; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS; PM-01 remains NOT ACTIVE until merge.**
 
 Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md), [activation taskbook](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-ACTIVATION.md), and [result](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md).
 
