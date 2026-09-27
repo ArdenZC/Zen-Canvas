@@ -208,7 +208,9 @@ load active finding + expected revision
 
 Preview/execution eligibility for a newly created/current Cleanup run must require a current successful assessment envelope for every selected executable finding.
 
-A provider failure, timeout, cancellation, partial result, duplicate result, stale revision or policy failure leaves the deterministic finding inspectable but **not executable** under PM-01.
+This is an **evidence gate**, not a live-provider execution gate. Once an assessment envelope is current, later Preview/confirmation/Safe Trash uses that durable evidence plus existing deterministic safety authorities and does not require the provider to remain reachable or enabled. Provider readiness/consent is required again only when Zen must generate or refresh semantic assessment.
+
+A provider failure, timeout, cancellation, partial result, duplicate result, stale revision or policy failure leaves the affected deterministic finding inspectable but **not executable** until a successful current assessment exists. It must not invalidate unrelated already-current assessments.
 
 Historical Safe Trash batches, journals and Restore remain independent of live provider availability.
 
