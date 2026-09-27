@@ -16,6 +16,7 @@ use super::{
     settings::{
         get_ai_settings_for_db_with_revision, normalize_ai_settings, AISettings, AI_SETTINGS_KEY,
     },
+    trace::{AITraceContext, AITraceOperation},
 };
 use crate::{
     db::{
@@ -133,13 +134,6 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
 #[path = "cleanup/publication.rs"]
 mod publication;
 use publication::analyze_cleanup_candidates_with_configured_provider;
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "Reserved backend currentness API for PM-01; no renderer command is exposed."
-    )
-)]
 pub(crate) use publication::has_current_ai_assessment;
 #[cfg(test)]
 use publication::{
@@ -151,6 +145,7 @@ fn call_ai_cleanup_provider(
     settings: &AISettings,
     candidates: &[StorageCandidate],
     retry_json_only: bool,
+    trace_context: AITraceContext,
 ) -> Result<String, String> {
     let mut messages = build_ai_cleanup_analysis_prompt(candidates, settings)?;
     if retry_json_only {
@@ -179,7 +174,7 @@ fn call_ai_cleanup_provider(
                 reasoning_effort: settings.reasoning_effort.clone(),
                 extra_body_json: None,
                 use_response_format: retry_json_only.then_some(true),
-                trace_context: None,
+                trace_context: Some(trace_context),
             },
         })
         .map_err(|error| sanitize_ai_cleanup_error(error.to_string(), &settings.api_key))

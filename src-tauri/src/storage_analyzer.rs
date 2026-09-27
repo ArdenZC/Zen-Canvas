@@ -1228,6 +1228,13 @@ pub(crate) fn resolve_analysis_candidates_for_cleanup(
             let _ = db.mark_analysis_finding_stale(&finding.id);
             return Err(format!("Storage cleanup finding identity changed: {id}"));
         }
+        if require_executable
+            && !crate::ai::cleanup::has_current_ai_assessment(db, &finding.id)
+        {
+            return Err(format!(
+                "Storage cleanup finding requires a current AI assessment: {id}"
+            ));
+        }
         let mut candidate = storage_candidate_from_analysis_finding(&finding)?;
         if require_executable {
             authorize_cleanup_candidate(
