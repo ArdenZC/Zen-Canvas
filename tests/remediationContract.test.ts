@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const source = (path: string) => readFileSync(path, "utf8");
 const cleanup = source("src-tauri/src/storage_analyzer.rs");
 const cleanupAI = source("src-tauri/src/ai/cleanup.rs");
+const cleanupAIPublication = source("src-tauri/src/ai/cleanup/publication.rs");
+const organizationSemantic = source("src-tauri/src/db/queries/organization/semantic.rs");
 const settings = source("src-tauri/src/settings.rs");
 const aiSettings = source("src-tauri/src/ai/settings.rs");
 const aiValidation = source("src-tauri/src/ai/openai_compatible.rs") + source("src-tauri/src/ai/settings.rs");
@@ -65,6 +67,26 @@ describe("remediation contracts", () => {
     expect(cleanup).toContain("finding_identity_matches(db, &finding)");
     expect(cleanup).toContain("Review finding requires explicit acknowledged confirmation");
     expect(cleanup).not.toMatch(/latest_candidates/i);
+  });
+
+  it("keeps PM-01 semantic execution gates backend-authoritative", () => {
+    expect(organizationSemantic).toMatch(
+      /AssessmentResolution::NotManaged\s*=>\s*Ok\(OrganizationCurrentProjection[\s\S]{0,360}managed_ai_semantic_state_required/
+    );
+    expect(organizationSemantic).not.toMatch(
+      /AssessmentResolution::NotManaged[\s\S]{0,900}operation_preview_from_indexed\(row\.clone\(\)\)/
+    );
+    expect(cleanup).toContain(
+      "!crate::ai::cleanup::has_current_ai_assessment(db, &finding.id)"
+    );
+    expect(cleanup).toContain(
+      "Storage cleanup finding requires a current AI assessment"
+    );
+    expect(cleanupAI).toContain("trace::{AITraceContext, AITraceOperation}");
+    expect(cleanupAIPublication).toContain(
+      "operation: AITraceOperation::CleanupAnalysis"
+    );
+    expect(cleanupAI).not.toContain("trace_context: None");
   });
 
   it("requires settings CAS revision and rejects stale writers", () => {
