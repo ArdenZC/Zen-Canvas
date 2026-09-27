@@ -607,24 +607,28 @@ mod tests {
         send_full_path: bool,
         send_parent_path: bool,
     ) -> AISettings {
-        let mut settings = AISettings::default();
-        settings.enabled = true;
-        settings.send_full_path = send_full_path;
-        settings.send_parent_path = send_parent_path;
-        settings.api_key = "readiness-test-key".into();
-        settings.api_key_action = ApiKeyAction::Replace;
+        let settings = AISettings {
+            enabled: true,
+            send_full_path,
+            send_parent_path,
+            api_key: "readiness-test-key".into(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        };
         save_ai_settings_with_store(db, &settings, store).expect("save cloud settings")
     }
 
     fn save_local_settings(db: &Database, store: &InMemoryCredentialStore) -> AISettings {
-        let mut settings = AISettings::default();
-        settings.enabled = true;
-        settings.provider = AIProviderKind::Ollama;
-        settings.preset = AIProviderPresetId::Ollama;
-        settings.base_url = "http://127.0.0.1:11434".into();
-        settings.model = "llama3.2".into();
-        settings.api_key.clear();
-        settings.api_key_action = ApiKeyAction::Clear;
+        let settings = AISettings {
+            enabled: true,
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: "http://127.0.0.1:11434".into(),
+            model: "llama3.2".into(),
+            api_key: String::new(),
+            api_key_action: ApiKeyAction::Clear,
+            ..AISettings::default()
+        };
         save_ai_settings_with_store(db, &settings, store).expect("save local settings")
     }
 
@@ -728,13 +732,15 @@ mod tests {
 
     #[test]
     fn provider_readiness_rejects_invalid_or_missing_model_configuration() {
-        let mut settings = AISettings::default();
-        settings.enabled = true;
-        settings.preset = AIProviderPresetId::CustomOpenAICompatible;
-        settings.provider = AIProviderKind::OpenAICompatible;
-        settings.model.clear();
-        settings.api_key_configured = true;
-        settings.api_key = "key".into();
+        let settings = AISettings {
+            enabled: true,
+            preset: AIProviderPresetId::CustomOpenAICompatible,
+            provider: AIProviderKind::OpenAICompatible,
+            model: String::new(),
+            api_key_configured: true,
+            api_key: "key".into(),
+            ..AISettings::default()
+        };
         let snapshot = provider_snapshot_from_settings(settings, "settings-revision".into());
         assert_eq!(snapshot.readiness.state, AIReadinessState::NeedsProvider);
         assert_eq!(snapshot.readiness.reason, "provider_model_missing");
