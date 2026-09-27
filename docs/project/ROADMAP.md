@@ -87,20 +87,21 @@ Final authority:
 
 ## Current
 
-### No active initiative
+### Pre-PM AI Readiness + Consent Contract
 
-Status: **between initiatives — no active implementation; Pre-PM Cleanup AI Gate Hardening is COMPLETE / MERGED through PR #276; PM-01 remains on owner design hold.**
+Status: **ACTIVE — implementation — backend readiness/consent contract foundation in progress; issue #278; branch `foundation/ai-readiness-consent`; PM-01 remains NOT ACTIVE.**
 
-Current truth is owned by [STATUS.md](STATUS.md). The completed Pre-PM hardening evidence remains in [the result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
+Authority: [Pre-PM AI Readiness + Consent Contract](initiatives/pre-pm-ai-readiness-consent-contract.md) and [activation brief](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-ACTIVATION.md).
 
-Completed sequence:
+Sequence:
 
 1. ZB-01 through ZB-05 — **MERGED**.
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
-3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269 to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
-4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272 to `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
-5. **Pre-PM Cleanup AI Gate Hardening — COMPLETE / MERGED through PR #276 to `master@6717438782bd6ca11f3829b02fc198abd3c82934`; owner re-review passed, issue #275 is closed, and merge-after CI `36319236781` succeeded.**
-6. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. Revisit only after this correctness gate and the separate owner design hold are resolved.
+3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269.
+4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272.
+5. Pre-PM Cleanup AI Gate Hardening — **COMPLETE / MERGED** through PR #276.
+6. **Pre-PM AI Readiness + Consent Contract — CURRENT / ACTIVE.**
+7. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. It may consume this foundation only after separate owner release from hold.
 
 macOS resident/release support remains separately gated by #270. Release publication remains deferred.
 
