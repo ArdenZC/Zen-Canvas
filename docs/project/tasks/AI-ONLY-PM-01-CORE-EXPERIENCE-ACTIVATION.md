@@ -173,6 +173,7 @@ Required backend:
 Required frontend:
 - provider readiness vs Organize/Cleanup feature readiness are rendered distinctly;
 - AI unavailable Organize gate + Settings CTA;
+- current semantic explanation/reason state and stale/unavailable explanation state;
 - AI unavailable Cleanup gate + Settings CTA;
 - Cleanup cloud-consent missing state + policy CTA;
 - AI-ready Organize primary AI analysis flow;
