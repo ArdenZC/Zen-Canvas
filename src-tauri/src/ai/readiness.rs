@@ -314,6 +314,8 @@ fn managed_readiness_with_store(
     let scope_fingerprint = managed_scope_fingerprint(&scope);
     let (state, reason) = if !scope.enabled {
         (AIReadinessState::ScopeDisabled, "managed_scope_disabled")
+    } else if provider.readiness.state != AIReadinessState::Ready {
+        (provider.readiness.state, provider.readiness.reason.as_str())
     } else {
         match provider.readiness.provider_mode {
             Some(AIProviderMode::Local) if !scope.allow_local_ai => (
@@ -324,9 +326,6 @@ fn managed_readiness_with_store(
                 AIReadinessState::NeedsConsent,
                 "managed_cloud_ai_consent_required",
             ),
-            _ if provider.readiness.state != AIReadinessState::Ready => {
-                (provider.readiness.state, provider.readiness.reason.as_str())
-            }
             _ => (AIReadinessState::Ready, "managed_ai_ready"),
         }
     };
@@ -532,6 +531,8 @@ fn content_readiness_with_store(
 
     let (state, reason) = if disabled_root {
         (AIReadinessState::ScopeDisabled, "content_scope_disabled")
+    } else if provider.readiness.state != AIReadinessState::Ready {
+        (provider.readiness.state, provider.readiness.reason.as_str())
     } else if consent_missing {
         let reason = match provider_mode {
             Some(AIProviderMode::Local) => "content_local_consent_required",
@@ -539,8 +540,6 @@ fn content_readiness_with_store(
             None => "content_policy_consent_required",
         };
         (AIReadinessState::NeedsConsent, reason)
-    } else if provider.readiness.state != AIReadinessState::Ready {
-        (provider.readiness.state, provider.readiness.reason.as_str())
     } else {
         (AIReadinessState::Ready, "content_ai_ready")
     };
@@ -708,6 +707,23 @@ mod tests {
         assert_eq!(local.state, AIReadinessState::Ready);
         assert_eq!(local.provider_mode, Some(AIProviderMode::Local));
         assert!(!local.credential_required);
+    }
+
+    #[test]
+    fn global_provider_blocker_precedes_scope_consent_for_existing_scopes() {
+        let db = test_db("provider-precedence");
+        let store = InMemoryCredentialStore::default();
+
+        let managed_scope = add_scope(&db, false, false);
+        let managed = managed_readiness_with_store(&db, &managed_scope.id, &store);
+        assert_eq!(managed.state, AIReadinessState::Disabled);
+        assert_eq!(managed.reason, "provider_disabled");
+
+        let root_id = "provider-precedence-root";
+        insert_content_root(&db, root_id, true);
+        let content = content_readiness_with_store(&db, &[root_id.into()], &store);
+        assert_eq!(content.state, AIReadinessState::Disabled);
+        assert_eq!(content.reason, "provider_disabled");
     }
 
     #[test]
