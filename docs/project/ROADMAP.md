@@ -89,9 +89,9 @@ Final authority:
 
 ### Pre-PM AI Readiness + Consent Contract
 
-Status: **ACTIVE — implementation — backend readiness/consent contract foundation in progress; issue #278; branch `foundation/ai-readiness-consent`; PM-01 remains NOT ACTIVE.**
+Status: **ACTIVE — implementation complete; READY FOR OWNER REVIEW — Production HEAD `dc144b6efaa6ae101f7c624ad32228cb85b91d65`; exact-head CI `36324852969` SUCCESS; Draft PR #279; PM-01 remains NOT ACTIVE.**
 
-Authority: [Pre-PM AI Readiness + Consent Contract](initiatives/pre-pm-ai-readiness-consent-contract.md) and [activation brief](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-ACTIVATION.md).
+Authority: [Pre-PM AI Readiness + Consent Contract](initiatives/pre-pm-ai-readiness-consent-contract.md), [activation brief](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-ACTIVATION.md), and [result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md).
 
 Sequence:
 
@@ -100,10 +100,10 @@ Sequence:
 3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269.
 4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272.
 5. Pre-PM Cleanup AI Gate Hardening — **COMPLETE / MERGED** through PR #276.
-6. **Pre-PM AI Readiness + Consent Contract — CURRENT / ACTIVE.**
+6. **Pre-PM AI Readiness + Consent Contract — CURRENT / ACTIVE; implementation complete and READY FOR OWNER REVIEW in Draft PR #279.**
 7. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. It may consume this foundation only after separate owner release from hold.
 
-macOS resident/release support remains separately gated by #270. Release publication remains deferred.
+macOS resident/release support remains separately gated by #270. Release publication remains deferred. Local task hygiene for this Track remains pending under `F:\.codex-temp\ai-readiness-consent` because host policy blocked cleanup; repository precedent treats this as unresolved local hygiene, not a product or merge blocker.
 
 ## Resident / Interactive Performance Qualification
 

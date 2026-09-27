@@ -1,6 +1,6 @@
 # Pre-PM AI Readiness + Consent Contract
 
-Status: **ACTIVE — implementation — architecture inventory frozen; backend contract implementation in progress**
+Status: **ACTIVE — implementation complete; READY FOR OWNER REVIEW — Production HEAD accepted for documentation closeout**
 
 Owner: Zen Canvas
 
@@ -130,7 +130,7 @@ The readiness contract must preserve:
   - revision/staleness;
   - arbitrary renderer path rejection.
 - Applicable full checks: Rust fmt/clippy/focused tests, governance, exact-head Hosted CI.
-- Exact-head evidence: pending.
+- Exact-head evidence: Production HEAD `dc144b6efaa6ae101f7c624ad32228cb85b91d65`; CI [36324852969](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36324852969) — **SUCCESS**. Focused readiness tests: **11 passed**. Windows/macOS Rust quality and release compile passed; fmt, Clippy with `--all-targets -- -D warnings`, and diff-check passed.
 - Visual/native/platform checks: no UI change planned; native visual acceptance not applicable unless scope changes.
 - Known unverified areas: live provider network reachability is intentionally not inferred by configuration readiness.
 
@@ -141,12 +141,14 @@ The readiness contract must preserve:
   2. backend readiness implementation;
   3. focused security/contract tests;
   4. docs/result and owner review.
-- PR URL/number: pending.
+- PR URL/number: [#279 — Draft](https://github.com/ArdenZC/Zen-Canvas/pull/279).
 - Review owner: direct owner/ChatGPT diff and evidence review; Codex Review is not merge authority.
 
 ## Closeout
 
 - Merge SHA: pending.
-- Current-truth files updated: activation in progress.
-- Deferred/unverified items recorded: PM-01 hold and #270 remain separate.
+- Production HEAD: `dc144b6efaa6ae101f7c624ad32228cb85b91d65`; owner Production HEAD review accepted documentation closeout in PR comment `5856883781`.
+- Current-truth files updated: Result/Architecture/STATUS/ROADMAP/RISK closeout in progress as a docs-only successor.
+- Deferred/unverified items recorded: live provider connectivity is not inferred by configuration readiness; PM-01 hold and #270 remain separate.
+- Local task hygiene: **PENDING — NOT A PRODUCT OR MERGE BLOCKER**. `F:\.codex-temp\ai-readiness-consent` retains 10 task-owned SQLite fixtures after the automatic safety reviewer rejected the bounded cleanup action before execution. No bypass was used.
 - Branch retirement: pending.
