@@ -142,6 +142,36 @@ This is not a hidden second authority; that is good for safety. It is a product-
 
 PM-01 must not present Preference Memory as already active in the new semantic path. Either make the copy explicitly future/legacy-only, or defer the capability to PM-02/PM-03. Do not opportunistically implement a new preference-memory authority inside PM-01.
 
+## Product-truth / explainability correction
+
+The owner audit initially suspected the old `OrganizeSuggestionInspector` was presenting legacy `files.matched_rules` as current AI evidence. A caller audit corrected that suspicion: `OrganizeSuggestionInspector`, `OrganizeSuggestionList` and `OrganizeTargetDialog` have no current production caller in the V4.3 durable Organization Plan page. They are compatibility/debt surfaces, not the active PM-01 UI.
+
+The **active** Organization Plan page has a different gap: `OrganizationPlanItemDto` persists/projects target, confidence, risk, review reasons and preview identity, but no semantic reason/evidence. The internal `Proposal` type also drops SemanticAssessmentV1 reason/context before Plan projection. Therefore the active UI can only fall back to generic copy such as “Generated from local rules or classification analysis,” which is both vague and wrong for the new AI-only product model.
+
+PM-01 must:
+
+- remove Rules-first fallback copy from the active Organize and Operation Preview surfaces;
+- expose a read-only explanation projection that is bound to the **current semantic proposal/fingerprint** (for example reason plus a semantic-source/version marker), rather than reading legacy `files.matched_rules` or legacy classification reason;
+- avoid creating a second durable semantic ledger merely for display;
+- ensure explanation changes participate in the same current-proposal/stale semantics as the proposal they describe;
+- keep dead compatibility components out of scope unless a caller-zero retirement is separately proven and reviewable.
+
+A schema migration is not required by default. Prefer a live/current projection from the already-validated SemanticAssessmentV1 binding unless implementation proves durable snapshotting is necessary for historical review truth.
+
+### Active copy inventory that PM-01 must correct
+
+The following strings have current production callers and contradict or blur the AI-only product direction:
+
+- AppShell account summary always renders `Local first · AI is off` independently of the actual Local/Cloud status card.
+- `modeAIDisabledDesc`: “Indexing and organization rules run only on this device.”
+- `organizeReasonFromAnalysis`: “Generated from local rules or classification analysis…”
+- Operation Preview empty state instructs the user to run/adjust Rules to obtain executable organization suggestions.
+- Rules/Automation empty, enabled and Run-now copy describes enabled rules as the source of new organization suggestions.
+- Automation Settings describes Rules as the suggestion generator.
+- Learning-history copy claims current AI-reference behavior that the durable SemanticAssessmentV1 worker does not implement.
+
+PM-01 may relabel current Rules/Automation as Advanced / Policies / Compatibility and remove semantic-primary CTAs/copy. It must **not** implement PM-02 Automation architecture in order to fix product truth.
+
 ## Required diagnostic correction
 
 Cleanup provider requests currently pass `trace_context: None`. The trace default operation is `FileClassification`, so Cleanup diagnostics are mislabeled and lose Cleanup job/batch/target context.
