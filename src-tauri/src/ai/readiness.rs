@@ -879,6 +879,9 @@ mod tests {
         let missing_credential = content_readiness_with_store(&db, &[root_id.into()], &store);
         assert_eq!(missing_credential.state, AIReadinessState::NeedsCredential);
 
+        store
+            .set("readiness-test-key")
+            .expect("restore cloud credential");
         let current_policy = db
             .get_content_scope_policy(root_id)
             .expect("load content policy");
