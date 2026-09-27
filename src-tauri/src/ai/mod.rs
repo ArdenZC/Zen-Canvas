@@ -8,5 +8,6 @@ pub mod prompts;
 pub mod provider;
 pub mod registry;
 pub mod schema;
+pub(crate) mod semantic;
 pub mod settings;
 pub mod trace;

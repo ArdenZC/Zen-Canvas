@@ -94,6 +94,7 @@ impl Database {
                 .unwrap_or(Some(false));
             let current_file = load_indexed_file_by_id(&conn, &item.file_id_snapshot)?;
             decorate_organization_item_metadata_with_file(
+                &conn,
                 item,
                 current_file.as_ref(),
                 scope_membership,

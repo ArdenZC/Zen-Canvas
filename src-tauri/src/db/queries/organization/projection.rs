@@ -131,6 +131,7 @@ pub(super) fn load_organization_item_projections(
             .unwrap_or(Some(false));
         let current_file = current_files.get(&item.file_id_snapshot).cloned();
         decorate_organization_item_metadata_with_file(
+            conn,
             &mut item,
             current_file.as_ref(),
             scope_membership,

@@ -649,7 +649,7 @@ pub(crate) fn enqueue_managed_ai_for_library_files(
                         path, extension, is_directory, size, created_at_fs, modified_at_fs,
                         file_attributes, is_hidden, is_system, source_provider, last_seen_at
                  FROM global_entries WHERE path_normalized = ?1 AND is_stale = 0
-                 ORDER BY updated_at DESC, id LIMIT 1",
+                 ORDER BY last_seen_at DESC, id LIMIT 1",
                 params![normalized],
                 |row| {
                     let id = row.get::<_, String>(0)?;
