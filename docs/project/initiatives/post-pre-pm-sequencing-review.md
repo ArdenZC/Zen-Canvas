@@ -1,6 +1,6 @@
 # Post-Pre-PM Sequencing Review
 
-Status: **ACTIVE — specification only — sequencing decision drafted; production implementation not authorized**
+Status: **COMPLETE / MERGED — owner sequencing review passed; PR #282 squash-merged; merge-after CI SUCCESS**
 
 Owner: Zen Canvas
 
@@ -163,6 +163,12 @@ After owner acceptance of this specification:
 - no PM-02 implementation;
 - no #270/release work.
 
-## Closeout gate
+## Closeout
 
-Owner review must accept this sequence before #274 is superseded and a fresh PM-01 activation begins.
+- Owner review: **PASSED** in PR #282 comment `5857424717`.
+- Merge: PR #282 squash-merged to `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`.
+- Merge-after CI: `36331334461` — **SUCCESS**.
+- Issue #281: **CLOSED / completed**.
+- Old Draft PR #274: **CLOSED / superseded** without merge.
+- Research lane: issue #283 opened under research-only boundaries.
+- Late hold-release audit found one narrower prerequisite not covered by #279: distinct Cleanup local/cloud data-sharing consent. Issue #284 owns that blocker before fresh PM-01 activation. This does not change the accepted separation of production and research lanes.

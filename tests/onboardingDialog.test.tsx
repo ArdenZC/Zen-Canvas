@@ -52,6 +52,8 @@ const aiSettings: AISettings = {
   sendParentPath: true,
   classificationMode: "hybrid",
   cleanupAiEnabled: false,
+  cleanupLocalAiAllowed: false,
+  cleanupCloudAiAllowed: false,
   forceJsonOutput: true,
   enableThinking: false,
   reasoningEffort: null,

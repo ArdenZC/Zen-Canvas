@@ -67,11 +67,15 @@ pub(super) fn analyze_cleanup_candidates_with_configured_provider(
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
-    if !settings.enabled {
-        return Err("AI cleanup analysis is disabled because AI is not enabled.".to_string());
-    }
-    if !settings.cleanup_ai_enabled {
-        return Err("AI cleanup analysis is disabled in AI settings.".to_string());
+    let readiness = crate::ai::readiness::cleanup_ai_readiness_from_settings(
+        settings.clone(),
+        settings_revision,
+    );
+    if readiness.state != crate::ai::readiness::AIReadinessState::Ready {
+        return Err(format!(
+            "AI cleanup analysis is not ready: {}",
+            readiness.reason
+        ));
     }
     let provider: Box<dyn AIProvider> = match settings.provider {
         AIProviderKind::OpenAICompatible => {

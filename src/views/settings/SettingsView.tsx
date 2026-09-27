@@ -1116,6 +1116,22 @@ export function SettingsView() {
                 disabled={aiDependentControlsDisabled}
                 onChange={(next) => updateAISettings({ cleanupAiEnabled: next })}
               />
+              <SettingsSwitch
+                id="settings-ai-cleanup-local-consent"
+                label={t("aiCleanupLocalConsentLabel")}
+                description={t("aiCleanupLocalConsentDesc")}
+                checked={aiSettings.cleanupLocalAiAllowed}
+                disabled={aiDependentControlsDisabled || !aiSettings.cleanupAiEnabled}
+                onChange={(next) => updateAISettings({ cleanupLocalAiAllowed: next })}
+              />
+              <SettingsSwitch
+                id="settings-ai-cleanup-cloud-consent"
+                label={t("aiCleanupCloudConsentLabel")}
+                description={t("aiCleanupCloudConsentDesc")}
+                checked={aiSettings.cleanupCloudAiAllowed}
+                disabled={aiDependentControlsDisabled || !aiSettings.cleanupAiEnabled}
+                onChange={(next) => updateAISettings({ cleanupCloudAiAllowed: next })}
+              />
               <SettingsSelect
                 id="settings-ai-provider"
                 label={t("aiProviderPreset")}
@@ -1338,6 +1354,8 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     sendParentPath: true,
     classificationMode: "ai_first",
     cleanupAiEnabled: true,
+    cleanupLocalAiAllowed: false,
+    cleanupCloudAiAllowed: false,
     forceJsonOutput: true,
     enableThinking: false,
     reasoningEffort: null,

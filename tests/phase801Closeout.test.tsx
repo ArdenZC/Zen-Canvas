@@ -29,6 +29,8 @@ function settings(overrides: Partial<AISettings> = {}): AISettings {
     sendParentPath: true,
     classificationMode: "ai_first",
     cleanupAiEnabled: true,
+    cleanupLocalAiAllowed: false,
+    cleanupCloudAiAllowed: false,
     forceJsonOutput: false,
     enableThinking: false,
     reasoningEffort: null,

@@ -92,6 +92,19 @@ pub struct ContentAIReadiness {
     pub requires_run_confirmation: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupAIReadiness {
+    pub state: AIReadinessState,
+    pub reason: String,
+    pub provider: AIProviderReadiness,
+    pub cleanup_ai_enabled: bool,
+    pub local_ai_allowed: bool,
+    pub cloud_ai_allowed: bool,
+    pub binding_fingerprint: String,
+    pub disclosure: AIDataDisclosure,
+}
+
 #[derive(Debug, Clone)]
 struct ProviderSnapshot {
     readiness: AIProviderReadiness,
@@ -357,6 +370,91 @@ pub fn managed_ai_readiness_is_current(
     expected_binding_fingerprint: &str,
 ) -> bool {
     managed_ai_readiness(db, managed_scope_id).binding_fingerprint == expected_binding_fingerprint
+}
+
+fn cleanup_disclosure(settings: Option<&AISettings>) -> AIDataDisclosure {
+    AIDataDisclosure {
+        provider_payload_includes_file_name: true,
+        provider_payload_includes_parent_path: settings
+            .is_some_and(|settings| settings.send_parent_path),
+        provider_payload_includes_full_path: settings
+            .is_some_and(|settings| settings.send_full_path),
+        provider_payload_includes_file_content: false,
+        provider_content_is_bounded: false,
+    }
+}
+
+fn cleanup_readiness_from_snapshot(provider: ProviderSnapshot) -> CleanupAIReadiness {
+    let disclosure = cleanup_disclosure(provider.settings.as_ref());
+    let (cleanup_ai_enabled, local_ai_allowed, cloud_ai_allowed) = provider
+        .settings
+        .as_ref()
+        .map(|settings| {
+            (
+                settings.cleanup_ai_enabled,
+                settings.cleanup_local_ai_allowed,
+                settings.cleanup_cloud_ai_allowed,
+            )
+        })
+        .unwrap_or((false, false, false));
+
+    let (state, reason) = if provider.readiness.state != AIReadinessState::Ready {
+        (provider.readiness.state, provider.readiness.reason.as_str())
+    } else if !cleanup_ai_enabled {
+        (AIReadinessState::Disabled, "cleanup_ai_disabled")
+    } else {
+        match provider.readiness.provider_mode {
+            Some(AIProviderMode::Local) if !local_ai_allowed => (
+                AIReadinessState::NeedsConsent,
+                "cleanup_local_ai_consent_required",
+            ),
+            Some(AIProviderMode::Cloud) if !cloud_ai_allowed => (
+                AIReadinessState::NeedsConsent,
+                "cleanup_cloud_ai_consent_required",
+            ),
+            _ => (AIReadinessState::Ready, "cleanup_ai_ready"),
+        }
+    };
+
+    let binding_fingerprint = fingerprint(&[
+        provider.readiness.binding_fingerprint.clone(),
+        cleanup_ai_enabled.to_string(),
+        local_ai_allowed.to_string(),
+        cloud_ai_allowed.to_string(),
+        disclosure.provider_payload_includes_parent_path.to_string(),
+        disclosure.provider_payload_includes_full_path.to_string(),
+        state_wire(state).into(),
+        reason.into(),
+    ]);
+
+    CleanupAIReadiness {
+        state,
+        reason: reason.into(),
+        provider: provider.readiness,
+        cleanup_ai_enabled,
+        local_ai_allowed,
+        cloud_ai_allowed,
+        binding_fingerprint,
+        disclosure,
+    }
+}
+
+pub(crate) fn cleanup_ai_readiness_from_settings(
+    settings: AISettings,
+    settings_revision: &str,
+) -> CleanupAIReadiness {
+    cleanup_readiness_from_snapshot(provider_snapshot_from_settings(
+        settings,
+        settings_revision.to_string(),
+    ))
+}
+
+pub fn cleanup_ai_readiness(db: &Database) -> CleanupAIReadiness {
+    cleanup_readiness_from_snapshot(provider_snapshot_with_store(db, &SystemCredentialStore))
+}
+
+pub fn cleanup_ai_readiness_is_current(db: &Database, expected_binding_fingerprint: &str) -> bool {
+    cleanup_ai_readiness(db).binding_fingerprint == expected_binding_fingerprint
 }
 
 fn content_disclosure() -> AIDataDisclosure {
@@ -833,6 +931,124 @@ mod tests {
         let stale = managed_readiness_with_store(&db, &scope.id, &store);
         assert_eq!(stale.state, AIReadinessState::NeedsCredential);
         assert_ne!(ready.binding_fingerprint, stale.binding_fingerprint);
+    }
+
+    #[test]
+    fn cleanup_readiness_defaults_fail_closed_and_reports_disclosure() {
+        let db = test_db("cleanup-default-consent");
+        let store = InMemoryCredentialStore::default();
+        let settings = save_local_settings(&db, &store);
+
+        let blocked = cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_eq!(blocked.state, AIReadinessState::NeedsConsent);
+        assert_eq!(blocked.reason, "cleanup_local_ai_consent_required");
+        assert!(!blocked.local_ai_allowed);
+        assert!(!blocked.cloud_ai_allowed);
+        assert!(blocked.disclosure.provider_payload_includes_file_name);
+        assert!(blocked.disclosure.provider_payload_includes_parent_path);
+        assert!(!blocked.disclosure.provider_payload_includes_full_path);
+        assert!(!blocked.disclosure.provider_payload_includes_file_content);
+
+        let allowed_settings = AISettings {
+            cleanup_local_ai_allowed: true,
+            api_key_action: ApiKeyAction::Preserve,
+            ..settings
+        };
+        save_ai_settings_with_store(&db, &allowed_settings, &store)
+            .expect("allow local cleanup AI");
+        let ready = cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_eq!(ready.state, AIReadinessState::Ready);
+        assert_ne!(blocked.binding_fingerprint, ready.binding_fingerprint);
+    }
+
+    #[test]
+    fn cleanup_cloud_consent_is_distinct_from_provider_credential() {
+        let db = test_db("cleanup-cloud-consent");
+        let store = InMemoryCredentialStore::default();
+        let settings = save_cloud_settings(&db, &store, false, false);
+
+        let blocked = cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_eq!(blocked.state, AIReadinessState::NeedsConsent);
+        assert_eq!(blocked.reason, "cleanup_cloud_ai_consent_required");
+
+        let allowed_settings = AISettings {
+            cleanup_cloud_ai_allowed: true,
+            api_key_action: ApiKeyAction::Preserve,
+            ..settings
+        };
+        save_ai_settings_with_store(&db, &allowed_settings, &store)
+            .expect("allow cloud cleanup AI");
+        let ready = cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_eq!(ready.state, AIReadinessState::Ready);
+
+        store.delete().expect("remove cloud credential");
+        let missing_credential =
+            cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_eq!(missing_credential.state, AIReadinessState::NeedsCredential);
+        assert_eq!(missing_credential.reason, "provider_credential_required");
+    }
+
+    #[test]
+    fn cleanup_feature_disabled_precedes_cleanup_consent() {
+        let db = test_db("cleanup-feature-disabled");
+        let store = InMemoryCredentialStore::default();
+        let settings = save_local_settings(&db, &store);
+        let disabled_settings = AISettings {
+            cleanup_ai_enabled: false,
+            cleanup_local_ai_allowed: true,
+            api_key_action: ApiKeyAction::Preserve,
+            ..settings
+        };
+        save_ai_settings_with_store(&db, &disabled_settings, &store).expect("disable cleanup AI");
+
+        let readiness = cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_eq!(readiness.state, AIReadinessState::Disabled);
+        assert_eq!(readiness.reason, "cleanup_ai_disabled");
+    }
+
+    #[test]
+    fn cleanup_binding_changes_with_consent_and_path_disclosure() {
+        let db = test_db("cleanup-binding");
+        let store = InMemoryCredentialStore::default();
+        let settings = save_local_settings(&db, &store);
+        let initial = cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+
+        let consented = AISettings {
+            cleanup_local_ai_allowed: true,
+            api_key_action: ApiKeyAction::Preserve,
+            ..settings.clone()
+        };
+        save_ai_settings_with_store(&db, &consented, &store).expect("save consent");
+        let after_consent =
+            cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_ne!(
+            initial.binding_fingerprint,
+            after_consent.binding_fingerprint
+        );
+
+        let disclosure_changed = AISettings {
+            send_parent_path: false,
+            send_full_path: true,
+            api_key_action: ApiKeyAction::Preserve,
+            ..consented
+        };
+        save_ai_settings_with_store(&db, &disclosure_changed, &store).expect("save disclosure");
+        let after_disclosure =
+            cleanup_readiness_from_snapshot(provider_snapshot_with_store(&db, &store));
+        assert_ne!(
+            after_consent.binding_fingerprint,
+            after_disclosure.binding_fingerprint
+        );
+        assert!(
+            !after_disclosure
+                .disclosure
+                .provider_payload_includes_parent_path
+        );
+        assert!(
+            after_disclosure
+                .disclosure
+                .provider_payload_includes_full_path
+        );
     }
 
     #[test]

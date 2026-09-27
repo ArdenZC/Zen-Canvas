@@ -79,6 +79,7 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
   it("keeps proposal generation bounded to the existing provider adapter and prompt text", () => {
     const adapter = read("src-tauri/src/rule_proposals.rs");
     const proposalRepo = read("src-tauri/src/db/queries/rule_proposals/mod.rs");
+    const proposalProduction = proposalRepo.split("#[cfg(test)]")[0];
     expect(adapter).toContain("RULE_PROPOSAL_GENERATION_LIMIT: usize = 2");
     expect(adapter).toContain("provider_for_settings");
     expect(adapter).toContain("chat_json");
@@ -86,8 +87,8 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
     expect(adapter).not.toContain("std::process::Command");
     expect(adapter).not.toContain("std::fs::read");
     expect(adapter).not.toContain("read_to_string");
-    expect(proposalRepo).not.toContain("operation_logs");
-    expect(proposalRepo).not.toContain("cleanup_operation_logs");
+    expect(proposalProduction).not.toContain("operation_logs");
+    expect(proposalProduction).not.toContain("cleanup_operation_logs");
   });
 
   it("hydrates proposal and catalog truth from SQLite rather than localStorage", () => {

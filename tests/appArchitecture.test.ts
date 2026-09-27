@@ -180,12 +180,20 @@ describe("app render architecture", () => {
     expect(settings).toContain('description={t("aiLegacyRulesDesc")}');
     expect(settings).toContain('label={t("aiCleanupEnabledLabel")}');
     expect(settings).toContain('description={t("aiCleanupEnabledDesc")}');
+    expect(settings).toContain('label={t("aiCleanupLocalConsentLabel")}');
+    expect(settings).toContain('description={t("aiCleanupLocalConsentDesc")}');
+    expect(settings).toContain('label={t("aiCleanupCloudConsentLabel")}');
+    expect(settings).toContain('description={t("aiCleanupCloudConsentDesc")}');
     expect(i18n).toContain("DeepSeek / 国产模型建议 10");
     expect(i18n).toContain("AI 分类并发数");
     expect(i18n).toContain("AI-first 模式下建议关闭");
     expect(i18n).toContain("AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。");
     expect(settings).toContain("cleanupAiEnabled: true");
+    expect(settings).toContain("cleanupLocalAiAllowed: false");
+    expect(settings).toContain("cleanupCloudAiAllowed: false");
     expect(browserMock).toContain("cleanupAiEnabled: true");
+    expect(browserMock).toContain("cleanupLocalAiAllowed: false");
+    expect(browserMock).toContain("cleanupCloudAiAllowed: false");
   });
 
   it("keeps automatic rule execution behind explicit confirmation and the current safety boundary", () => {

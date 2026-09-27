@@ -199,6 +199,8 @@ export interface AISettings {
   sendParentPath: boolean;
   classificationMode: AIClassificationMode;
   cleanupAiEnabled: boolean;
+  cleanupLocalAiAllowed: boolean;
+  cleanupCloudAiAllowed: boolean;
   forceJsonOutput: boolean;
   enableThinking: boolean;
   reasoningEffort: string | null;
