@@ -230,12 +230,10 @@ fn cleanup_provider_requests_use_cleanup_analysis_trace_context() {
     assert_eq!(trace.job_id.as_deref(), Some(run.id.as_str()));
     assert_eq!(trace.target_count, Some(candidates.len()));
     assert_eq!(trace.batch_size, Some(candidates.len()));
-    assert!(
-        trace
-            .batch_id
-            .as_deref()
-            .is_some_and(|value| value.contains("cleanup-ai-request"))
-    );
+    assert!(trace
+        .batch_id
+        .as_deref()
+        .is_some_and(|value| value.contains("cleanup-ai-request")));
     assert!(!trace.include_sensitive_document_content);
     assert!(trace.redaction_secrets.is_empty());
 }
@@ -1098,10 +1096,7 @@ impl StaticCleanupProvider {
     }
 
     fn requests(&self) -> Vec<AIChatRequest> {
-        self.requests
-            .lock()
-            .expect("provider request lock")
-            .clone()
+        self.requests.lock().expect("provider request lock").clone()
     }
 }
 
