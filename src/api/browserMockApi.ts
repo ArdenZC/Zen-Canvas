@@ -4097,6 +4097,8 @@ function mockAISettings(settings?: AISettings): AISettings {
     sendParentPath: true,
     classificationMode: "ai_first",
     cleanupAiEnabled: true,
+    cleanupLocalAiAllowed: false,
+    cleanupCloudAiAllowed: false,
     forceJsonOutput: true,
     enableThinking: false,
     reasoningEffort: null,
