@@ -335,7 +335,12 @@ fn malformed_authority_fields_fail_closed_without_evidence() {
     })
     .to_string();
     let provider = StaticCleanupProvider::new(vec![response.clone(), response]);
-    let result = analyze_fixture_candidates(fixture.db(), &run, &[candidate.clone()], &provider);
+    let result = analyze_fixture_candidates(
+        fixture.db(),
+        &run,
+        std::slice::from_ref(&candidate),
+        &provider,
+    );
 
     assert!(result.is_err());
     assert_eq!(provider.calls.load(Ordering::Relaxed), 2);
@@ -373,7 +378,12 @@ fn source_change_during_provider_call_makes_result_stale() {
         },
     );
 
-    let result = analyze_fixture_candidates(fixture.db(), &run, &[candidate.clone()], &provider);
+    let result = analyze_fixture_candidates(
+        fixture.db(),
+        &run,
+        std::slice::from_ref(&candidate),
+        &provider,
+    );
     assert!(result.is_err());
     let finding = fixture
         .db()
@@ -400,10 +410,12 @@ fn provider_policy_change_during_provider_call_makes_result_stale() {
     let provider = StaticCleanupProvider::with_callback(
         vec![response_for_ids(std::slice::from_ref(&candidate.id))],
         move || {
-            let mut changed_settings = AISettings::default();
-            changed_settings.enabled = true;
-            changed_settings.cleanup_ai_enabled = true;
-            changed_settings.model = "cleanup-policy-change-test".to_string();
+            let changed_settings = AISettings {
+                enabled: true,
+                cleanup_ai_enabled: true,
+                model: "cleanup-policy-change-test".to_string(),
+                ..AISettings::default()
+            };
             let settings_json = serde_json::to_string(&changed_settings)
                 .expect("serialize changed cleanup AI policy");
             let connection = db_for_callback
@@ -418,7 +430,12 @@ fn provider_policy_change_during_provider_call_makes_result_stale() {
         },
     );
 
-    let result = analyze_fixture_candidates(fixture.db(), &run, &[candidate.clone()], &provider);
+    let result = analyze_fixture_candidates(
+        fixture.db(),
+        &run,
+        std::slice::from_ref(&candidate),
+        &provider,
+    );
     assert!(result.is_err());
     let finding = fixture
         .db()
@@ -450,8 +467,12 @@ fn replaced_candidate_set_cannot_receive_old_provider_response() {
         },
     );
 
-    let result =
-        analyze_fixture_candidates(fixture.db(), &first_run, &[candidate.clone()], &provider);
+    let result = analyze_fixture_candidates(
+        fixture.db(),
+        &first_run,
+        std::slice::from_ref(&candidate),
+        &provider,
+    );
     assert!(result.is_err());
     let old = fixture
         .db()
@@ -497,9 +518,13 @@ fn overlapping_requests_commit_b_first_and_reject_a_as_stale() {
         .expect("provider A captured its precondition");
 
     let provider_b = StaticCleanupProvider::new(vec![response]);
-    let published_b =
-        analyze_fixture_candidates(fixture.db(), &run, &[candidate.clone()], &provider_b)
-            .expect("request B publishes first");
+    let published_b = analyze_fixture_candidates(
+        fixture.db(),
+        &run,
+        std::slice::from_ref(&candidate),
+        &provider_b,
+    )
+    .expect("request B publishes first");
     assert_eq!(published_b.len(), 1);
     release_tx.send(()).expect("release request A");
     let result_a = handle_a.join().expect("join request A");
@@ -549,11 +574,12 @@ fn empty_candidate_request_never_calls_provider_or_publishes_evidence() {
 }
 
 fn test_ai_settings() -> AISettings {
-    let mut settings = AISettings::default();
-    settings.enabled = true;
-    settings.cleanup_ai_enabled = true;
-    settings.batch_size = 10;
-    settings
+    AISettings {
+        enabled: true,
+        cleanup_ai_enabled: true,
+        batch_size: 10,
+        ..AISettings::default()
+    }
 }
 
 fn analyze_fixture_candidates(
@@ -591,6 +617,13 @@ fn new_cleanup_ai_fixture() -> CleanupAiFixture {
     let fixture_base = std::env::var_os("CLEANUP_AI_TEST_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(".tmp-tests"));
+    let fixture_base = if fixture_base.is_absolute() {
+        fixture_base
+    } else {
+        std::env::current_dir()
+            .expect("resolve cleanup AI fixture workspace")
+            .join(fixture_base)
+    };
     let root = fixture_base.join(new_job_id("cleanup-ai-fixture"));
     let source_root = root.join("Downloads");
     fs::create_dir_all(&source_root).expect("create isolated cleanup source root");
@@ -607,7 +640,7 @@ fn new_cleanup_ai_fixture() -> CleanupAiFixture {
         db: None,
     };
     fixture.db =
-        Some(Database::open(&root.join("cleanup-ai.sqlite3")).expect("open fixture database"));
+        Some(Database::open(root.join("cleanup-ai.sqlite3")).expect("open fixture database"));
     fixture
 }
 
