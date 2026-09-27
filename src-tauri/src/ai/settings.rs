@@ -124,7 +124,7 @@ pub fn get_ai_settings_with_store(
     get_ai_settings_with_store_and_revision(db, credentials).map(|(settings, _)| settings)
 }
 
-fn get_ai_settings_with_store_and_revision(
+pub(crate) fn get_ai_settings_with_store_and_revision(
     db: &Database,
     credentials: &impl CredentialStore,
 ) -> Result<(AISettings, String), DbError> {
