@@ -89,9 +89,9 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE — implementation — PM-01 Core Experience: AI readiness, Organize/Cleanup AI-only semantic product flow and onboarding; issue #273; branch `product/ai-only-core-experience`**.
+Status: **ACTIVE INITIATIVE / PM-01 DESIGN HOLD — owner deep audit is open; branch remains docs/design-only until the amended required-AI contracts are explicitly accepted; issue #273; branch `product/ai-only-core-experience`**.
 
-Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md) and [PM-01 activation taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md).
+Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md) and [PM-01 activation taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Binding amendment: [PM-01 Owner Deep Audit](tasks/AI-ONLY-PM-01-OWNER-DEEP-AUDIT-AMENDMENT.md).
 
 Completed mainline sequence:
 
@@ -99,8 +99,8 @@ Completed mainline sequence:
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
 3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED**.
 4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272 to `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
-5. **AI-only Product Migration PM-01 — CURRENT.**
-6. **PM-02 Automation Intent + Policies — NEXT after PM-01 owner review.**
+5. **AI-only Product Migration PM-01 — CURRENT / DESIGN HOLD.**
+6. **PM-02 Automation Intent + Policies — NEXT only after PM-01 implementation and owner review; PM-01 is currently blocked on deep-audit design closure.**
 7. **PM-03 hierarchy/migration closeout — later.**
 
 #270 remains a separate macOS resident/release blocker. Release publication remains deferred.
