@@ -36,11 +36,11 @@ pub enum AIProviderMode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AIDataDisclosure {
-    pub sends_file_name: bool,
-    pub sends_parent_path: bool,
-    pub sends_full_path: bool,
-    pub sends_file_content: bool,
-    pub content_is_bounded: bool,
+    pub provider_payload_includes_file_name: bool,
+    pub provider_payload_includes_parent_path: bool,
+    pub provider_payload_includes_full_path: bool,
+    pub provider_payload_includes_file_content: bool,
+    pub provider_content_is_bounded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -236,6 +236,13 @@ pub fn provider_readiness(db: &Database) -> AIProviderReadiness {
     }
 }
 
+pub fn provider_readiness_is_current(
+    db: &Database,
+    expected_binding_fingerprint: &str,
+) -> bool {
+    provider_readiness(db).binding_fingerprint == expected_binding_fingerprint
+}
+
 fn managed_scope_fingerprint(scope: &ManagedScope) -> String {
     fingerprint(&[
         scope.id.clone(),
@@ -250,12 +257,12 @@ fn managed_scope_fingerprint(scope: &ManagedScope) -> String {
 
 fn managed_disclosure(settings: Option<&AISettings>) -> AIDataDisclosure {
     AIDataDisclosure {
-        sends_file_name: true,
-        sends_parent_path: settings
+        provider_payload_includes_file_name: true,
+        provider_payload_includes_parent_path: settings
             .is_some_and(|settings| settings.send_parent_path || settings.send_full_path),
-        sends_full_path: settings.is_some_and(|settings| settings.send_full_path),
-        sends_file_content: false,
-        content_is_bounded: false,
+        provider_payload_includes_full_path: settings.is_some_and(|settings| settings.send_full_path),
+        provider_payload_includes_file_content: false,
+        provider_content_is_bounded: false,
     }
 }
 
@@ -266,11 +273,28 @@ fn managed_readiness_with_store(
 ) -> ManagedAIReadiness {
     let provider = provider_snapshot_with_store(db, credentials);
     let disclosure = managed_disclosure(provider.settings.as_ref());
-    let scope = db.list_managed_scopes().ok().and_then(|scopes| {
-        scopes
-            .into_iter()
-            .find(|scope| scope.id == managed_scope_id.trim())
-    });
+    let scopes = match db.list_managed_scopes() {
+        Ok(scopes) => scopes,
+        Err(_) => {
+            let binding_fingerprint = fingerprint(&[
+                provider.readiness.binding_fingerprint.clone(),
+                managed_scope_id.trim().into(),
+                "managed_scope_unavailable".into(),
+            ]);
+            return ManagedAIReadiness {
+                state: AIReadinessState::Error,
+                reason: "managed_scope_unavailable".into(),
+                provider: provider.readiness,
+                managed_scope_id: managed_scope_id.trim().into(),
+                scope_fingerprint: None,
+                binding_fingerprint,
+                disclosure,
+            };
+        }
+    };
+    let scope = scopes
+        .into_iter()
+        .find(|scope| scope.id == managed_scope_id.trim());
 
     let Some(scope) = scope else {
         let binding_fingerprint = fingerprint(&[
@@ -340,11 +364,11 @@ pub fn managed_ai_readiness_is_current(
 
 fn content_disclosure() -> AIDataDisclosure {
     AIDataDisclosure {
-        sends_file_name: false,
-        sends_parent_path: false,
-        sends_full_path: false,
-        sends_file_content: true,
-        content_is_bounded: true,
+        provider_payload_includes_file_name: false,
+        provider_payload_includes_parent_path: false,
+        provider_payload_includes_full_path: false,
+        provider_payload_includes_file_content: true,
+        provider_content_is_bounded: true,
     }
 }
 
@@ -713,10 +737,10 @@ mod tests {
         let blocked = managed_readiness_with_store(&db, &scope.id, &store);
         assert_eq!(blocked.state, AIReadinessState::NeedsConsent);
         assert_eq!(blocked.reason, "managed_cloud_ai_consent_required");
-        assert!(blocked.disclosure.sends_file_name);
-        assert!(blocked.disclosure.sends_parent_path);
-        assert!(!blocked.disclosure.sends_full_path);
-        assert!(!blocked.disclosure.sends_file_content);
+        assert!(blocked.disclosure.provider_payload_includes_file_name);
+        assert!(blocked.disclosure.provider_payload_includes_parent_path);
+        assert!(!blocked.disclosure.provider_payload_includes_full_path);
+        assert!(!blocked.disclosure.provider_payload_includes_file_content);
 
         db.update_managed_scope_policy(UpdateManagedScopePolicyRequest {
             id: scope.id.clone(),
@@ -761,16 +785,16 @@ mod tests {
 
         let minimal = managed_readiness_with_store(&db, &scope.id, &store);
         assert_eq!(minimal.state, AIReadinessState::Ready);
-        assert!(minimal.disclosure.sends_file_name);
-        assert!(!minimal.disclosure.sends_parent_path);
-        assert!(!minimal.disclosure.sends_full_path);
+        assert!(minimal.disclosure.provider_payload_includes_file_name);
+        assert!(!minimal.disclosure.provider_payload_includes_parent_path);
+        assert!(!minimal.disclosure.provider_payload_includes_full_path);
 
         settings.send_full_path = true;
         settings.api_key_action = ApiKeyAction::Preserve;
         save_ai_settings_with_store(&db, &settings, &store).expect("save full-path setting");
         let full = managed_readiness_with_store(&db, &scope.id, &store);
-        assert!(full.disclosure.sends_parent_path);
-        assert!(full.disclosure.sends_full_path);
+        assert!(full.disclosure.provider_payload_includes_parent_path);
+        assert!(full.disclosure.provider_payload_includes_full_path);
         assert_ne!(minimal.binding_fingerprint, full.binding_fingerprint);
     }
 
@@ -812,11 +836,11 @@ mod tests {
             ready.policy_bindings[0].policy_revision,
             policy.policy_revision
         );
-        assert!(!ready.disclosure.sends_file_name);
-        assert!(!ready.disclosure.sends_parent_path);
-        assert!(!ready.disclosure.sends_full_path);
-        assert!(ready.disclosure.sends_file_content);
-        assert!(ready.disclosure.content_is_bounded);
+        assert!(!ready.disclosure.provider_payload_includes_file_name);
+        assert!(!ready.disclosure.provider_payload_includes_parent_path);
+        assert!(!ready.disclosure.provider_payload_includes_full_path);
+        assert!(ready.disclosure.provider_payload_includes_file_content);
+        assert!(ready.disclosure.provider_content_is_bounded);
         assert_ne!(
             default_blocked.binding_fingerprint,
             ready.binding_fingerprint
