@@ -117,6 +117,7 @@ describe("Task 03 durable analysis contract", () => {
     const analysis = read("src-tauri/src/analysis.rs");
     const cleanup = read("src-tauri/src/storage_analyzer.rs");
     const aiCleanup = read("src-tauri/src/ai/cleanup.rs");
+    const aiCleanupPublication = read("src-tauri/src/ai/cleanup/publication.rs");
     const api = read("src/api/analysisApi.ts");
 
     expect(analysis).toContain("becomes an authority for a run");
@@ -125,8 +126,9 @@ describe("Task 03 durable analysis contract", () => {
     expect(cleanup).toContain("resolve_analysis_candidates_for_cleanup");
     expect(cleanup).toContain("Storage cleanup finding identity changed");
     expect(cleanup).toContain("move_cleanup_candidates_to_safe_trash");
-    expect(aiCleanup).toContain("append_analysis_ai_assessment");
+    expect(aiCleanupPublication).toContain("append_analysis_ai_assessment");
     expect(aiCleanup).not.toContain("execute_moves");
+    expect(aiCleanupPublication).not.toContain("execute_moves");
     expect(api).toContain("listAnalysisFindings");
     expect(api).toContain("setAnalysisFindingDecision");
   });
