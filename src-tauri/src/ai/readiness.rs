@@ -8,11 +8,7 @@ use super::{
         SystemCredentialStore,
     },
 };
-use crate::{
-    content::ContentScopePolicyDto,
-    db::Database,
-    global_index::ManagedScope,
-};
+use crate::{content::ContentScopePolicyDto, db::Database, global_index::ManagedScope};
 use rusqlite::{params, OptionalExtension};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -155,8 +151,7 @@ fn provider_snapshot_from_settings(
     settings = normalize_ai_settings(settings);
     let mode = provider_mode(settings.provider);
     let credential_required = settings.provider == AIProviderKind::OpenAICompatible;
-    let credential_configured =
-        settings.api_key_configured || !settings.api_key.trim().is_empty();
+    let credential_configured = settings.api_key_configured || !settings.api_key.trim().is_empty();
     let configuration_error = if settings.model.trim().is_empty() {
         Some("provider_model_missing")
     } else if validate_ai_settings(&settings, !cfg!(debug_assertions)).is_err() {
@@ -170,7 +165,10 @@ fn provider_snapshot_from_settings(
     } else if let Some(reason) = configuration_error {
         (AIReadinessState::NeedsProvider, reason)
     } else if credential_required && !credential_configured {
-        (AIReadinessState::NeedsCredential, "provider_credential_required")
+        (
+            AIReadinessState::NeedsCredential,
+            "provider_credential_required",
+        )
     } else {
         (AIReadinessState::Ready, "provider_configuration_ready")
     };
@@ -268,10 +266,11 @@ fn managed_readiness_with_store(
 ) -> ManagedAIReadiness {
     let provider = provider_snapshot_with_store(db, credentials);
     let disclosure = managed_disclosure(provider.settings.as_ref());
-    let scope = db
-        .list_managed_scopes()
-        .ok()
-        .and_then(|scopes| scopes.into_iter().find(|scope| scope.id == managed_scope_id.trim()));
+    let scope = db.list_managed_scopes().ok().and_then(|scopes| {
+        scopes
+            .into_iter()
+            .find(|scope| scope.id == managed_scope_id.trim())
+    });
 
     let Some(scope) = scope else {
         let binding_fingerprint = fingerprint(&[
@@ -336,8 +335,7 @@ pub fn managed_ai_readiness_is_current(
     managed_scope_id: &str,
     expected_binding_fingerprint: &str,
 ) -> bool {
-    managed_ai_readiness(db, managed_scope_id).binding_fingerprint
-        == expected_binding_fingerprint
+    managed_ai_readiness(db, managed_scope_id).binding_fingerprint == expected_binding_fingerprint
 }
 
 fn content_disclosure() -> AIDataDisclosure {
@@ -562,9 +560,7 @@ mod tests {
     use crate::{
         ai::{
             schema::{AIProviderKind, AIProviderPresetId},
-            settings::{
-                save_ai_settings_with_store, ApiKeyAction, InMemoryCredentialStore,
-            },
+            settings::{save_ai_settings_with_store, ApiKeyAction, InMemoryCredentialStore},
         },
         content::{default_policy, SetContentScopePolicyRequest},
         db::Database,
@@ -611,18 +607,11 @@ mod tests {
         save_ai_settings_with_store(db, &settings, store).expect("save local settings")
     }
 
-    fn provider_with_store(
-        db: &Database,
-        store: &InMemoryCredentialStore,
-    ) -> AIProviderReadiness {
+    fn provider_with_store(db: &Database, store: &InMemoryCredentialStore) -> AIProviderReadiness {
         provider_snapshot_with_store(db, store).readiness
     }
 
-    fn add_scope(
-        db: &Database,
-        allow_local_ai: bool,
-        allow_cloud_ai: bool,
-    ) -> ManagedScope {
+    fn add_scope(db: &Database, allow_local_ai: bool, allow_cloud_ai: bool) -> ManagedScope {
         db.add_managed_scope(AddManagedScopeRequest {
             path: format!(r"C:\Managed\{}", uuid::Uuid::new_v4()),
             global_entry_id: None,
@@ -812,15 +801,17 @@ mod tests {
 
         let root_id = "content-local-root";
         insert_content_root(&db, root_id, true);
-        let default_blocked =
-            content_readiness_with_store(&db, &[root_id.into()], &store);
+        let default_blocked = content_readiness_with_store(&db, &[root_id.into()], &store);
         assert_eq!(default_blocked.state, AIReadinessState::NeedsConsent);
         assert!(default_blocked.requires_run_confirmation);
 
         let policy = set_content_policy(&db, root_id, 0, true, true, false);
         let ready = content_readiness_with_store(&db, &[root_id.into()], &store);
         assert_eq!(ready.state, AIReadinessState::Ready);
-        assert_eq!(ready.policy_bindings[0].policy_revision, policy.policy_revision);
+        assert_eq!(
+            ready.policy_bindings[0].policy_revision,
+            policy.policy_revision
+        );
         assert!(!ready.disclosure.sends_file_name);
         assert!(!ready.disclosure.sends_parent_path);
         assert!(!ready.disclosure.sends_full_path);
@@ -845,12 +836,8 @@ mod tests {
         assert_eq!(ready.state, AIReadinessState::Ready);
 
         store.delete().expect("remove cloud credential");
-        let missing_credential =
-            content_readiness_with_store(&db, &[root_id.into()], &store);
-        assert_eq!(
-            missing_credential.state,
-            AIReadinessState::NeedsCredential
-        );
+        let missing_credential = content_readiness_with_store(&db, &[root_id.into()], &store);
+        assert_eq!(missing_credential.state, AIReadinessState::NeedsCredential);
 
         let current_policy = db
             .get_content_scope_policy(root_id)
@@ -863,13 +850,9 @@ mod tests {
             false,
             false,
         );
-        let missing_consent =
-            content_readiness_with_store(&db, &[root_id.into()], &store);
+        let missing_consent = content_readiness_with_store(&db, &[root_id.into()], &store);
         assert_eq!(missing_consent.state, AIReadinessState::NeedsConsent);
-        assert_eq!(
-            missing_consent.reason,
-            "content_cloud_consent_required"
-        );
+        assert_eq!(missing_consent.reason, "content_cloud_consent_required");
     }
 
     #[test]
