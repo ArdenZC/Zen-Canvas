@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-26
+Last verified: 2026-09-27
 
 ## Completed
 
@@ -87,11 +87,11 @@ Final authority:
 
 ## Current
 
-### Pre-PM Cleanup AI Gate Hardening
+### No active initiative
 
-Status: **ACTIVE — implementation — current-assessment backend predicate complete; OWNER REVIEW PASSED — READY TO MERGE after owner re-review comment 5855703556; Production HEAD CI passed; Draft PR #276; issue #275; branch `hardening/cleanup-ai-gate`**.
+Status: **between initiatives — no active implementation; Pre-PM Cleanup AI Gate Hardening is COMPLETE / MERGED through PR #276; PM-01 remains on owner design hold.**
 
-Authority: [Pre-PM Cleanup AI Gate Hardening](initiatives/pre-pm-cleanup-ai-gate-hardening.md) and [result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
+Current truth is owned by [STATUS.md](STATUS.md). The completed Pre-PM hardening evidence remains in [the result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
 
 Completed sequence:
 
@@ -99,7 +99,7 @@ Completed sequence:
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
 3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269 to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
 4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272 to `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
-5. **Pre-PM Cleanup AI Gate Hardening — CURRENT; implementation complete; OWNER REVIEW PASSED — READY TO MERGE in Draft PR #276.**
+5. **Pre-PM Cleanup AI Gate Hardening — COMPLETE / MERGED through PR #276 to `master@6717438782bd6ca11f3829b02fc198abd3c82934`; owner re-review passed, issue #275 is closed, and merge-after CI `36319236781` succeeded.**
 6. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. Revisit only after this correctness gate and the separate owner design hold are resolved.
 
 macOS resident/release support remains separately gated by #270. Release publication remains deferred.

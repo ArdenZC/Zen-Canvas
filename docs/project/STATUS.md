@@ -4,8 +4,8 @@ Last verified: 2026-09-27
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`, the merge commit for AI Semantic Authority Foundation / PR #272. Its exact-head validation remains recorded in [the foundation result](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-RESULT.md).
-- Current engineering initiative: **ACTIVE — Pre-PM Cleanup AI Gate Hardening — implementation complete; OWNER REVIEW PASSED — READY TO MERGE** on `hardening/cleanup-ai-gate`, issue [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275), Draft PR [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276). Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; repaired Production HEAD: `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e`. Exact-head hosted CI [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257) is **SUCCESS** after a same-head retry of the failed Windows job. The current-truth update is a docs-only successor and remains subject to its own PR checks.
+- Latest merged production baseline: `master@6717438782bd6ca11f3829b02fc198abd3c82934`, the squash merge for Pre-PM Cleanup AI Gate Hardening / PR #276. Repaired Production HEAD `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e` passed exact-head CI [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257); owner-approved closeout HEAD `c887852ed21f94195ccf1dafb172f243983584d7` passed CI [36318542178](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36318542178); merge-after master CI [36319236781](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36319236781) is **SUCCESS**.
+- Current engineering state: **between initiatives — no active implementation**. Pre-PM Cleanup AI Gate Hardening is **COMPLETE / MERGED** through PR [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276) at `master@6717438782bd6ca11f3829b02fc198abd3c82934`; issue [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275) is **CLOSED / completed** and merge-after CI [36319236781](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36319236781) is **SUCCESS**.
 - PM-01 is **NOT ACTIVE** and remains on the owner design hold associated with issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273) / Draft PR [#274](https://github.com/ArdenZC/Zen-Canvas/pull/274). This correctness gate does not authorize PM-01 implementation. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and is not reclassified.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -27,13 +27,13 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**Pre-PM Cleanup AI Gate Hardening**
+**No active initiative**
 
-Status: **ACTIVE — implementation — current-assessment backend predicate complete; OWNER REVIEW PASSED — READY TO MERGE after owner re-review comment 5855703556; Production HEAD CI passed; Draft PR #276; no PM-01 product implementation**.
+Status: **between initiatives — no active implementation; Pre-PM Cleanup AI Gate Hardening is COMPLETE / MERGED through PR #276; PM-01 remains on owner design hold.**
 
-Authority: [Pre-PM Cleanup AI Gate Hardening](initiatives/pre-pm-cleanup-ai-gate-hardening.md). Issue: [#275](https://github.com/ArdenZC/Zen-Canvas/issues/275). Branch: `hardening/cleanup-ai-gate`. Draft PR: [#276](https://github.com/ArdenZC/Zen-Canvas/pull/276). Activation baseline: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
+Pre-PM Cleanup AI Gate Hardening is **COMPLETE / MERGED** at `master@6717438782bd6ca11f3829b02fc198abd3c82934`; owner re-review passed in comment `5855703556`, issue #275 is closed, and merge-after CI `36319236781` passed. Final evidence: [Pre-PM Cleanup AI Gate Hardening — Result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
 
-AI Semantic Authority Foundation / PR #272 is **MERGED** at `d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; see its [result](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-RESULT.md). PM-01 remains **NOT ACTIVE** on owner design hold in #273 / Draft PR #274. This task hardens only Cleanup Analysis Finding revision/source/policy publication, candidate-level evidence and the backend current-assessment predicate; it does not implement AI-only product migration. #270 remains a separate macOS resident/release compatibility issue. Cleanup source identity preserves the reclaim estimate separately from a differing logical file length, addressing macOS allocated-size behavior without changing the cleanup authority chain.
+AI Semantic Authority Foundation / PR #272 is **MERGED** at `d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`; Pre-PM Cleanup AI Gate Hardening / PR #276 is **COMPLETE / MERGED** at `6717438782bd6ca11f3829b02fc198abd3c82934`. PM-01 remains **NOT ACTIVE** on owner design hold in #273 / Draft PR #274 and is not activated by this closeout. #270 remains a separate macOS resident/release compatibility issue.
 
 
 ## Release, schema and platform truth
