@@ -89,7 +89,7 @@ Final authority:
 
 ### Pre-PM Cleanup AI Gate Hardening
 
-Status: **ACTIVE — implementation — implementation complete; READY FOR OWNER REVIEW; production-head CI passed; Draft PR #276; issue #275; branch `hardening/cleanup-ai-gate`**.
+Status: **ACTIVE — implementation — current-assessment backend predicate complete; READY FOR OWNER RE-REVIEW after owner comment 5855180648; Production HEAD CI passed; Draft PR #276; issue #275; branch `hardening/cleanup-ai-gate`**.
 
 Authority: [Pre-PM Cleanup AI Gate Hardening](initiatives/pre-pm-cleanup-ai-gate-hardening.md) and [result](tasks/PRE-PM-CLEANUP-AI-GATE-HARDENING-RESULT.md).
 
@@ -99,7 +99,7 @@ Completed sequence:
 2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
 3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269 to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
 4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272 to `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e`.
-5. **Pre-PM Cleanup AI Gate Hardening — CURRENT; implementation complete and ready for owner review in Draft PR #276.**
+5. **Pre-PM Cleanup AI Gate Hardening — CURRENT; implementation complete and ready for owner re-review in Draft PR #276 after the backend current-assessment authority repair.**
 6. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. Revisit only after this correctness gate and the separate owner design hold are resolved.
 
 macOS resident/release support remains separately gated by #270. Release publication remains deferred.

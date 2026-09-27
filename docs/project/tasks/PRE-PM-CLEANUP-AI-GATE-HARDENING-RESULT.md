@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Gate Hardening — Result
 
-Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW; Production HEAD CI passed; Draft PR #276 remains open**
+Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW after the final docs-only PR check; repaired Production HEAD CI passed; Draft PR #276 remains open**
 
 ## Identity and heads
 
@@ -8,59 +8,67 @@ Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW; Production HEAD CI
 - Branch: `hardening/cleanup-ai-gate`.
 - PR: [#276 — Draft](https://github.com/ArdenZC/Zen-Canvas/pull/276).
 - Baseline / activation point: `master@d76bc1f54892bb3e48ac095ea590dcb170f3aa4e` (PR #272 merge commit).
-- Validated Production HEAD: `82634370c98f65fefa95f38bc29f1b72ed9af356`.
-- Exact-head hosted CI: run [36310434782](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36310434782) — **SUCCESS** on the Production HEAD. The current-truth docs update is a docs-only successor and does not change the production evidence binding.
+- Previous Production HEAD reviewed by the owner: `82634370c98f65fefa95f38bc29f1b72ed9af356`.
+- Previous final PR docs HEAD: `f15f868e490ce830ffbbe7fd08634ffed1ce0713`.
+- Repaired Production HEAD: `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e`.
+- Exact-head hosted CI: [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257) — **SUCCESS** on the repaired Production HEAD after rerunning only the failed Windows jobs on the same SHA.
+- Final docs-only PR HEAD and its CI run will be recorded after that head is created and validated.
 
-## Root cause
+## Owner review response
 
-Before this change, provider outputs were collected into a map where repeated IDs overwrote prior responses. Missing outputs fell back to the unchanged deterministic Finding and were still appended as AI evidence. Publication read the latest Finding and checked only that it remained active; it did not compare the revision captured before provider work, bind evidence to the exact request candidate set, or revalidate run/source/detector/provider-policy state.
+Owner review comment [5855180648](https://github.com/ArdenZC/Zen-Canvas/pull/276#issuecomment-5855180648) was **CHANGES REQUESTED**. The owner accepted the stale-publication, exact candidate coverage, CAS, source identity, macOS `logicalSize`, and unchanged cleanup-authority work. The remaining blocker was that `has_current_ai_assessment()` existed only under `#[cfg(test)]`, leaving PM-01 without a production backend currentness authority.
 
-Hosted macOS CI then exposed a second source-identity mismatch: Cleanup's reclaim estimate can be allocated bytes (4096 for a 29-byte fixture), while `metadata.len()` is the logical file length. The approved-path identity check compared those unlike values and rejected valid current Findings before provider work. The identity snapshot now preserves `size` as the reclaim estimate and adds `logicalSize` only when it differs; revalidation checks the live metadata length against that field and still compares the full identity snapshot.
+That blocker is repaired. The existing predicate now compiles in production, is available inside the Rust crate through `crate::ai::cleanup::has_current_ai_assessment`, and is not a Tauri renderer command. Regression tests invoke this same implementation. No review thread was replied to or resolved.
+
+## Current-assessment authority
+
+`ai_assessment` evidence exists != current AI assessment.
+
+`has_current_ai_assessment(db, finding_id)` reloads the durable Finding by ID and returns false unless all of these remain true:
+
+- the current Finding is active and its live source identity matches;
+- the candidate ID appears exactly once in a unique requested candidate set, with matching set, source, and candidate-identity fingerprints;
+- the expected Finding revision, published revision, and `published` / `compareAndSwap: succeeded` markers agree;
+- the Cleanup Analysis Run remains completed at the captured pre-publication revision plus its one transactional aggregate refresh, with the same source-snapshot and detector-set hashes;
+- the detector remains completed at the recorded detector revision;
+- persisted AI provider settings still match their captured fingerprint; and
+- exactly one durable `ai_assessment` row matches `evidence_summary.aiAssessment`.
+
+Future PM-01 Cleanup gating must consume this backend predicate or a richer backend status API. Renderer code must not infer currentness from raw evidence JSON. The predicate grants no filesystem execution authority; the existing Analysis Finding, Preview, confirmation, Safe Trash journal, and Restore boundaries remain in force.
 
 ## Completed
 
-- Captured exact requested Finding revisions, Analysis Run revision/source snapshot/detector-set hash, detector revisions, source identity snapshots, candidate-set identity and persisted `ai_settings_v1` row fingerprint before provider work.
-- Preserved macOS source identity for files whose allocated-byte reclaim estimate differs from logical length; no migration or cleanup authority change was needed.
-- Waited for every provider batch before publication; revalidated current AI settings, run status/revision/snapshot, detector state, every Finding precondition and live source identity.
-- Parsed response envelopes and candidate objects strictly. Unknown authority fields fail closed. Candidate IDs bind outputs to the backend request manifest; response ordering is irrelevant.
-- Aggregated exact coverage across batches. A candidate is eligible only if its ID is a requested backend ID returned exactly once. Omitted and duplicate candidates receive no AI evidence; unknown IDs are rejected and counted; malformed/stale output publishes nothing.
-- Published all eligible candidates in a single immediate transaction. The transaction repeats the run, settings, detector, identity and revision preconditions; Finding updates use expected revision CAS. CAS loss rolls back the invocation.
-- Stored candidate/request fingerprints, coverage counts, source/run/detector/policy bindings and a successful CAS/published revision marker in existing Analysis Finding evidence. No deterministic fallback is labeled as AI evidence.
-- Kept deterministic safety and the Preview → confirmation → Safe Trash journal → Restore chain unchanged. No schema migration was needed.
-- Split the publication lifecycle and its real-path fixtures into `cleanup/publication.rs` and `cleanup/tests.rs` to keep the main AI cleanup module cohesive.
+- Preserved provider request binding to candidate IDs, Finding revisions, Analysis Run/source snapshot, detector revisions, source identity, and persisted AI settings.
+- Kept exact returned candidate coverage and transactional Finding CAS; omitted, duplicated, malformed, unknown, fabricated, or stale candidates do not become current assessments.
+- Preserved the macOS `logicalSize` source identity repair, with `size` remaining the reclaim estimate; no schema migration was added.
+- Added a production-compiled currentness predicate that re-reads all durable and live inputs and verifies successful CAS plus matching durable evidence.
+- Kept AI advisory. Safe Trash, Operation Preview, confirmation, cleanup journals, and Restore remain the execution and recovery authorities.
+- Kept PM-01 inactive, made no UI change, and left #270 separate.
 
-## Authority and compatibility paths
+## Validation on Production HEAD `be74b5d428be84bf3d4a3af42853c3a59ec3aa2e`
 
-- Analysis Finding/Evidence/Decision remains the Cleanup semantic/persistence authority.
-- Existing `Analysis Run` and Finding revisions, detector revisions, live identity validation, provider settings and `analysis_finding_evidence` express the required currentness checks.
-- Existing frontend return shape receives only actually published Findings; omitted candidates remain skipped instead of being counted as assessed.
-- Safe Trash execution, operation previews, confirmation, journals and Restore are unchanged and remain independently authoritative.
-- No schema migration, second AI queue, renderer path authority, new filesystem authority or product UI change was introduced.
-
-## Validation on Production HEAD `82634370c98f65fefa95f38bc29f1b72ed9af356`
-
-- `cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --lib ai::cleanup::tests:: -- --test-threads=1` — **29 passed**, including the allocated-size/logical-size identity regression, real Analysis Run/Finding publication, omission/duplicate/unknown coverage, malformed authority fields, reordered IDs, source and provider-policy changes, run replacement, concurrent stale CAS, and empty requests.
-- `cargo fmt --all -- --check` — **passed**.
-- `git diff --check` — **passed**.
+- Cleanup module: `cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --lib ai::cleanup::tests:: -- --test-threads=1` — **39 passed**. Coverage includes exact/omitted/duplicate/fabricated candidates, successful CAS, Finding revision drift, live source changes, Run revision and source-snapshot changes, detector revision/status changes, provider settings changes, missing/mismatched durable evidence, legacy misaligned identity, and the existing equal-size/allocated-size identity regression.
+- Durable Analysis tests — **4 passed**: `analysis_ai_assessment_refreshes_run_aggregate_revision_and_durable_evidence`, `analysis_runs_are_idempotent_revisioned_and_retryable_without_overwriting_active_findings`, `schema_30_reopen_preserves_analysis_run_finding_evidence_and_decision`, and `cancelled_and_source_changed_analysis_runs_never_publish_staged_findings`.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` — **passed**.
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings` — **passed**.
-- Hosted exact-head run [36310434782](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36310434782) — **SUCCESS**. Windows/macOS Rust quality, release compiles, all routed performance shards, Windows native filesystem smoke, macOS lifecycle/race/Quick Look steps, source checkout and validation contracts passed. Docs-only and unrelated optional package lanes were skipped by routing.
-- Earlier exact-head CI attempts `36307749089`, `36308871887` and `36309515624` were diagnostic failures on preceding commits; the last exposed the macOS allocated-size/logical-size mismatch. They are superseded for acceptance by the successful run on `82634370`.
-- The first current-truth docs successor at `76001458` failed source governance because the active initiative statuses omitted the required `ACTIVE` and `implementation` mode declaration. The current-truth status, roadmap and initiative record now retain owner-review readiness while following that contract; local `npm run test:governance` passes. The current PR-head run is the hosted validation authority for this correction.
+- `git diff --check` — **passed**.
+- `npm run test:governance` on the updated current-truth documents — **passed**.
+- Hosted exact-head CI [36315267257](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36315267257) — **SUCCESS**. Windows and Apple Silicon Rust quality, release compiles, source/governance contracts, and all routed performance shards passed. The initial Windows attempt hit an unrelated Browse test’s `DirectoryPermissionDenied` / `DirectoryNotFound` mismatch; the retry of only the failed Windows jobs passed Rust tests, Clippy, and native filesystem smoke on the same SHA. The same Browse test had passed on the previous PR-head CI [36311346048](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36311346048).
 
 ## Visual/native verification
 
-No user-facing UI, window permission or visual state changed. Native visual verification is not applicable to this backend-only gate. Hosted CI macOS lifecycle and Windows filesystem smoke are test evidence, not native product UI acceptance.
+No user-facing UI or window permission changed, so visual verification is not applicable. Hosted Windows filesystem smoke and Apple Silicon lifecycle checks are CI evidence, not native product UI acceptance.
 
 ## Acceptance and remaining gates
 
-- [x] Reuse existing Finding/Run/policy revisions and durable evidence; no schema migration.
-- [x] Exact returned candidate ID and coverage semantics; no fallback evidence.
-- [x] Post-provider validation and transactional Finding revision CAS.
-- [x] Focused local parsing, safety, lifecycle and concurrency tests.
-- [x] Exact Production HEAD hosted CI passed on `82634370c98f65fefa95f38bc29f1b72ed9af356`.
-- Existing pre-fix findings whose stored `size` is an allocated-byte estimate and lack `logicalSize` continue to fail closed as stale; a fresh Cleanup Analysis Run records the corrected identity snapshot. Equal-size legacy snapshots retain their previous shape.
-- Direct owner review is the next project decision; no review submission has been requested or recorded.
+- [x] Reuse existing Analysis Finding/Run/settings authorities and durable evidence; no schema migration.
+- [x] Production backend currentness predicate; tests call the production implementation, with no test-only duplicate.
+- [x] Exact candidate binding, successful CAS, live source identity, current Run/detector/policy, and matching durable evidence checks.
+- [x] Focused Cleanup, durable Analysis, formatting, Clippy, and diff checks passed.
+- [x] Exact repaired Production HEAD hosted CI passed.
+- Existing pre-fix Findings with allocated-byte `size` but no `logicalSize` remain non-current/stale until a fresh Cleanup Analysis Run; equal-size legacy snapshots retain their previous shape.
+- Final docs-only PR-head CI and owner re-review remain pending.
 
-PM-01 remains **NOT ACTIVE** and on the owner design hold in issue #273 / Draft PR #274. #270 remains separate. No Codex Review, Ready transition or merge is requested or performed.
+PM-01 remains **NOT ACTIVE** on the owner design hold in issue #273 / Draft PR #274. #270 remains separate. PR #276 remains **Draft/open**. No Codex Review, Ready transition, merge, or issue close is requested or performed.
 
-Final disposition: **READY FOR OWNER REVIEW — production-head hosted CI passed; PR #276 remains Draft/open and owner review is pending.**
+Final disposition: **READY FOR OWNER RE-REVIEW after final docs-only PR validation; never OWNER REVIEW PASSED.**
