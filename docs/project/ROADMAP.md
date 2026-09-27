@@ -87,23 +87,23 @@ Final authority:
 
 ## Current
 
-### Pre-PM Cleanup AI Data-Sharing Consent Gate
+### No active initiative
 
-Status: **ACTIVE — implementation — OWNER REVIEW PASSED — READY TO MERGE — issue #284 / PR #285; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS; PM-01 remains NOT ACTIVE until merge.**
-
-Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md), [activation taskbook](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-ACTIVATION.md), and [result](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md).
+Status: **between initiatives — no active production implementation; PM-01 is planned and ready for fresh activation.**
 
 Current sequence:
 
-1. Pre-PM foundations through AI Readiness + Consent — **COMPLETE / MERGED**.
-2. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through PR #282 to `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`.
-3. **Pre-PM Cleanup AI Data-Sharing Consent Gate — IMPLEMENTED / EXACT-HEAD CI PASS / OWNER REVIEW PASSED / MERGE PENDING.**
-4. Fresh PM-01 AI-only Core Experience activation — **blocked only on #285 merge; owner review has passed; old #274 remains CLOSED / superseded.**
-5. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane via #283; not a PM-01 merge gate.**
-6. System One or production Preference Memory integration — **NOT AUTHORIZED; separate evidence and architecture gate required.**
-7. PM-02 / PM-03 remain behind PM-01 owner-review gates.
+1. AI Semantic Authority Foundation — **COMPLETE / MERGED** through #272.
+2. Pre-PM Cleanup AI Gate Hardening — **COMPLETE / MERGED** through #276.
+3. Pre-PM AI Readiness + Consent Contract — **COMPLETE / MERGED** through #279.
+4. Post-Pre-PM Sequencing Review — **COMPLETE / MERGED** through #282.
+5. Pre-PM Cleanup AI Data-Sharing Consent Gate — **COMPLETE / MERGED** through #285 to `master@17599b3344616a43686a376b790cb8bae1f52fa7`; merge-after CI `36338751754` SUCCESS.
+6. **PM-01 AI-only Core Experience — PLANNED / READY FOR FRESH ACTIVATION.**
+7. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane via #283; not a PM-01 merge gate.**
+8. System One or production Preference Memory integration — **NOT AUTHORIZED; separate evidence + architecture gate required.**
+9. PM-02 / PM-03 remain behind PM-01 owner-review/merge gates.
 
-The #284 implementation adds no schema migration and no new provider/runtime authority. It keeps Cleanup local/cloud data-sharing consent separate from Managed Scope and Content Understanding policy, with backend enforcement before provider work and fail-closed legacy defaults.
+Closed/superseded #274 must not be rebased into production implementation. The fresh PM-01 authority/taskbook and deep-audit closure record are retained outside this current-state section and become current only when a fresh PM-01 branch switches the project to active implementation.
 
 #270 remains separate. Release publication remains deferred.
 

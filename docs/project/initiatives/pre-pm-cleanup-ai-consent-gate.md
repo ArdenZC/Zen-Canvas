@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Data-Sharing Consent Gate
 
-Status: **ACTIVE — implementation — OWNER REVIEW PASSED — READY TO MERGE; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
+Status: **COMPLETE / MERGED — owner review passed; PR #285 squash-merged; merge-after CI SUCCESS; issue #284 closed**
 
 Owner: Zen Canvas
 
@@ -153,4 +153,4 @@ See [result](../tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md).
 
 Owner review comment `5857816333`: **PASSED**.
 
-**READY TO MERGE.** Merge is the only remaining condition before PM-01 hold release.
+PR #285 squash-merged to `master@17599b3344616a43686a376b790cb8bae1f52fa7`. Merge-after CI [36338751754](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36338751754) is **SUCCESS**. Issue #284 is **CLOSED / completed**. The PM-01 consent hold is released.

@@ -4,9 +4,9 @@ Last verified: 2026-09-27
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@a62c30f037956c3838244e113da881d9c77b7be1`, the squash merge for Pre-PM AI Readiness + Consent Contract / PR #279. Accepted Production HEAD `dc144b6efaa6ae101f7c624ad32228cb85b91d65` passed exact-head CI [36324852969](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36324852969); docs-only Final HEAD `a8bc3284bdf98fa697ad49c318eeeab59f224a99` passed CI [36327475054](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36327475054); owner-approved pre-merge HEAD `e362368abd6409063b0ef0be0b5292f621928e9d` passed CI [36328365116](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36328365116); merge-after master CI [36329213184](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36329213184) is **SUCCESS**.
-- Current engineering initiative: **ACTIVE — implementation — OWNER REVIEW PASSED — READY TO MERGE — Pre-PM Cleanup AI Data-Sharing Consent Gate** on `hardening/cleanup-ai-consent`, issue [#284](https://github.com/ArdenZC/Zen-Canvas/issues/284), Draft PR [#285](https://github.com/ArdenZC/Zen-Canvas/pull/285). Accepted Production HEAD candidate: `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI [36332783985](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36332783985) is **SUCCESS**. PM-01 remains NOT ACTIVE until owner review and merge close this Track.
-- PM-01 is **NOT ACTIVE**. Post-Pre-PM Sequencing Review / PR #282 is **COMPLETE / MERGED** at `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`, and old Draft PR #274 is **CLOSED / superseded**. The final narrow consent prerequisite is **IMPLEMENTED / EXACT-HEAD CI PASS / OWNER REVIEW PASSED / MERGE PENDING** in #284/#285; if owner review passes and #285 merges, the PM-01 design hold is released. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270).
+- Latest merged production baseline: `master@17599b3344616a43686a376b790cb8bae1f52fa7`, the squash merge for Pre-PM Cleanup AI Data-Sharing Consent Gate / PR #285. Accepted Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a` passed exact-head CI [36332783985](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36332783985); owner-approved pre-merge HEAD `10b97a30fba8859b7d7fca12e96460bcaed910ea` passed CI [36334658332](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36334658332); merge-after master CI [36338751754](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36338751754) is **SUCCESS**.
+- Current engineering state: **between initiatives — no active production implementation**. All Pre-PM foundations are **COMPLETE / MERGED** through PR #285. PM-01 AI-only Core Experience is **AUTHORIZED NEXT / READY FOR FRESH ACTIVATION** from the then-current master; old PR #274 remains **CLOSED / superseded** and must not be revived as the production baseline.
+- PM-01 is **NOT ACTIVE YET, BUT THE DESIGN HOLD IS RELEASED**. Deep-audit prerequisites A/B/C were closed by #276, provider/feature readiness by #279, and distinct Cleanup data-sharing consent by #285. Fresh PM-01 authority is [AI-only Product Migration](initiatives/ai-only-product-migration.md) plus [PM-01 activation taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md); implementation may begin only on a new branch from current master. Research issue #283 remains parallel/non-blocking; #270 remains separate.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -27,25 +27,15 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**Pre-PM Cleanup AI Data-Sharing Consent Gate**
+**No active initiative**
 
-Status: **ACTIVE — implementation — OWNER REVIEW PASSED — READY TO MERGE. Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS; PM-01 remains NOT ACTIVE until merge.**
+Status: **between initiatives — no active production implementation; PM-01 is planned and ready for fresh activation.**
 
-Authority: [Pre-PM Cleanup AI Data-Sharing Consent Gate](initiatives/pre-pm-cleanup-ai-consent-gate.md). Result: [Pre-PM Cleanup AI Data-Sharing Consent Gate — Result](tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md). Issue: [#284](https://github.com/ArdenZC/Zen-Canvas/issues/284). Draft PR: [#285](https://github.com/ArdenZC/Zen-Canvas/pull/285). Branch: `hardening/cleanup-ai-consent`. Baseline: `master@2aaeb7599a6f4e8520c92dd8b3726138b0395d9a`.
+Pre-PM Cleanup AI Data-Sharing Consent Gate is **COMPLETE / MERGED** through PR #285 to `master@17599b3344616a43686a376b790cb8bae1f52fa7`; issue #284 is **CLOSED / completed** and merge-after CI `36338751754` is **SUCCESS**.
 
-Implemented truth:
+The historical PM-01 design hold is released. PM-01 is the next production Track, but production implementation has not started. A fresh branch/PR must be created from current master; closed/superseded #274 remains historical evidence only.
 
-- existing versioned `AISettings` now owns distinct `cleanupLocalAiAllowed` / `cleanupCloudAiAllowed` policy, both fail-closed by default;
-- legacy saved settings lacking those fields deserialize to false without a database schema migration;
-- `crate::ai::readiness` derives Cleanup readiness from current provider/settings/credential truth plus Cleanup feature enablement, provider mode, matching Cleanup consent and current path-disclosure settings;
-- the configured Cleanup provider path enforces that readiness before provider construction/work;
-- candidate name/metadata disclosure is explicit; parent/full-path disclosure still follows the existing privacy settings; Cleanup sends no file content;
-- Managed Scope and Content Understanding consent remain separate and cannot satisfy Cleanup consent;
-- Settings exposes explicit local/cloud Cleanup permission but the renderer owns no authority.
-
-Cleanup Finding, current-assessment CAS/currentness, Operation Preview, confirmation, Safe Trash, journal and Restore are unchanged. This Track does not make Cleanup AI mandatory for execution; PM-01 owns that product behavior.
-
-Post-Pre-PM Sequencing Review / #282 remains **COMPLETE / MERGED**. Research issue #283 remains research-only and non-blocking. Old #274 remains closed/superseded. #270 remains separate.
+Research issue #283 remains research-only and non-blocking. #270 remains separate. Release publication remains deferred.
 
 ## Release, schema and platform truth
 
