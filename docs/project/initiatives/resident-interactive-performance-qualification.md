@@ -1,6 +1,6 @@
 # Resident / Interactive Performance Qualification
 
-Status: **ACTIVE — implementation / qualification complete; OWNER PERFORMANCE REVIEW PASSED — READY TO MERGE; Windows TARGET deviation accepted; macOS resident UNVERIFIED / tracked by #270; LOCAL TASK HYGIENE PENDING**
+Status: **COMPLETE / MERGED — owner performance review passed; PR #269 squash-merged to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`; macOS resident remains UNVERIFIED / tracked separately by #270**
 
 Issue: [#268 — Resident / Interactive Performance Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/268)
 
@@ -56,3 +56,10 @@ Release publication, SmartScreen/UAC evidence, macOS release qualification, visu
 - Historical background-progress HARD failure: **RETAINED / NOT REPRODUCED ON FINAL EXACT SOURCE**; additional diagnostics remain in place.
 - macOS resident process: **UNVERIFIED / BLOCKED BY #270**. This blocks macOS resident/release qualification but not mainline AI architecture work after merge.
 - Local task hygiene: **PENDING / NON-BLOCKING**.
+
+
+## Merge closeout
+
+PR #269 was squash-merged after final current-head CI `36284385347` succeeded. The Windows scheduler-interference <=2x measurement remains an accepted TARGET deviation, not a promoted HARD threshold. Historical Preview/background-progress misses remain in evidence. macOS resident startup is not qualified; #270 owns that platform compatibility residual.
+
+The next mainline engineering initiative is AI Semantic Authority Foundation (#271).

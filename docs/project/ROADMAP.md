@@ -87,7 +87,23 @@ Final authority:
 
 ## Current
 
-### Resident / Interactive Performance Qualification
+### AI Semantic Authority Foundation
+
+Status: **ACTIVE — implementation: backend semantic contract + deterministic consumption adapters; issue #271; branch `ai/semantic-authority-foundation`**.
+
+Authority: [AI Semantic Authority Foundation](initiatives/ai-semantic-authority-foundation.md) and [activation taskbook](tasks/AI-SEMANTIC-AUTHORITY-FOUNDATION-ACTIVATION.md).
+
+Completed sequence:
+
+1. ZB-01 through ZB-05 — **MERGED**.
+2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
+3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269 to `master@cc8870f63bd83033f3c7b79afa96bf3ce11821f7`.
+4. **AI Semantic Authority Foundation — CURRENT.**
+5. **AI-only Product Migration (Organize / Cleanup / Automation / Onboarding) — NEXT, gated by owner review of this foundation.**
+
+macOS resident/release support remains separately gated by #270. Release publication remains deferred.
+
+## Resident / Interactive Performance Qualification
 
 Status: **ACTIVE — implementation / qualification complete; OWNER PERFORMANCE REVIEW PASSED — READY TO MERGE; Windows TARGET deviation accepted; macOS resident UNVERIFIED / tracked by #270; issue #268; branch `perf/resident-interactive-qualification`**.
 
