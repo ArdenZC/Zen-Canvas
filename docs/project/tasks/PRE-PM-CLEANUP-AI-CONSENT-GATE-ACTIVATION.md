@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Data-Sharing Consent Gate — Activation
 
-Status: **ACTIVE — implementation — READY FOR OWNER REVIEW; bounded implementation complete; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
+Status: **ACTIVE — implementation — OWNER REVIEW PASSED — READY TO MERGE; bounded implementation complete; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
 
 Issue: #284
 
@@ -142,4 +142,4 @@ Accepted Production HEAD candidate: `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`.
 
 Exact-head CI `36332783985`: **SUCCESS** across frontend tests/build/browser gates, Windows/macOS Rust fmt/tests/Clippy, native hardening/lifecycle gates and Windows/macOS release compile.
 
-No production changes are authorized after this point unless owner review finds a concrete blocker. Current disposition: **READY FOR OWNER REVIEW**.
+No production changes are authorized after this point unless owner review finds a concrete blocker. Owner review comment `5857816333`: **PASSED**. Current disposition: **READY TO MERGE**.

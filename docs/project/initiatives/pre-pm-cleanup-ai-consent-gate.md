@@ -1,6 +1,6 @@
 # Pre-PM Cleanup AI Data-Sharing Consent Gate
 
-Status: **ACTIVE — implementation — READY FOR OWNER REVIEW; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
+Status: **ACTIVE — implementation — OWNER REVIEW PASSED — READY TO MERGE; Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a`; exact-head CI `36332783985` SUCCESS**
 
 Owner: Zen Canvas
 
@@ -151,4 +151,6 @@ See [result](../tasks/PRE-PM-CLEANUP-AI-CONSENT-GATE-RESULT.md).
 
 ## Acceptance
 
-**READY FOR OWNER REVIEW.** Owner review and merge are still required before PM-01 hold release.
+Owner review comment `5857816333`: **PASSED**.
+
+**READY TO MERGE.** Merge is the only remaining condition before PM-01 hold release.
