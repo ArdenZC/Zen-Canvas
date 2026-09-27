@@ -101,7 +101,7 @@ Current foundation sequence:
 6. Pre-PM AI Readiness + Consent Contract — **COMPLETE / MERGED** through PR #279 to `master@a62c30f037956c3838244e113da881d9c77b7be1`; owner review passed, issue #278 is closed, and merge-after CI `36329213184` succeeded.
 7. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. Completion of the Pre-PM foundations does not automatically activate PM-01.
 
-The completed readiness contract is documented in [the initiative](initiatives/pre-pm-ai-readiness-consent-contract.md) and [result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md). Local task hygiene remains pending under `F:\.codex-temp\ai-readiness-consent` because host policy blocked cleanup; this is not a product or merge blocker.
+The completed readiness contract is documented in [the result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md). Local task hygiene remains pending under `F:\.codex-temp\ai-readiness-consent` because host policy blocked cleanup; this is not a product or merge blocker.
 
 macOS resident/release support remains separately gated by #270. Release publication remains deferred.
 
