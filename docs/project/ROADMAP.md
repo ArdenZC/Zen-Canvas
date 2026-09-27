@@ -87,23 +87,24 @@ Final authority:
 
 ## Current
 
-### No active initiative
+### Post-Pre-PM Sequencing Review
 
-Status: **between initiatives — no active implementation.**
+Status: **ACTIVE — specification only — issue #281; branch `spec/post-pre-pm-sequencing`; no production implementation authorized.**
 
-Current foundation sequence:
+Authority: [Post-Pre-PM Sequencing Review](initiatives/post-pre-pm-sequencing-review.md) and [sequencing decision](tasks/POST-PRE-PM-SEQUENCING-REVIEW.md).
 
-1. ZB-01 through ZB-05 — **MERGED**.
-2. Zero-Burden Cross-Track Audit Remediation — **MERGED**.
-3. Resident / Interactive Performance Qualification — **COMPLETE / MERGED** through PR #269.
-4. AI Semantic Authority Foundation — **COMPLETE / MERGED** through PR #272.
-5. Pre-PM Cleanup AI Gate Hardening — **COMPLETE / MERGED** through PR #276.
-6. Pre-PM AI Readiness + Consent Contract — **COMPLETE / MERGED** through PR #279 to `master@a62c30f037956c3838244e113da881d9c77b7be1`; owner review passed, issue #278 is closed, and merge-after CI `36329213184` succeeded.
-7. AI-only PM-01 Product Migration — **NOT ACTIVE; owner design hold** in issue #273 / Draft PR #274. Completion of the Pre-PM foundations does not automatically activate PM-01.
+Frozen draft sequence:
 
-The completed readiness contract is documented in [the result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md). Local task hygiene remains pending under `F:\.codex-temp\ai-readiness-consent` because host policy blocked cleanup; this is not a product or merge blocker.
+1. Pre-PM foundations through AI Readiness + Consent — **COMPLETE / MERGED**.
+2. **Post-Pre-PM Sequencing Review — CURRENT / SPECIFICATION ONLY.**
+3. PM-01 AI-only Core Experience — **next production Track after owner acceptance; fresh activation from then-current master required; stale #274 is not the production baseline.**
+4. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only lane; may begin after sequencing acceptance; not a PM-01 merge gate.**
+5. System One or production Preference Memory integration — **NOT AUTHORIZED; requires benchmark evidence and a separate production architecture initiative.**
+6. PM-02 / PM-03 — remain behind their existing PM-01 owner-review gates.
 
-macOS resident/release support remains separately gated by #270. Release publication remains deferred.
+The research lane may inform later PM work but may not change PM-01 product behavior, SemanticAssessmentV1 authority, Organization Plan, Operation Preview, Cleanup Finding, Safe Trash, Restore, production schema or release authority.
+
+PM-01 remains **NOT ACTIVE** during this specification Track. #270 remains separate. Release publication remains deferred.
 
 ## Resident / Interactive Performance Qualification
 
