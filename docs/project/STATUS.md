@@ -5,7 +5,7 @@ Last verified: 2026-09-27
 ## Current execution truth
 
 - Latest merged production baseline: `master@a62c30f037956c3838244e113da881d9c77b7be1`, the squash merge for Pre-PM AI Readiness + Consent Contract / PR #279. Accepted Production HEAD `dc144b6efaa6ae101f7c624ad32228cb85b91d65` passed exact-head CI [36324852969](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36324852969); docs-only Final HEAD `a8bc3284bdf98fa697ad49c318eeeab59f224a99` passed CI [36327475054](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36327475054); owner-approved pre-merge HEAD `e362368abd6409063b0ef0be0b5292f621928e9d` passed CI [36328365116](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36328365116); merge-after master CI [36329213184](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36329213184) is **SUCCESS**.
-- Current engineering state: **between initiatives — no active implementation**. Pre-PM AI Readiness + Consent Contract is **COMPLETE / MERGED** through PR [#279](https://github.com/ArdenZC/Zen-Canvas/pull/279) at `master@a62c30f037956c3838244e113da881d9c77b7be1`; issue [#278](https://github.com/ArdenZC/Zen-Canvas/issues/278) is **CLOSED / completed** and merge-after CI [36329213184](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36329213184) is **SUCCESS**. Local task hygiene remains pending under `F:\.codex-temp\ai-readiness-consent` because host policy blocked cleanup; this is not a product or merge blocker.
+- Current engineering initiative: **ACTIVE — Post-Pre-PM Sequencing Review — specification only** on `spec/post-pre-pm-sequencing`, issue [#281](https://github.com/ArdenZC/Zen-Canvas/issues/281). Baseline: `master@81cbfc37fe83b441be85047045fe79490323f7aa`. This Track freezes the sequence between PM-01 production migration and the parallel ZenDecisionBench / Preference Memory / System One research lane; it authorizes no production implementation.
 - PM-01 is **NOT ACTIVE** and remains on the owner design hold associated with issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273) / Draft PR [#274](https://github.com/ArdenZC/Zen-Canvas/pull/274). This correctness gate does not authorize PM-01 implementation. macOS resident compatibility remains separately open as [#270](https://github.com/ArdenZC/Zen-Canvas/issues/270) and is not reclassified.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -27,15 +27,20 @@ Last verified: 2026-09-27
 
 ## Current initiative
 
-**No active initiative**
+**Post-Pre-PM Sequencing Review**
 
-Status: **between initiatives — no active implementation.**
+Status: **ACTIVE — specification only — sequencing decision drafted; production implementation remains unauthorized until owner review closes this Track.**
 
-Pre-PM AI Readiness + Consent Contract is **COMPLETE / MERGED** through PR [#279](https://github.com/ArdenZC/Zen-Canvas/pull/279) at `master@a62c30f037956c3838244e113da881d9c77b7be1`. Issue [#278](https://github.com/ArdenZC/Zen-Canvas/issues/278) is **CLOSED / completed**. Owner review passed in PR comment `5857028109`; merge-after CI `36329213184` succeeded. Final evidence: [Pre-PM AI Readiness + Consent Contract — Result](tasks/PRE-PM-AI-READINESS-CONSENT-CONTRACT-RESULT.md).
+Authority: [Post-Pre-PM Sequencing Review](initiatives/post-pre-pm-sequencing-review.md). Issue: [#281](https://github.com/ArdenZC/Zen-Canvas/issues/281). Branch: `spec/post-pre-pm-sequencing`. Baseline: `master@81cbfc37fe83b441be85047045fe79490323f7aa`.
 
-The merged readiness contract composes existing AI settings/credentials, Managed Scope metadata-AI policy and Content Scope Policy without merging consent domains or adding a second readiness store. Provider blockers precede per-scope consent, scope identity remains backend-owned, Content Run confirmation remains separate, and configuration readiness does not claim live provider connectivity.
+The draft sequencing decision is:
 
-PM-01 remains **NOT ACTIVE** on owner design hold in #273 / Draft PR #274. #270 remains a separate macOS resident/release compatibility issue. Local task hygiene remains pending under `F:\.codex-temp\ai-readiness-consent`; host policy blocked deletion of 10 task-owned SQLite fixtures and no bypass was used.
+- **PM-01 is the next production implementation Track**, but it must restart from a fresh branch based on then-current master rather than resuming production work on stale Draft PR #274.
+- **ZenDecisionBench may run in parallel as research-only** and is not a PM-01 merge gate.
+- **Preference Memory Research may run inside the research lane**, but no production Preference Memory authority/schema is authorized by PM-01.
+- **Laya/Jev/System One production adoption remains evidence-gated and later**; research may not modify PM-01 product behavior or existing Zen semantic/mutation authorities.
+
+PM-01 remains **NOT ACTIVE** while this specification Track is current. #274 remains Open/Draft and docs-only historical design/audit evidence until the owner accepts its supersession disposition. #270 remains separate.
 
 ## Release, schema and platform truth
 
