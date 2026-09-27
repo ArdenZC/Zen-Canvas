@@ -236,10 +236,7 @@ pub fn provider_readiness(db: &Database) -> AIProviderReadiness {
     }
 }
 
-pub fn provider_readiness_is_current(
-    db: &Database,
-    expected_binding_fingerprint: &str,
-) -> bool {
+pub fn provider_readiness_is_current(db: &Database, expected_binding_fingerprint: &str) -> bool {
     provider_readiness(db).binding_fingerprint == expected_binding_fingerprint
 }
 
@@ -260,7 +257,8 @@ fn managed_disclosure(settings: Option<&AISettings>) -> AIDataDisclosure {
         provider_payload_includes_file_name: true,
         provider_payload_includes_parent_path: settings
             .is_some_and(|settings| settings.send_parent_path || settings.send_full_path),
-        provider_payload_includes_full_path: settings.is_some_and(|settings| settings.send_full_path),
+        provider_payload_includes_full_path: settings
+            .is_some_and(|settings| settings.send_full_path),
         provider_payload_includes_file_content: false,
         provider_content_is_bounded: false,
     }
