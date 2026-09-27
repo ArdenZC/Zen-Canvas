@@ -588,6 +588,53 @@ fn analyze_fixture_candidates(
     candidates: &[StorageCandidate],
     provider: &dyn AIProvider,
 ) -> Result<Vec<AnalysisFindingDto>, String> {
+    let detector_rows = db
+        .list_analysis_run_detectors(&run.id)
+        .map_err(|error| error.to_string())?;
+    for candidate in candidates {
+        let Some(finding) = db
+            .get_analysis_finding(&candidate.id)
+            .map_err(|error| error.to_string())?
+        else {
+            continue;
+        };
+        let identity_current = crate::analysis::finding_identity_matches(db, &finding);
+        let detector = detector_rows
+            .iter()
+            .find(|row| row.detector_id == finding.detector_id);
+        let detector_state = detector.map(|row| (row.status.as_str(), row.revision));
+        if !identity_current
+            || !detector.is_some_and(|row| {
+                matches!(row.status.as_str(), "completed" | "completed_with_warnings")
+            })
+        {
+            let path = finding.path_snapshot.as_deref().unwrap_or_default();
+            let metadata = fs::symlink_metadata(path).ok();
+            let live_identity = metadata.as_ref().map(|metadata| {
+                crate::analysis::candidate_identity(
+                    path,
+                    finding
+                        .identity_snapshot
+                        .get("size")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or_default(),
+                    Some(metadata),
+                )
+            });
+            eprintln!(
+                "cleanup fixture precondition candidate={} path={path:?} identity_current={identity_current} detector={detector_state:?} expected_identity={} live_identity={live_identity:?} metadata={:?}",
+                candidate.id,
+                finding.identity_snapshot,
+                metadata.as_ref().map(|value| {
+                    (
+                        value.len(),
+                        value.is_file(),
+                        value.modified().ok(),
+                    )
+                })
+            );
+        }
+    }
     let expected_revisions = candidates
         .iter()
         .map(|candidate| {
