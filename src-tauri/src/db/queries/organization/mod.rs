@@ -2854,6 +2854,171 @@ mod tests {
         )
     }
 
+    fn seed_current_managed_semantics_for_file(db: &Database, file_id: &str) {
+        let row = {
+            let conn = db.conn().expect("semantic fixture source connection");
+            load_indexed_file_by_id(&conn, file_id)
+                .expect("load semantic fixture source")
+                .expect("semantic fixture source exists")
+        };
+        let mut settings = crate::ai::settings::AISettings::default();
+        settings.enabled = true;
+        let settings_json =
+            serde_json::to_string(&settings).expect("serialize semantic fixture AI settings");
+        let entry_id = format!("organization-test-global-{file_id}");
+        let platform_file_id = format!("organization-test-platform-{file_id}");
+        let managed_entry_id = format!("organization-test-managed-{file_id}");
+        let job_id = format!("organization-test-ai-job-{file_id}");
+        let job_item_id = format!("organization-test-ai-item-{file_id}");
+        let input_fingerprint = crate::global_index::managed_worker::metadata_fingerprint(
+            "organization-test-semantic-volume",
+            &platform_file_id,
+            &row.name,
+            row.size,
+            Some(row.mtime),
+            row.is_dir,
+        );
+        let binding = crate::ai::semantic::SemanticSourceBinding {
+            global_entry_id: entry_id.clone(),
+            managed_scope_id: "organization-test-semantic-scope".to_string(),
+            input_fingerprint: input_fingerprint.clone(),
+            provider: "cloud".to_string(),
+        };
+        let confidence = if row.confidence > 0.0 {
+            row.confidence
+        } else {
+            0.95
+        };
+        let requires_confirmation = row.requires_confirmation || confidence < 0.8;
+        let suggested_name = if row.suggested_name.trim().is_empty() {
+            row.name.clone()
+        } else {
+            row.suggested_name.clone()
+        };
+        let provider_response = serde_json::json!({
+            "version": 1,
+            "refId": format!("managed:{entry_id}"),
+            "fileType": "Document",
+            "purpose": "Work",
+            "lifecycle": "Active",
+            "context": "organization test fixture",
+            "riskLevel": "Normal",
+            "suggestedAction": "Rename",
+            "suggestedName": suggested_name,
+            "confidence": confidence,
+            "reason": "current semantic organization test fixture",
+            "keywords": [],
+            "requiresConfirmation": requires_confirmation
+        })
+        .to_string();
+        let assessment = crate::ai::semantic::SemanticAssessmentV1::parse_provider_response(
+            &provider_response,
+            binding,
+            &row.name,
+            &row.extension,
+            row.is_dir,
+        )
+        .expect("build semantic organization test assessment");
+        let canonical = assessment
+            .canonical_json()
+            .expect("encode semantic organization test assessment");
+
+        let mut conn = db.conn().expect("semantic fixture publish connection");
+        let tx = conn
+            .transaction()
+            .expect("semantic fixture publish transaction");
+        tx.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![crate::ai::settings::AI_SETTINGS_KEY, settings_json],
+        )
+        .expect("enable semantic fixture AI settings");
+        tx.execute(
+            "INSERT OR IGNORE INTO global_volumes (
+                id, platform, stable_volume_id, display_name, mount_path,
+                filesystem_type, drive_kind, enabled, provider, index_status,
+                entry_count, created_at, updated_at
+             ) VALUES (
+                'organization-test-semantic-volume', 'test',
+                'organization-test-semantic-stable-volume', 'Organization test semantics',
+                '/', 'test', 'fixed', 1, 'test', 'ready', 0, 1, 1
+             )",
+            [],
+        )
+        .expect("seed semantic fixture global volume");
+        tx.execute(
+            "INSERT OR IGNORE INTO managed_scopes (
+                id, path, global_entry_id, enabled,
+                allow_local_ai, allow_cloud_ai, created_at, updated_at
+             ) VALUES (
+                'organization-test-semantic-scope', '/', NULL, 1, 0, 1, 1, 1
+             )",
+            [],
+        )
+        .expect("seed semantic fixture managed scope");
+        tx.execute(
+            "INSERT INTO global_entries (
+                id, volume_id, platform_file_id, parent_platform_file_id,
+                name, name_normalized, path, path_normalized, extension,
+                is_directory, size, created_at_fs, modified_at_fs,
+                file_attributes, is_hidden, is_system, is_stale,
+                source_provider, last_seen_at
+             ) VALUES (
+                ?1, 'organization-test-semantic-volume', ?2, '',
+                ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10,
+                0, 0, 0, 0, 'test', 1
+             )",
+            params![
+                entry_id,
+                platform_file_id,
+                row.name,
+                row.name.to_ascii_lowercase(),
+                row.path,
+                crate::global_index::models::normalize_path(&row.path),
+                row.extension,
+                i64::from(row.is_dir),
+                row.size,
+                row.mtime,
+            ],
+        )
+        .expect("seed semantic fixture global entry");
+        tx.execute(
+            "INSERT INTO managed_entries (
+                id, global_entry_id, managed_scope_id, enabled, created_at, updated_at
+             ) VALUES (?1, ?2, 'organization-test-semantic-scope', 1, 1, 1)",
+            params![managed_entry_id, entry_id],
+        )
+        .expect("seed semantic fixture managed entry");
+        tx.execute(
+            "INSERT INTO ai_analysis_state (
+                global_entry_id, status, input_fingerprint, provider, model,
+                content_summary, classification_json, user_corrected, updated_at
+             ) VALUES (?1, 'completed', ?2, 'cloud', ?3, 'metadata_only', ?4, 0, 1)",
+            params![entry_id, input_fingerprint, settings.model, canonical],
+        )
+        .expect("seed semantic fixture AI state");
+        tx.execute(
+            "INSERT INTO ai_jobs (
+                id, global_entry_id, managed_scope_id, input_fingerprint,
+                provider, model, processing_mode, status, attempt_count,
+                created_at, started_at, completed_at
+             ) VALUES (
+                ?1, ?2, 'organization-test-semantic-scope', ?3,
+                'cloud', ?4, 'metadata', 'completed', 1, 1, 1, 1
+             )",
+            params![job_id, entry_id, input_fingerprint, settings.model],
+        )
+        .expect("seed semantic fixture completed AI job");
+        tx.execute(
+            "INSERT INTO ai_job_items (
+                id, job_id, global_entry_id, status, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, 'completed', 1, 1)",
+            params![job_item_id, job_id, entry_id],
+        )
+        .expect("seed semantic fixture completed AI job item");
+        tx.commit().expect("publish semantic organization test fixture");
+    }
+
     fn reset_full_projection_count() {
         ORGANIZATION_FULL_PROJECTION_COUNT.with(|count| count.set(0));
     }
@@ -3011,25 +3176,23 @@ mod tests {
     }
 
     fn sync_item_proposal_fingerprint(db: &Database, item_id: &str, file_id: &str) {
+        seed_current_managed_semantics_for_file(db, file_id);
         let conn = db.conn().expect("sync proposal connection");
         let file = load_indexed_file_by_id(&conn, file_id)
             .expect("load sync proposal file")
             .expect("sync proposal file exists");
-        let preview = operation_preview_from_indexed(file.clone());
-        let preview_id = preview.as_ref().map(|current| current.id.clone());
-        let proposal = proposal_from_preview(
-            &file.path,
-            &file.name,
-            &file.classification_status,
-            &file.suggested_action,
-            preview,
-        );
+        let projection = current_organization_projection(&conn, &file)
+            .expect("resolve current semantic sync proposal");
+        let preview_id = projection
+            .preview
+            .as_ref()
+            .map(|current| current.id.clone());
         conn.execute(
             "UPDATE organization_plan_items SET proposal_fingerprint = ?1,
                     authoritative_preview_id = ?2 WHERE id = ?3",
-            params![proposal.fingerprint, preview_id, item_id],
+            params![projection.proposal.fingerprint, preview_id, item_id],
         )
-        .expect("sync proposal fingerprint");
+        .expect("sync semantic proposal fingerprint");
     }
 
     fn seed_live_group_item(
@@ -4224,6 +4387,7 @@ mod tests {
     fn group_mutation_rejects_edit_and_unknown_decisions_without_panic() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         let group = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
                 plan_id: "plan-test".into(),
@@ -4577,6 +4741,7 @@ mod tests {
             )
             .expect("bind collision edit plan item");
         }
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
 
         let item = db
             .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
@@ -4638,6 +4803,7 @@ mod tests {
     fn decision_batch_uses_plan_and_item_revision_cas() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         let updated = db
             .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
                 plan_id: "plan-test".into(),
@@ -4682,6 +4848,7 @@ mod tests {
     fn effective_readiness_revalidates_live_facts_without_mutating_validity() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         let initial = db
             .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
                 plan_id: "plan-test".into(),
@@ -5001,6 +5168,7 @@ mod tests {
     fn needs_review_requires_explicit_accept_before_becoming_reviewed() {
         let (db, path) = test_database();
         seed_plan(&db, "stale");
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         {
             let conn = db.conn().expect("review fixture");
             conn.execute(
@@ -5132,6 +5300,7 @@ mod tests {
             )
             .expect("classify source");
         }
+        seed_current_managed_semantics_for_file(&db, "file-live-target");
         let plan = db
             .create_organization_plan(CreateOrganizationPlanRequestV1 {
                 version: 1,
@@ -5948,13 +6117,18 @@ mod tests {
                         ],
                     )
                     .expect("seed authoritative execution proposal");
+                    let source_path_text =
+                        source_path.to_string_lossy().replace('\\', "/");
+                    let source_path_normalized =
+                        crate::global_index::models::normalize_path(&source_path_text);
                     tx.execute(
                         "UPDATE global_entries
-                         SET path = ?2, path_normalized = ?2, last_seen_at = 2
+                         SET path = ?2, path_normalized = ?3, last_seen_at = 2
                          WHERE id = ?1",
                         params![
                             format!("bench-global-{ordinal:05}"),
-                            source_path.to_string_lossy().replace('\\', "/")
+                            source_path_text,
+                            source_path_normalized,
                         ],
                     )
                     .expect("move benchmark global identity with execution fixture");
