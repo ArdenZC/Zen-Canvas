@@ -244,6 +244,7 @@ function commonApi(run: AnalysisRun, overrides: Record<string, unknown> = {}) {
 describe("Cleanup independent review behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, "", "/");
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     document.body.innerHTML = '<div id="test-root"></div>';
     container = document.getElementById("test-root") as HTMLDivElement;
@@ -1668,6 +1669,23 @@ describe("Cleanup independent review behavior", () => {
     expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
     expect(container.textContent).toContain("C:/Downloads");
     expect(startAnalysisRun).not.toHaveBeenCalled();
+  });
+
+  it("uses a fixed scope only for an explicit PM-01 browser presentation fixture", async () => {
+    window.history.replaceState({}, "", "/?pm01-cleanup=preview");
+    const run = makeRun("run-presentation-scope", "completed", 0, { paths: ["C:/Users/Zen/Downloads"] });
+    const startAnalysisRun = vi.fn(async () => run);
+    const api = commonApi(run, { startAnalysisRun });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(6);
+    await act(async () => button(t("storageCleanupQuickDownloads")).click());
+    await flush(4);
+
+    expect(container.textContent).toContain("C:/Users/Zen/Downloads");
+    expect(pathMocks.downloadDir).not.toHaveBeenCalled();
+    expect(startAnalysisRun).not.toHaveBeenCalled();
+    window.history.replaceState({}, "", "/");
   });
 
   it("clears the old run when the initialRoots prop changes", async () => {

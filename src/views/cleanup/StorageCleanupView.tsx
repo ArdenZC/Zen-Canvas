@@ -21,6 +21,7 @@ import type {
 import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
+import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
@@ -72,6 +73,19 @@ type Props = {
   onError?: (message: string) => void;
   onNavigate?: (view: View) => void;
 };
+
+function browserPresentationCleanupPath(kind: "downloads" | "desktop" | "documents" | "temp"): string | null {
+  if (!isBrowserMockEnabled()) return null;
+  const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
+  if (!fixture || !["analysis-failure", "current-assessment", "preview"].includes(fixture)) return null;
+  // Explicit PM-01 browser fixtures use synthetic paths; native scope selection remains OS-owned.
+  return {
+    downloads: "C:/Users/Zen/Downloads",
+    desktop: "C:/Users/Zen/Desktop",
+    documents: "C:/Users/Zen/Documents",
+    temp: "C:/Users/Zen/AppData/Local/Temp"
+  }[kind];
+}
 
 type AiWorkState = "idle" | "running" | "canceling";
 type AiOperation = {
@@ -392,13 +406,14 @@ function StorageCleanupPanel({
   const chooseQuickScope = useCallback(async (kind: "downloads" | "desktop" | "documents" | "temp") => {
     if (interactionLockedRef.current) return;
     try {
-      const path = kind === "downloads"
+      const presentationPath = browserPresentationCleanupPath(kind);
+      const path = presentationPath ?? (kind === "downloads"
         ? await downloadDir()
         : kind === "desktop"
           ? await desktopDir()
           : kind === "documents"
             ? await documentDir()
-            : await tempDir();
+            : await tempDir());
       applyScopeSelection([path]);
     } catch (scopeError) {
       reportError(scopeError);
