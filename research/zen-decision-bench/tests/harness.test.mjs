@@ -58,6 +58,14 @@ describe("ZenDecisionBench Phase 1 harness", () => {
     expect(result.issues.some((issue) => issue.errors.some((error) => error.startsWith("cross_split_duplicate:")))).toBe(true);
   });
 
+  it("rejects duplicated case content inside one split", async () => {
+    const [record] = await readJsonl(smokePath);
+    const duplicate = { ...record, case_id: "duplicate-same-split" };
+    const result = validateDataset([record, duplicate]);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((issue) => issue.errors.some((error) => error.startsWith("duplicate_case_content:")))).toBe(true);
+  });
+
   it("distinguishes correct, acceptable, abstention, unsafe overclaim, invalid and provider failure", async () => {
     const records = await readJsonl(smokePath);
     const byId = new Map(records.map((record) => [record.case_id, record]));
@@ -75,6 +83,19 @@ describe("ZenDecisionBench Phase 1 harness", () => {
     expect(classifyPrediction(byId.get("smoke-lifecycle-02"), prediction("smoke-lifecycle-02", "active"))).toBe("unsafe_overclaim");
     expect(classifyPrediction(byId.get("smoke-domain-01"), prediction("smoke-domain-01", "not-a-choice"))).toBe("invalid_output");
     expect(classifyPrediction(byId.get("smoke-domain-01"), prediction("smoke-domain-01", null, "request_failed"))).toBe("provider_failure");
+  });
+
+  it("rejects predictions for unknown case IDs rather than silently ignoring them", async () => {
+    const records = await readJsonl(smokePath);
+    const predictions = [{
+      schema_version: "zdb.prediction.v1",
+      case_id: "not-in-dataset",
+      decision: "keep",
+      confidence: 0.5,
+      latency_ms: 5,
+      error: null
+    }];
+    expect(() => evaluate(records, predictions)).toThrow(/unknown_prediction_case_id/u);
   });
 
   it("produces deterministic summary metrics and calibration from smoke predictions", async () => {
