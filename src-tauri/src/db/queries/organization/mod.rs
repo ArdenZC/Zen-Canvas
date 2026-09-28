@@ -3020,6 +3020,82 @@ mod tests {
             .expect("publish semantic organization test fixture");
     }
 
+    fn replace_current_managed_semantic_rename(
+        db: &Database,
+        file_id: &str,
+        suggested_name: &str,
+    ) {
+        let row = {
+            let conn = db.conn().expect("semantic replacement source connection");
+            load_indexed_file_by_id(&conn, file_id)
+                .expect("load semantic replacement source")
+                .expect("semantic replacement source exists")
+        };
+        let settings = {
+            let conn = db.conn().expect("semantic replacement settings connection");
+            let settings_json: String = conn
+                .query_row(
+                    "SELECT value FROM app_settings WHERE key = ?1",
+                    params![crate::ai::settings::AI_SETTINGS_KEY],
+                    |db_row| db_row.get(0),
+                )
+                .expect("semantic replacement AI settings exist");
+            serde_json::from_str::<crate::ai::settings::AISettings>(&settings_json)
+                .expect("decode semantic replacement AI settings")
+        };
+        let entry_id = format!("organization-test-global-{file_id}");
+        let platform_file_id = format!("organization-test-platform-{file_id}");
+        let input_fingerprint = crate::global_index::managed_worker::metadata_fingerprint(
+            "organization-test-semantic-volume",
+            &platform_file_id,
+            &row.name,
+            row.size,
+            Some(row.mtime),
+            row.is_dir,
+        );
+        let binding = crate::ai::semantic::SemanticSourceBinding {
+            global_entry_id: entry_id.clone(),
+            managed_scope_id: "organization-test-semantic-scope".to_string(),
+            input_fingerprint,
+            provider: "cloud".to_string(),
+        };
+        let provider_response = serde_json::json!({
+            "version": 1,
+            "refId": format!("managed:{entry_id}"),
+            "fileType": "Document",
+            "purpose": "Work",
+            "lifecycle": "Active",
+            "context": "organization test fixture",
+            "riskLevel": "Normal",
+            "suggestedAction": "Rename",
+            "suggestedName": suggested_name,
+            "confidence": 0.95,
+            "reason": "updated current semantic organization test fixture",
+            "keywords": [],
+            "requiresConfirmation": false
+        })
+        .to_string();
+        let assessment = crate::ai::semantic::SemanticAssessmentV1::parse_provider_response(
+            &provider_response,
+            binding,
+            &row.name,
+            &row.extension,
+            row.is_dir,
+        )
+        .expect("build replacement semantic assessment");
+        let canonical = assessment
+            .canonical_json()
+            .expect("encode replacement semantic assessment");
+        let conn = db.conn().expect("semantic replacement publish connection");
+        conn.execute(
+            "UPDATE ai_analysis_state
+             SET classification_json = ?2, model = ?3, status = 'completed'
+             WHERE global_entry_id = ?1",
+            params![entry_id, canonical, settings.model],
+        )
+        .expect("replace current semantic assessment");
+    }
+
     fn reset_full_projection_count() {
         ORGANIZATION_FULL_PROJECTION_COUNT.with(|count| count.set(0));
     }
@@ -3749,6 +3825,7 @@ mod tests {
     fn group_projection_fingerprint_rejects_member_join_without_partial_update() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         let group = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
                 plan_id: "plan-test".into(),
@@ -3809,6 +3886,7 @@ mod tests {
     fn group_projection_fingerprint_rejects_member_migration_without_partial_update() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         seed_live_group_item(&db, "item-migrated", 1, std::path::Path::new("/tmp"));
         let group = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
@@ -4954,19 +5032,35 @@ mod tests {
             conn.execute("UPDATE files SET is_stale = 0 WHERE id = 'file-test'", [])
                 .expect("restore source availability");
             conn.execute(
-                "UPDATE files SET suggested_name = 'live-changed.txt',
+                "UPDATE files SET suggested_name = 'legacy-ignored.txt',
                         suggested_target_path = '/tmp' WHERE id = 'file-test'",
                 [],
             )
-            .expect("change live proposal");
+            .expect("change legacy proposal fields");
         }
+        let legacy_changed = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("legacy proposal field projection")
+            .items
+            .remove(0);
+        assert_eq!(legacy_changed.effective_readiness, "ready");
+        assert!(!legacy_changed
+            .review_reasons
+            .iter()
+            .any(|reason| reason == "proposal_changed"));
+
+        replace_current_managed_semantic_rename(&db, "file-test", "live-changed.txt");
         let proposal_changed = db
             .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
                 plan_id: "plan-test".into(),
                 cursor: None,
                 page_size: 10,
             })
-            .expect("live proposal projection")
+            .expect("current semantic proposal projection")
             .items
             .remove(0);
         assert_eq!(proposal_changed.effective_readiness, "blocked");
@@ -4975,6 +5069,7 @@ mod tests {
             .iter()
             .any(|reason| reason == "proposal_changed"));
 
+        replace_current_managed_semantic_rename(&db, "file-test", "renamed.txt");
         {
             let conn = db.conn().expect("preview mismatch connection");
             conn.execute(
@@ -4983,7 +5078,7 @@ mod tests {
                  WHERE id = 'file-test'",
                 [],
             )
-            .expect("restore live proposal");
+            .expect("restore legacy proposal fields");
             conn.execute(
                 "UPDATE organization_plan_items SET authoritative_preview_id = 'stale-preview'
                  WHERE id = 'item-test'",
