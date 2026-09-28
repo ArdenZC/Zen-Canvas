@@ -2,69 +2,100 @@
 
 Last verified: 2026-09-28
 
-**IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW**
+**IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW**
 
-PR [#287](https://github.com/ArdenZC/Zen-Canvas/pull/287) remains **OPEN / Draft**. This result records implementation and validation evidence; Owner Review, any Draft-state change, and merge remain owner decisions.
+PR #287 remains OPEN / Draft. The Owner Review disposition is still CHANGES REQUESTED until the owner re-reviews this remediation. This result records implementation and evidence; it does not claim that Owner Review passed or authorize a Draft-state change or merge.
 
 ## Activation and candidate
 
 - Initiative: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273).
 - Activation baseline: master@189c0fd522579d643216e313d6fcb6bcc8467ab7.
 - Implementation branch: product/pm-01-ai-only-core-experience.
-- User-provided continuation snapshot: 9f9a666078e3756f03975e6484c2b06fa7d6930a; exact CI 36384506120 was successful.
-- Previous source candidate before the final browser-harness repair: 0e964f6785220fc79b827c7796225fc5918f744b; exact CI 36404469034 was successful.
-- Final product source candidate: 213d0aba201b2b52ee63c8ff9264eba1d076dcf5; tree 8a6266f52e867c73e9ce5f78aebc3101e8c481ed.
-- Exact source-candidate CI: [36410571076](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36410571076) — **SUCCESS** on 213d0aba.
-- PR base remains 189c0fd522579d643216e313d6fcb6bcc8467ab7; the PR is not merged and was not changed to Ready for Review.
+- Previous head before this Owner Review remediation: d1f190abd7139a8133280a2f568e15f2ac3d4562.
+- Remediation source candidate: cbb1d44820d1fe3186fde83a03bb5f40a0f3c818; tree b06ff4c1ce9cd384547370a28df78317bb268159.
+- Exact source-candidate CI: [36435526936](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36435526936) — SUCCESS on cbb1d448.
+- PR base remains master@189c0fd522579d643216e313d6fcb6bcc8467ab7. The PR is OPEN / Draft and has not been merged.
 
-## Delivered scope
+## Delivered product scope
 
-The implementation uses the existing Managed AI, SemanticAssessmentV1, Global Index, Cleanup/Analysis and Organization Plan authorities. The PR spans backend gates and projections, frontend readiness and onboarding, product copy, permission/build registration, and focused Rust/frontend tests. The final source repair changed only src/views/cleanup/StorageCleanupView.tsx and tests/cleanupIndependentReview.test.tsx.
+The implementation uses the existing Managed AI, SemanticAssessmentV1, Global Index, Cleanup/Analysis and Organization Plan authorities. This remediation changes onboarding presentation/flow and browser presentation fixtures plus focused tests; it adds no backend or schema changes.
 
 ### Organize semantic authority
 
 - New and refreshed proposal semantics require a current Managed AI assessment. NotManaged and Pending produce a pending proposal without semantic explanation; missing, malformed, stale, or non-current bindings remain unavailable or blocked.
 - Current semantic explanation and proposal fingerprints come from SemanticAssessmentV1. A changed current assessment invalidates the accepted proposal; changing legacy suggested/classification fields alone does not.
-- No files.suggested_name, suggested_action, or classification field was restored as execution authority. No Rules/classification fallback was added.
+- No files.suggested_name, suggested_action, or classification field was restored as execution authority. No rules/classification fallback was added.
 - Existing reviewed plans, exact Operation Preview, confirmation, journal and Restore checks continue to be resolved by their deterministic authorities.
 
 ### Cleanup and readiness
 
-- New or refreshed AI Cleanup work consumes the existing backend provider/feature readiness and separate Cleanup sharing consent. Existing deterministic findings and already-current evidence remain inspectable if the provider later becomes unavailable.
-- Current assessment evidence does not itself grant executability or reduce deterministic risk. Cleanup Preview, confirmation, Safe Trash, operation journal and Restore boundaries remain in force.
-- Organize and Cleanup explain their own readiness states and recovery actions. Onboarding presents all five steps, distinguishes Managed AI scope permission from Cleanup data-sharing consent, and allows users to skip or configure AI.
-- Rules, Automation and Preference Memory copy no longer claims that those systems are current Organize/Cleanup semantic authority or an active Managed AI worker input.
+- New or refreshed AI Cleanup work consumes the existing backend provider/feature readiness and separate Cleanup sharing consent.
+- Provider/settings currentness remains bound to the existing backend predicate. A changed provider/settings binding invalidates the old assessment. Deterministic findings and a still-current assessment remain reviewable after a later request failure, but execution remains subject to authoritative Preview revalidation.
+- Current assessment evidence does not grant executability or reduce deterministic risk. Cleanup Preview, confirmation, Safe Trash, operation journal and Restore boundaries remain in force.
+- Rules, Automation and Preference Memory copy does not claim that those systems are current Organize/Cleanup semantic authority or an active Managed AI worker input.
 
-### Final browser-harness repair
+## Owner Review remediation
 
-Browser PM-01 Cleanup scenarios previously could not select a quick scope because that control called the native Tauri path plugin. The final patch supplies synthetic paths only when browser mocks are enabled and an explicit pm01-cleanup presentation fixture is selected. The native path remains OS-owned. A mounted regression test verifies that fixture scope selection works without invoking the native path plugin and does not start analysis merely by selecting a scope.
+### Onboarding first value and restartability
 
-## CI failure diagnosis and repair history
+The reviewed flow let Skip AI and Escape complete onboarding before a useful folder was configured. Re-entry also reset an unsaved folder selection. That violated the accepted W6-02 file-first first-value contract.
+
+The remediation separates skipping AI setup from completing first-run setup. Skip AI bypasses provider, Managed AI permission and Cleanup AI setup while preserving the useful-folder step. A completion marker is written only after at least one useful enabled folder is already configured or has been saved through the existing settings path. Escape is a temporary dismissal and does not write the marker. Reopening Getting Started preserves the current step and an unsaved selected folder. After folder completion, background indexing enabled routes to File Library; disabled routes to Overview/manual scan.
+
+The frontend suite covers no-folder Escape and re-entry, no-folder AI skip, unsaved-folder retention across Skip AI/Escape/re-entry, saved-folder completion with both indexing routes, the full five-step flow, Local/Cloud Settings routing, keyboard/focus and narrow layout.
+
+### Cleanup provider request failure semantics
+
+The prior mounted test changed provider readiness to provider_disabled and previewed a different Safe finding. It therefore proved neither a transient request failure with unchanged assessment binding nor Preview for the same Review finding.
+
+The replacement mounted test keeps one current-assessment Review finding and the same ready provider/settings binding. A later AI request fails with provider_request_unavailable; the existing evidence remains visible, the same finding is manually acknowledged, and Preview receives that same finding ID, finding revision and review decision revision. It does not invent an offline readiness state or use provider_disabled to simulate connectivity failure.
+
+The mounted test exercises UI behavior with mocked APIs; it is not backend authority evidence. Existing Rust authority coverage was retained and run: current_assessment_rejects_changed_provider_settings verifies an unchanged binding remains current before a settings change makes it non-current; cleanup_selection_requires_finding_revision_and_review_decision_cas verifies a missing current assessment fails closed even after review acknowledgement. Exact-head Windows/macOS Rust CI passed. No duplicate currentness authority or weaker Preview gate was introduced.
+
+## Earlier CI fixture repairs
 
 No production semantic fallback was added to repair CI.
 
-- The first Rust runs reported nine Organization test failures on Windows/macOS. Those tests had legacy-only fixtures that no longer met the PM-01 authority contract. The test fixtures were rebuilt with a real current SemanticAssessmentV1 binding: Global Index entry, managed entry/scope, current metadata fingerprint, provider/model settings, completed AI state/job/job item, and a valid assessment. This let the tests exercise current semantic authority instead of relying on legacy classification.
-- After that fixture conversion, the intermediate remaining failures were effective_readiness_revalidates_live_facts_without_mutating_validity and the member-join/member-migration projection-fingerprint tests. The group tests now synchronize their starting semantic proposal fingerprint before testing the stale-projection CAS. The readiness fixture now restores the original semantic reason as well as the original target, so its semantic fingerprint is truly restored before the content-only mutation assertion. The test still asserts that a real Managed assessment change yields proposal_changed.
-- The Intelligence Task 06 benchmark had no current managed semantic execution chain and its Windows global-entry normalized path could differ from the source identity. The benchmark now seeds the current managed assessment chain and uses global_index::models::normalize_path for path_normalized. It does not relax a performance gate.
-- The browser-only scope-path gap was repaired in the final two-file source patch described above; it did not change production path selection or backend authority.
+- The initial Organization failures came from legacy-only test fixtures that no longer met the PM-01 authority contract. Those fixtures were rebuilt with a current SemanticAssessmentV1 binding, including Global Index entry, managed entry/scope, metadata fingerprint, provider/model settings, completed AI state/job/job item and valid assessment.
+- The remaining Organization fixture failures were corrected by synchronizing the semantic proposal fingerprint before stale-projection CAS assertions and restoring the original semantic reason before content-only mutation assertions.
+- The Intelligence Task 06 benchmark now seeds the current managed assessment chain and uses global_index::models::normalize_path for Windows path identity. It does not relax a performance gate.
+- These fixture repairs and the current onboarding/Cleanup remediation preserve fail-closed behavior, do not permit legacy semantic fallback, and do not skip failures or lower performance thresholds.
 
-The changes therefore correct test and presentation fixture construction. They do not change fail-closed behavior, permit legacy semantic fallback, skip failures, or weaken performance thresholds.
+## Browser evidence and limits
+
+Owner-review evidence is packaged outside the repository at:
+
+F:/CargoTarget/pm01-287-owner-review-evidence-cbb1d448.zip
+
+The ZIP contains manifest.json, README.md and exactly 12 screenshots. It binds the captures to source cbb1d448, successful CI run 36435526936 and Chromium 151.0.7922.34. The scenario map covers explicit AI skip; no-folder Escape and Getting Started re-entry; synthetic useful-folder setup and both completion routes; AI Settings; narrow layout; current-assessment presentation; later provider request failure; and Preview for the same Cleanup finding ID.
+
+Browser evidence is presentation-only. The folder is a synthetic preconfigured display setting, not evidence of the native folder picker or durable folder persistence. Cleanup readiness, assessment evidence, request failure and Preview are browserMockApi fixtures, not proof of backend currentness, provider connectivity or filesystem authority. The Preview panel is shown but its confirmation button was not activated; no Safe Trash, journal or Restore operation ran.
+
+Evidence categories are separate:
+
+- Browser screenshots: presentation state only.
+- Mounted React tests: UI behavior with mocked APIs.
+- Rust tests and exact-head hosted CI: backend/provider-settings currentness and fail-closed Cleanup Preview contracts.
+- Native evidence: none was collected in this remediation; Windows/macOS hosted Rust and release compile are not native UI acceptance.
+
+Console errors: 0. Console warnings: 0. Page errors: 0 across all 12 browser captures.
 
 ## Validation
 
 ### Local validation
 
-- npm run verify:frontend — **PASS** at source candidate 213d0aba: TypeScript, 155 frontend test files / 1,641 tests, 14 remediation tests, 28 performance-architecture checks, and frontend build.
-- npx vitest run tests/cleanupIndependentReview.test.tsx — **PASS**, 51/51 tests, including the mounted browser-scope regression.
-- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check — **PASS** at 213d0aba.
-- npm run verify:rust — **PASS** at 0e964f: 1,079 Rust tests passed, 24 ignored, integration tests passed, and Clippy passed with -D warnings. The final 213d0aba patch did not modify Rust; Windows/macOS Rust quality also passed at the exact final source candidate in hosted CI.
-- Local Intelligence Task 06 performance test — **PASS** on Windows at 0e964f; exact-source-candidate hosted Intelligence performance also passed.
-- git diff --check — **PASS** on the source candidate.
-- The frontend build emitted existing Tailwind CSS optimizer and pdfjs-dist dynamic-import warnings; the build succeeded. Browser runtime console/page errors and warnings were zero in the evidence capture below.
+- Focused frontend suites: 69/69 tests passed across onboardingDialog, cleanupIndependentReview, pm01ProductTruth and pm01BrowserPresentationFixtures.
+- npm run verify:frontend: PASS on the remediation source candidate; typecheck passed, 155 test files / 1,646 tests passed, remediation 14/14, performance architecture 28/28, and frontend build succeeded.
+- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check: PASS.
+- Affected Rust currentness test: 1/1 passed.
+- Affected Rust fail-closed Cleanup Preview test: 1/1 passed.
+- npm run verify:rust: PASS on the remediation source candidate; 1,079 unit tests passed, 24 ignored, integration suites passed, and Clippy passed with -D warnings. One initial full run had a transient failure in the unrelated coordinator scheduling test; its isolated rerun and the complete Rust gate rerun both passed. No unrelated Rust change was made.
+- git diff --check: PASS before source commit.
+- Browser runtime console errors/warnings and page errors: 0. The frontend build emitted the existing Tailwind CSS optimizer and pdfjs-dist dynamic-import warnings; the build succeeded.
 
 ### Exact source-candidate hosted CI
 
-Run [36410571076](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36410571076) completed successfully on 213d0aba201b2b52ee63c8ff9264eba1d076dcf5.
+Run [36435526936](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36435526936) completed successfully on cbb1d44820d1fe3186fde83a03bb5f40a0f3c818.
 
 | Required lane | Result |
 | --- | --- |
@@ -83,27 +114,19 @@ Run [36410571076](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36410571076
 | Quality aggregate — Windows | PASS |
 | Quality aggregate — macOS | PASS |
 
-Packaging, dependency-audit, native Preview Handler, native macOS performance, unrelated performance lanes and documentation-only lanes were **SKIPPED by the validated lane plan**. Their skips are not reported as passes and did not mask the required PM-01 lanes.
+Packaging, dependency audit, native Preview Handler, native macOS performance and unrelated performance lanes were skipped by the validated lane plan. Those skips are not reported as passes.
 
-### Browser evidence
-
-Retained outside the repository at F:\CargoTarget\pm01-287-browser-evidence-213d0aba\formal-evidence\:
-
-- manifest.json binds all captures to source 213d0aba, CI 36410571076, and Chromium 151.0.7922.34.
-- screenshots\ contains 31 captures: Organize disconnected / needs-analysis / ready-current / review / managed-scope-missing / managed-consent-missing / Settings recovery; Cleanup disconnected / local and cloud consent missing / feature disabled / analysis failure / current assessment while provider is offline / Preview while offline / ready Preview; and onboarding steps, local/cloud choices, skip/configure routes, Escape and narrow layout.
-- Console errors, console warnings and page errors: **0 across 31 captures**.
-- Key screenshots were visually inspected. Browser fixtures are explicitly presentation-only; this is not backend readiness, native acceptance, or filesystem-operation evidence. No Preview confirmation or Safe Trash mutation was invoked. The browser cannot exercise the native OS folder picker; the onboarding folder/consent UI was captured without selecting a real native folder.
-
-## Authority and scope disposition
+## Authority, schema and scope disposition
 
 - Database schema remains version 35; no migration or durable authority was added.
+- Organize remains AI-only for semantic authority. Legacy suggestion/classification fields are not execution fallback.
 - Operation Preview, confirmation, Safe Trash, journal and Restore remain deterministic and fail closed.
-- PM-02, #283 production adoption, #270, Preference Memory persistence, autonomous execution and release publication remain outside this work. PM-02 stays **NOT ACTIVE** pending PM-01 Owner Review/merge.
-- F:\pm01-287-temp still contains task-generated local Rust test artifacts (about 0.29 GiB). A cleanup attempt was blocked by the tool policy before deletion; no files were removed. This is a local hygiene residual, not a source-tree or hosted-CI blocker.
-- No PM-01 implementation or required hosted-CI blocker remains. Owner Review itself is pending; PR #287 remains Draft by instruction.
+- PM-02 is NOT ACTIVE. #283 research was not started; #270 remains separate. Preference Memory production, autonomous execution and release publication remain out of scope.
+- F:\pm01-287-temp still contains 1,142 task-generated local Rust test files (about 0.29 GiB). The prior cleanup attempt was blocked by tool policy; no files were removed and this pass did not retry it. This is a local hygiene residual, not a source-tree or hosted-CI blocker.
+- No PM-01 implementation or required source-candidate CI blocker remains. Owner re-review is pending; PR #287 remains OPEN / Draft.
 
 ## Final disposition
 
-**IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW**
+**IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW**
 
-Owner review must inspect the PR diff and evidence directly. This disposition does not authorize a Ready transition or merge.
+Owner review must inspect the PR diff and evidence package directly. This disposition does not claim Owner Review passed, authorize a Ready transition, or authorize merge.
