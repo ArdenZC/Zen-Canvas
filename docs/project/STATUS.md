@@ -1,12 +1,12 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-27
+Last verified: 2026-09-28
 
 ## Current execution truth
 
 - Latest merged production baseline: `master@17599b3344616a43686a376b790cb8bae1f52fa7`, the squash merge for Pre-PM Cleanup AI Data-Sharing Consent Gate / PR #285. Accepted Production HEAD `1ec24f49bf2e2c777bcc8206e9a286d9b396685a` passed exact-head CI [36332783985](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36332783985); owner-approved pre-merge HEAD `10b97a30fba8859b7d7fca12e96460bcaed910ea` passed CI [36334658332](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36334658332); merge-after master CI [36338751754](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36338751754) is **SUCCESS**.
-- Current engineering initiative: **ACTIVE — implementation — AI-only Product Migration / PM-01 Core Experience** on `product/pm-01-ai-only-core-experience`, issue [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Fresh activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`. Old #274 remains **CLOSED / superseded** and is not the production baseline.
-- PM-01 is **ACTIVE — implementation**. Deep-audit prerequisites A/B/C were closed by #276, provider/feature readiness by #279, and distinct Cleanup data-sharing consent by #285. Fresh PM-01 authority is [AI-only Product Migration](initiatives/ai-only-product-migration.md) plus [PM-01 activation taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md); implementation may begin only on a new branch from current master. Research issue #283 remains parallel/non-blocking; #270 remains separate.
+- Current engineering initiative: **ACTIVE — PM-01 implementation complete; awaiting Owner Review** on product/pm-01-ai-only-core-experience, issue #273. Fresh activation baseline: master@189c0fd522579d643216e313d6fcb6bcc8467ab7. PR #287 remains **OPEN / Draft** at source candidate 213d0aba201b2b52ee63c8ff9264eba1d076dcf5; exact CI 36410571076 is **SUCCESS**. Old #274 remains **CLOSED / superseded** and is not the production baseline.
+- PM-01 implementation is **COMPLETE — READY FOR OWNER REVIEW**. Deep-audit prerequisites A/B/C were closed by #276, provider/feature readiness by #279, and distinct Cleanup data-sharing consent by #285. Authority remains [AI-only Product Migration](initiatives/ai-only-product-migration.md) and the [PM-01 activation taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md); outcome and validation are recorded in the [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Research issue #283 remains parallel/non-blocking; #270 remains separate.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
@@ -29,9 +29,11 @@ Last verified: 2026-09-27
 
 **AI-only Product Migration**
 
-Status: **ACTIVE — implementation — PM-01 Core Experience on fresh post-Pre-PM baseline.**
+Status: **ACTIVE — PM-01 implementation complete; PR #287 is OPEN / Draft awaiting Owner Review.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Branch: `product/pm-01-ai-only-core-experience`. Activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.
+
+Result: [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Source candidate 213d0aba201b2b52ee63c8ff9264eba1d076dcf5 passed exact-head CI [36410571076](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36410571076). PR #287 remains Draft; Owner Review and merge remain pending.
 
 PM-01 now owns the product migration from optional/fallback semantics to AI-required new Organize/Cleanup semantics while preserving merged deterministic safety authorities.
 

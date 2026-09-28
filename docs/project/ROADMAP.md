@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-27
+Last verified: 2026-09-28
 
 ## Completed
 
@@ -89,15 +89,17 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE — implementation — PM-01 Core Experience; issue #273; branch `product/pm-01-ai-only-core-experience`; activation baseline `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.**
+Status: **ACTIVE — implementation complete; PR #287 is OPEN / Draft awaiting Owner Review; issue #273; branch product/pm-01-ai-only-core-experience; activation baseline master@189c0fd522579d643216e313d6fcb6bcc8467ab7.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
+
+Result: [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Source candidate 213d0aba201b2b52ee63c8ff9264eba1d076dcf5 passed exact-head CI [36410571076](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36410571076); Owner Review and merge are pending.
 
 Current production sequence:
 
 1. Pre-PM foundations #272 / #276 / #279 / #285 — **COMPLETE / MERGED**.
 2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
-3. **PM-01 AI-only Core Experience — CURRENT / ACTIVE.**
+3. **PM-01 AI-only Core Experience — IMPLEMENTATION COMPLETE / READY FOR OWNER REVIEW; PR #287 remains OPEN / Draft.**
 4. PM-02 Automation Intent + Policies — **NOT ACTIVE; requires PM-01 owner review/merge**.
 5. PM-03 migration closeout — later.
 6. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only via #283; not a PM-01 merge gate**.
