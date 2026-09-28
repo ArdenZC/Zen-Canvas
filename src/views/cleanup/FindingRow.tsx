@@ -3,6 +3,7 @@ import type { AnalysisFinding, AnalysisFindingEvidence } from "../../types/domai
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { compactPath } from "../../utils/viewHelpers";
+import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { cn } from "../../utils/tw";
 import { Button, ToneBadge, metadataText, quietText } from "../shared/ui";
 import { isFindingSelectable, type CleanupTier } from "./cleanupModel";
@@ -81,7 +82,7 @@ export function FindingRow({
         </div>
         {isCaution ? <span className="text-xs font-medium text-[var(--zc-warning-text)]">{t("storageCleanupCautionHint")}</span> : <Button variant={selected ? "secondary" : "primary"} size="compact" disabled={interactionLocked || (!selectable && !(finding.tier === "review" && finding.status === "active" && finding.decision !== "acknowledged"))} aria-pressed={selected} onClick={() => onToggle(finding)}>{selected ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{selected ? t("storageCleanupSelected") : finding.tier === "review" && finding.decision !== "acknowledged" ? t("storageCleanupFindingAcknowledge") : t("storageCleanupSelectForTrash")}</Button>}
       </div>
-      {evidenceExpanded ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3" data-finding-evidence><strong className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]">{t("storageCleanupFindingEvidence")}</strong>{evidence?.length ? evidence.map((item) => <div key={item.id} className="text-xs leading-5 text-[var(--zc-text-secondary)]">{item.evidenceKind}{item.pathSnapshot ? ` · ${compactPath(item.pathSnapshot, 100)}` : ""}</div>) : <span className={quietText}>{t("storageCleanupFindingEvidenceEmpty")}</span>}</div> : null}
+       {evidenceExpanded ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3" data-finding-evidence><strong className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]">{t("storageCleanupFindingEvidence")}</strong>{evidence?.length ? evidence.map((item) => <div key={item.id} className="text-xs leading-5 text-[var(--zc-text-secondary)]" data-ai-assessment-current={item.evidenceKind === "ai_assessment" ? (item.isCurrentAssessment ? "true" : "false") : undefined} data-ai-assessment-source={item.evidenceKind === "ai_assessment" ? (isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority") : undefined}>{item.evidenceKind === "ai_assessment" ? item.isCurrentAssessment ? t(isBrowserMockEnabled() ? "storageCleanupCurrentAIAssessmentFixture" : "storageCleanupCurrentAIAssessment") : t("storageCleanupHistoricalAIAssessment") : item.evidenceKind}{item.pathSnapshot ? ` · ${compactPath(item.pathSnapshot, 100)}` : ""}</div>) : <span className={quietText}>{t("storageCleanupFindingEvidenceEmpty")}</span>}</div> : null}
     </article>
   );
 }

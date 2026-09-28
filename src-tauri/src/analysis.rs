@@ -413,8 +413,27 @@ pub fn list_analysis_finding_evidence(
     db: State<'_, Database>,
     finding_id: String,
 ) -> Result<Vec<AnalysisFindingEvidenceDto>, String> {
-    db.list_analysis_finding_evidence(finding_id.trim())
-        .map_err(|error| error.to_string())
+    let finding_id = finding_id.trim();
+    let mut evidence = db
+        .list_analysis_finding_evidence(finding_id)
+        .map_err(|error| error.to_string())?;
+    let current_assessment =
+        if crate::ai::cleanup::has_current_ai_assessment(db.inner(), finding_id) {
+            db.get_analysis_finding(finding_id)
+                .map_err(|error| error.to_string())?
+                .and_then(|finding| finding.evidence_summary.get("aiAssessment").cloned())
+        } else {
+            None
+        };
+    if let Some(current_assessment) = current_assessment {
+        for item in &mut evidence {
+            item.is_current_assessment = item.evidence_kind == "ai_assessment"
+                && item.subject_kind == "analysis_finding"
+                && item.subject_id.as_deref() == Some(finding_id)
+                && item.value == current_assessment;
+        }
+    }
+    Ok(evidence)
 }
 
 #[tauri::command]

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTranslator } from "../src/i18n";
-import type { AnalysisFinding, AnalysisRun } from "../src/types/domain";
+import type { AIProductFeatureReadiness, AnalysisFinding, AnalysisRun } from "../src/types/domain";
 import { reconcileAuthoritativeFindingUpdates, StorageCleanupView } from "../src/views/cleanup/StorageCleanupView";
 import { WorkflowSteps } from "../src/views/shared/ui";
 
@@ -145,6 +145,50 @@ function makeSafeFinding(run: AnalysisRun, index: number): AnalysisFinding {
   };
 }
 
+function readyAIReadiness(): AIProductFeatureReadiness {
+  const provider = {
+    state: "ready" as const,
+    reason: "provider_configuration_ready",
+    providerMode: "local" as const,
+    providerKind: "ollama" as const,
+    providerPreset: null,
+    model: "fixture-model",
+    credentialRequired: false,
+    credentialConfigured: false,
+    settingsRevision: "test-fixture",
+    bindingFingerprint: "test-fixture"
+  };
+  const disclosure = {
+    providerPayloadIncludesFileName: false,
+    providerPayloadIncludesParentPath: false,
+    providerPayloadIncludesFullPath: false,
+    providerPayloadIncludesFileContent: false,
+    providerContentIsBounded: true
+  };
+  return {
+    provider,
+    managedScopes: [{
+      state: "ready",
+      reason: "managed_ai_ready",
+      provider,
+      managedScopeId: "fixture-scope",
+      scopeFingerprint: "test-fixture",
+      bindingFingerprint: "test-fixture",
+      disclosure
+    }],
+    cleanup: {
+      state: "ready",
+      reason: "cleanup_ai_ready",
+      provider,
+      cleanupAiEnabled: true,
+      localAiAllowed: true,
+      cloudAiAllowed: false,
+      bindingFingerprint: "test-fixture",
+      disclosure
+    }
+  };
+}
+
 function scopeButton(): HTMLButtonElement {
   const section = container.querySelector<HTMLElement>("[data-cleanup-scope]");
   const found = [...(section?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => /扫描|重新扫描/.test(button.textContent ?? ""));
@@ -161,7 +205,7 @@ function button(text: string): HTMLButtonElement {
 function findingButton(findingId: string, text: string): HTMLButtonElement {
   const row = container.querySelector<HTMLElement>(`[data-analysis-finding-id="${findingId}"]`);
   const found = [...(row?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((item) => item.textContent?.includes(text));
-  if (!found) throw new Error(`finding button not found: ${findingId} / ${text}`);
+  if (!found) throw new Error(`finding button not found: ${findingId} / ${text}; row=${row?.textContent ?? "missing"}`);
   return found;
 }
 
@@ -189,6 +233,7 @@ function commonApi(run: AnalysisRun, overrides: Record<string, unknown> = {}) {
     getAnalysisRun: async () => run,
     listAnalysisRunDetectors: async () => [],
     listAnalysisFindings: async () => ({ findings: [], nextCursor: null, limit: 100 }),
+    getAIFeatureReadiness: async () => readyAIReadiness(),
     onAnalysisRunUpdated: async () => () => undefined,
     onAnalysisFindingsPublished: async () => () => undefined,
     onAnalysisDetectorUpdated: async () => () => undefined,
@@ -199,6 +244,7 @@ function commonApi(run: AnalysisRun, overrides: Record<string, unknown> = {}) {
 describe("Cleanup independent review behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     document.body.innerHTML = '<div id="test-root"></div>';
     container = document.getElementById("test-root") as HTMLDivElement;
     root = createRoot(container);
@@ -698,31 +744,158 @@ describe("Cleanup independent review behavior", () => {
     expect(container.textContent).not.toContain("重新核验完成");
   });
 
-  it("cancels before submitting any durable AI batch", async () => {
-    const run = makeRun("run-ai-cancel-before-submit", "completed", 1);
-    const settings = deferred<{ enabled: boolean; cleanupAiEnabled: boolean }>();
-    const getAISettings = vi.fn(() => settings.promise);
+  it("keeps current Cleanup evidence and deterministic Preview usable when the provider goes offline", async () => {
+    const run = makeRun("run-ai-offline-current-assessment", "completed", 1, { safeCount: 1 });
+    const review = makeFinding(run, 0);
+    const safe = makeSafeFinding(run, 1);
+    const offlineProvider = {
+      ...readyAIReadiness().provider,
+      state: "disabled" as const,
+      reason: "provider_disabled"
+    };
+    const offlineReadiness: AIProductFeatureReadiness = {
+      provider: offlineProvider,
+      managedScopes: [],
+      cleanup: {
+        ...readyAIReadiness().cleanup,
+        state: "disabled",
+        reason: "provider_disabled",
+        provider: offlineProvider
+      }
+    };
+    const getAIFeatureReadiness = vi.fn()
+      .mockResolvedValueOnce(readyAIReadiness())
+      .mockResolvedValueOnce(offlineReadiness);
     const analyzeCleanupCandidatesWithAI = vi.fn(async () => [] as AnalysisFinding[]);
+    const previewCleanupOperations = vi.fn(async () => ({
+      total: 1,
+      previews: [{
+        id: "preview-after-provider-offline",
+        fileId: safe.id,
+        operation_type: "move_to_trash" as const,
+        source_path: safe.pathSnapshot ?? "C:/Root/item-1",
+        target_path: "Recycle Bin",
+        old_name: "item-1",
+        new_name: "item-1",
+        status: "pending" as const,
+        risk_level: "Normal" as const,
+        confidence: 1,
+        requires_confirmation: true,
+        reason: "Deterministic Cleanup preview",
+        is_executable: true
+      }],
+      limit: 100,
+      offset: 0,
+      truncated: false,
+      hasMore: false
+    }));
     const api = commonApi(run, {
       listAnalysisRuns: async () => [run],
-      getAISettings,
-      analyzeCleanupCandidatesWithAI
+      getAnalysisRun: async () => run,
+      getAIFeatureReadiness,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "review" ? [review] : request.tier === "safe" ? [safe] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      listAnalysisFindingEvidence: async () => [{
+        id: "current-ai-evidence",
+        findingId: review.id,
+        evidenceKind: "ai_assessment",
+        subjectKind: "analysis_finding",
+        subjectId: review.id,
+        pathSnapshot: review.pathSnapshot,
+        value: { schema: "cleanup_ai_assessment_v1" },
+        createdAt: 1,
+        isCurrentAssessment: true
+      }],
+      analyzeCleanupCandidatesWithAI,
+      previewCleanupOperations
     });
 
     await act(async () => root.render(createElement(CleanupView, { api, t })));
     await flush(8);
     await act(async () => button("需人工判断").click());
     await flush(4);
-    await act(async () => button("重新核验需确认项目").click());
-    await vi.waitFor(() => expect(getAISettings).toHaveBeenCalledOnce());
+    await act(async () => findingButton(review.id, t("storageCleanupFindingEvidence")).click());
+    await flush(4);
+    expect(container.querySelector('[data-ai-assessment-current="true"]')).not.toBeNull();
 
-    await act(async () => button("停止重新核验").click());
-    await act(async () => settings.resolve({ enabled: true, cleanupAiEnabled: true }));
-    await flush(10);
-
+    await act(async () => button(t("storageCleanupAIRecheck")).click());
+    await flush(5);
+    expect(getAIFeatureReadiness).toHaveBeenCalledTimes(2);
     expect(analyzeCleanupCandidatesWithAI).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("重新核验已停止");
-    expect(container.textContent).not.toContain("停止重新核验");
+    expect(container.querySelector('[data-ai-cleanup-state="disabled"]')).not.toBeNull();
+    expect(container.querySelector(`[data-analysis-finding-id="${review.id}"]`)).not.toBeNull();
+    expect(container.querySelector('[data-ai-assessment-current="true"]')).not.toBeNull();
+
+    await act(async () => button(t("storageCleanupSafeTier")).click());
+    await flush(4);
+    // Safe-tier defaults are preselected by the cleanup projection.
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await vi.waitFor(() => expect(previewCleanupOperations).toHaveBeenCalledOnce());
+    await flush(5);
+    expect(container.querySelector('[data-cleanup-preview-state="ready"]')).not.toBeNull();
+    expect(container.textContent).toContain(t("storageCleanupPreviewReadyTitle"));
+  });
+
+  it("keeps deterministic findings inspectable when provider readiness blocks new Cleanup analysis", async () => {
+    const run = makeRun("run-ai-provider-blocked", "completed", 1);
+    const review = makeFinding(run, 0);
+    const disabledProvider = {
+      ...readyAIReadiness().provider,
+      state: "disabled" as const,
+      reason: "provider_disabled"
+    };
+    const blockedReadiness: AIProductFeatureReadiness = {
+      provider: disabledProvider,
+      managedScopes: [],
+      cleanup: {
+        ...readyAIReadiness().cleanup,
+        state: "disabled",
+        reason: "provider_disabled",
+        provider: disabledProvider,
+        cleanupAiEnabled: false
+      }
+    };
+    const analyzeCleanupCandidatesWithAI = vi.fn(async () => [] as AnalysisFinding[]);
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run,
+      getAIFeatureReadiness: async () => blockedReadiness,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "review" ? [review] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      listAnalysisFindingEvidence: async () => [{
+        id: "deterministic-cleanup-evidence",
+        findingId: review.id,
+        evidenceKind: "cleanup_heuristic",
+        subjectKind: "analysis_finding",
+        subjectId: review.id,
+        pathSnapshot: review.pathSnapshot,
+        value: { detector: "cleanup_heuristics_v1" },
+        createdAt: 1,
+        isCurrentAssessment: false
+      }],
+      analyzeCleanupCandidatesWithAI
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button(t("storageCleanupReviewTier")).click());
+    await flush(4);
+
+    expect(container.querySelector('[data-ai-cleanup-state="disabled"]')).not.toBeNull();
+    expect(container.querySelector(`[data-analysis-finding-id="${review.id}"]`)).not.toBeNull();
+    const recheck = button(t("storageCleanupAIRecheck"));
+    expect(recheck.disabled).toBe(true);
+    await act(async () => findingButton(review.id, t("storageCleanupFindingEvidence")).click());
+    await flush(3);
+    expect(container.querySelector("[data-finding-evidence]")?.textContent).toContain("cleanup_heuristic");
+    expect(analyzeCleanupCandidatesWithAI).not.toHaveBeenCalled();
   });
 
   it("reconciles the settled first batch and never starts a second batch after cancellation", async () => {

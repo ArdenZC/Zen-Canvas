@@ -5,6 +5,7 @@ import type {
   AIDebugClassificationResult,
   AIConnectionTestResult,
   AIModelInfo,
+  AIProductFeatureReadiness,
   AIProviderPreset,
   AIRequestTrace,
   AISettings,
@@ -32,6 +33,9 @@ export const aiApi = {
   },
   getAISettings(): Promise<AISettings> {
     return invokeCommand<AISettings>("get_ai_settings");
+  },
+  getAIFeatureReadiness(): Promise<AIProductFeatureReadiness> {
+    return invokeCommand<AIProductFeatureReadiness>("get_ai_feature_readiness");
   },
   getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
     return invokeCommand<RuntimeCapabilities>("get_runtime_capabilities");

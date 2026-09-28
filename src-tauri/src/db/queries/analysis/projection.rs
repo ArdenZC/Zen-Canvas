@@ -173,6 +173,7 @@ pub(super) fn analysis_evidence_from_row(
         path_snapshot: row.get(5)?,
         value: serde_json::from_str(&value).unwrap_or(Value::Null),
         created_at: row.get(7)?,
+        is_current_assessment: false,
     })
 }
 

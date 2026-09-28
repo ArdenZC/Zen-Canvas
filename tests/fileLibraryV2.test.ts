@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockInvokeCommand } from "../src/api/browserMockApi";
 import { tauriApi } from "../src/api/tauriApi";
 import { projectAcceptedFileLibraryActivation } from "../src/utils/fileLibraryActivation";
@@ -22,6 +22,10 @@ import type { FileLibrarySummary } from "../src/types/domain";
 function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function request(overrides: Partial<FileQueryRequestV2> = {}): FileQueryRequestV2 {
   return {
@@ -208,6 +212,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
   });
 
   it("keeps browser organization review durable in memory but denies native execution", async () => {
+    vi.stubGlobal("location", new URL("http://localhost/?pm01-organize=ready"));
     const plan = await mockInvokeCommand<any>("create_organization_plan", {
       request: {
         version: 1,
@@ -222,6 +227,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
       request: { planId: plan.id, pageSize: 100, cursor: null }
     });
     expect(page.items).toHaveLength(1);
+    expect(page.items[0].semanticExplanation.reason).toContain("Browser presentation fixture only");
     const changed = await mockInvokeCommand<any>("update_organization_plan_decisions", {
       request: {
         planId: plan.id,
@@ -251,6 +257,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
   });
 
   it("resolves browser group review through the plan revision and group-item projection", async () => {
+    vi.stubGlobal("location", new URL("http://localhost/?pm01-organize=review"));
     const plan = await mockInvokeCommand<any>("create_organization_plan", {
       request: {
         version: 1,

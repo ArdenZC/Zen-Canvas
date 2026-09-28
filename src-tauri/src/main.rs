@@ -429,6 +429,7 @@ fn main() {
             zen_canvas_tauri::settings::get_settings,
             zen_canvas_tauri::settings::save_settings,
             zen_canvas_tauri::ai::settings::get_ai_settings,
+            zen_canvas_tauri::ai::readiness::get_ai_feature_readiness,
             zen_canvas_tauri::ai::settings::save_ai_settings,
             zen_canvas_tauri::ai::settings::list_ai_provider_presets,
             zen_canvas_tauri::ai::settings::list_ai_models,

@@ -161,6 +161,13 @@ pub struct OrganizationPlanEffectiveSummaryDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OrganizationSemanticExplanationDto {
+    pub assessment_fingerprint: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OrganizationPlanItemDto {
     pub id: String,
     pub plan_id: String,
@@ -172,6 +179,9 @@ pub struct OrganizationPlanItemDto {
     pub source_mtime_snapshot: i64,
     pub source_is_dir_snapshot: bool,
     pub proposal_fingerprint: String,
+    /// Ephemeral explanation from the current bound SemanticAssessmentV1.
+    /// It is omitted whenever the current proposal no longer matches this item.
+    pub semantic_explanation: Option<OrganizationSemanticExplanationDto>,
     pub proposal_kind: String,
     pub proposed_target_directory: String,
     pub proposed_name: String,
@@ -1979,6 +1989,7 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanItemDto> {
         source_mtime_snapshot: row.get(7)?,
         source_is_dir_snapshot: row.get::<_, i64>(8)? != 0,
         proposal_fingerprint: row.get(9)?,
+        semantic_explanation: None,
         proposal_kind: row.get(10)?,
         proposed_target_directory: row.get(11)?,
         proposed_name: row.get(12)?,
@@ -2065,13 +2076,23 @@ fn decorate_organization_item_metadata_with_file(
     let live_projection = current_file
         .map(|file| current_organization_projection(conn, file))
         .transpose()?;
-    let (live_proposal, preview) = live_projection.map_or((None, None), |projection| {
-        (Some(projection.proposal), projection.preview)
-    });
+    let (live_proposal, preview, semantic_explanation) =
+        live_projection.map_or((None, None, None), |projection| {
+            (
+                Some(projection.proposal),
+                projection.preview,
+                projection.semantic_explanation,
+            )
+        });
     let live_proposal = live_proposal.as_ref();
     let live_proposal_changed = live_proposal
         .as_ref()
         .is_some_and(|proposal| proposal.fingerprint != item.proposal_fingerprint);
+    item.semantic_explanation = if live_proposal_changed {
+        None
+    } else {
+        semantic_explanation
+    };
     let mut reasons = Vec::new();
     let blocking_code = item.blocking_code.as_deref().unwrap_or("");
     let source_unchanged = current_file.is_some_and(|file| {
@@ -4936,6 +4957,15 @@ mod tests {
             .items
             .remove(0);
         assert_eq!(initial.effective_readiness, "ready");
+        let initial_explanation = initial
+            .semantic_explanation
+            .as_ref()
+            .expect("current semantic assessment explanation");
+        assert_eq!(
+            initial_explanation.reason,
+            "current semantic organization test fixture"
+        );
+        assert!(!initial_explanation.assessment_fingerprint.is_empty());
         assert_eq!(
             db.query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
                 plan_id: "plan-test".into(),
@@ -5050,6 +5080,13 @@ mod tests {
             .review_reasons
             .iter()
             .any(|reason| reason == "proposal_changed"));
+        assert_eq!(
+            legacy_changed
+                .semantic_explanation
+                .as_ref()
+                .map(|explanation| explanation.assessment_fingerprint.as_str()),
+            Some(initial_explanation.assessment_fingerprint.as_str())
+        );
 
         replace_current_managed_semantic_rename(&db, "file-test", "live-changed.txt");
         let proposal_changed = db
@@ -5066,6 +5103,7 @@ mod tests {
             .review_reasons
             .iter()
             .any(|reason| reason == "proposal_changed"));
+        assert!(proposal_changed.semantic_explanation.is_none());
 
         replace_current_managed_semantic_rename(&db, "file-test", "renamed.txt");
         {

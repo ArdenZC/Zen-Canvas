@@ -93,6 +93,7 @@ const COMMANDS: &[&str] = &[
     "get_settings",
     "save_settings",
     "get_ai_settings",
+    "get_ai_feature_readiness",
     "save_ai_settings",
     "list_ai_provider_presets",
     "list_ai_models",

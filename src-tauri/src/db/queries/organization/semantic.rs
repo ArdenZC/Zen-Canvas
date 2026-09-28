@@ -28,6 +28,7 @@ enum AssessmentResolution {
 pub(super) struct OrganizationCurrentProjection {
     pub(super) proposal: Proposal,
     pub(super) preview: Option<OperationPreviewDto>,
+    pub(super) semantic_explanation: Option<OrganizationSemanticExplanationDto>,
 }
 
 pub(super) fn current_organization_proposal(
@@ -46,13 +47,19 @@ pub(super) fn current_organization_projection(
             Ok(OrganizationCurrentProjection {
                 proposal: pending_proposal(row),
                 preview: None,
+                semantic_explanation: None,
             })
         }
         AssessmentResolution::Unavailable(code) => Ok(OrganizationCurrentProjection {
             proposal: unavailable_proposal(row, code),
             preview: None,
+            semantic_explanation: None,
         }),
         AssessmentResolution::Current(assessment) => {
+            let semantic_explanation = OrganizationSemanticExplanationDto {
+                assessment_fingerprint: assessment.fingerprint(),
+                reason: assessment.reason.chars().take(512).collect(),
+            };
             let mut semantic_row = row.clone();
             semantic_row.file_type = assessment.file_type.clone();
             semantic_row.purpose = assessment.purpose.as_str().to_string();
@@ -89,7 +96,11 @@ pub(super) fn current_organization_projection(
             )
             .to_hex()
             .to_string();
-            Ok(OrganizationCurrentProjection { proposal, preview })
+            Ok(OrganizationCurrentProjection {
+                proposal,
+                preview,
+                semantic_explanation: Some(semantic_explanation),
+            })
         }
     }
 }

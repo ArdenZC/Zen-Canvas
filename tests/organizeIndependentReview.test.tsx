@@ -4,13 +4,15 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
+import { SETTINGS_SECTION_EVENT } from "../src/components/spotlight/commandRegistry";
 import { makeTranslator } from "../src/i18n";
 import { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
 import { useOrganizationPlanStore } from "../src/store/useOrganizationPlanStore";
-import type { OrganizationPlan, OrganizationPlanGroupSummary, OrganizationPlanItem } from "../src/types/domain";
+import type { AIProductFeatureReadiness, OrganizationPlan, OrganizationPlanGroupSummary, OrganizationPlanItem } from "../src/types/domain";
 import { OrganizeSuggestionsView } from "../src/views/organize/OrganizeSuggestionsView";
 
 const apiMocks = vi.hoisted(() => ({
+  getAIFeatureReadiness: vi.fn(),
   listOrganizationPlans: vi.fn(),
   getOrganizationPlan: vi.fn(),
   createOrganizationPlan: vi.fn(),
@@ -25,6 +27,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
+    getAIFeatureReadiness: apiMocks.getAIFeatureReadiness,
     listOrganizationPlans: apiMocks.listOrganizationPlans,
     getOrganizationPlan: apiMocks.getOrganizationPlan,
     createOrganizationPlan: apiMocks.createOrganizationPlan,
@@ -47,6 +50,50 @@ const nativeGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const nativeClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
 const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
 const nativeOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+
+function readyReadiness(): AIProductFeatureReadiness {
+  const provider: AIProductFeatureReadiness["provider"] = {
+    state: "ready",
+    reason: "provider_configuration_ready",
+    providerMode: "local",
+    providerKind: "ollama",
+    providerPreset: "ollama",
+    model: "fixture-model",
+    credentialRequired: false,
+    credentialConfigured: false,
+    settingsRevision: "fixture",
+    bindingFingerprint: "fixture"
+  };
+  const disclosure = {
+    providerPayloadIncludesFileName: false,
+    providerPayloadIncludesParentPath: false,
+    providerPayloadIncludesFullPath: false,
+    providerPayloadIncludesFileContent: false,
+    providerContentIsBounded: true
+  };
+  return {
+    provider,
+    managedScopes: [{
+      state: "ready",
+      reason: "managed_scope_ready",
+      provider,
+      managedScopeId: "managed-scope-fixture",
+      scopeFingerprint: "scope-fixture",
+      bindingFingerprint: "fixture",
+      disclosure
+    }],
+    cleanup: {
+      state: "ready",
+      reason: "cleanup_ai_ready",
+      provider,
+      cleanupAiEnabled: true,
+      localAiAllowed: true,
+      cloudAiAllowed: false,
+      bindingFingerprint: "fixture",
+      disclosure
+    }
+  };
+}
 
 const plan: OrganizationPlan = {
   id: "plan-review",
@@ -82,6 +129,7 @@ const reviewItem: OrganizationPlanItem = {
   sourceMtimeSnapshot: 1,
   sourceIsDirSnapshot: false,
   proposalFingerprint: "proposal-review",
+  semanticExplanation: null,
   proposalKind: "move",
   proposedTargetDirectory: "C:/Documents",
   proposedName: "report.txt",
@@ -207,9 +255,11 @@ describe("Organize independent review behavior", () => {
 
   beforeEach(() => {
     document.body.innerHTML = '<div id="test-root"></div>';
+    window.sessionStorage.clear();
     container = document.getElementById("test-root") as HTMLDivElement;
     root = createRoot(container);
     apiMocks.listOrganizationPlans.mockReset().mockResolvedValue([]);
+    apiMocks.getAIFeatureReadiness.mockReset().mockResolvedValue(readyReadiness());
     apiMocks.createOrganizationPlan.mockReset();
     HTMLElement.prototype.getBoundingClientRect = () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
     Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 600 });
@@ -269,6 +319,7 @@ describe("Organize independent review behavior", () => {
     if (nativeOffsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", nativeOffsetWidth);
     else delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
     document.body.innerHTML = "";
+    window.sessionStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -698,6 +749,58 @@ describe("Organize independent review behavior", () => {
     const dryRun = button("检查执行");
     expect(dryRun.disabled).toBe(false);
     expect(useOrganizationPlanStore.getState().groups[0]?.readiness).toBe("reviewed");
+  });
+
+  it("blocks new semantic analysis when provider readiness is unavailable but keeps current review and explanation usable", async () => {
+    const provider = { ...readyReadiness().provider, state: "disabled" as const, reason: "provider_disabled" };
+    apiMocks.getAIFeatureReadiness.mockResolvedValue({
+      ...readyReadiness(),
+      provider,
+      managedScopes: [],
+      cleanup: { ...readyReadiness().cleanup, state: "disabled", reason: "provider_disabled", provider, cleanupAiEnabled: false }
+    });
+    const needsAnalysisPlan = { ...plan, summary: { ...plan.summary, needsAnalysis: 1 } };
+    const currentSemanticItem = {
+      ...reviewItem,
+      semanticExplanation: {
+        assessmentFingerprint: "assessment-bound-to-current-proposal",
+        reason: "Current Managed AI assessment explanation"
+      }
+    };
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({
+      planId: plan.id,
+      groupId: reviewGroup.groupId,
+      planRevision: plan.revision,
+      projectionFingerprint: reviewGroup.projectionFingerprint,
+      items: [currentSemanticItem],
+      nextCursor: null,
+      hasMore: false
+    });
+    useOrganizationPlanStore.setState({ plans: [needsAnalysisPlan], activePlan: needsAnalysisPlan, groups: [reviewGroup] });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+
+    expect(container.querySelector('[data-ai-provider-state="disabled"]')).not.toBeNull();
+    expect(container.querySelector('[data-ai-plan-readiness="needs_analysis"]')).not.toBeNull();
+    await act(async () => button(t("aiReadinessOpenSettings")).click());
+    expect(chrome.setView).toHaveBeenCalledWith("settings");
+    expect(window.sessionStorage.getItem(SETTINGS_SECTION_EVENT)).toBe("settings-ai-provider");
+
+    const planActions = [...container.querySelectorAll("summary")].find((item) => item.textContent?.includes(t("organizePlanActions")));
+    await act(async () => planActions?.click());
+    expect(button(t("organizePlanAnalyze")).disabled).toBe(true);
+    await act(async () => button("需要我决定").click());
+    await flush();
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${reviewGroup.groupId}"]`)?.click());
+    await flush();
+    await act(async () => button("report.txt").click());
+    await flush();
+    const explanation = container.querySelector<HTMLElement>("[data-organize-semantic-explanation]");
+    expect(explanation?.getAttribute("data-semantic-explanation-current")).toBe("true");
+    expect(explanation?.getAttribute("data-semantic-explanation-source")).toBe("backend-authority");
+    expect(explanation?.textContent).toContain("Current Managed AI assessment explanation");
+    expect(button("接受此建议").disabled).toBe(false);
   });
 
   it("requires confirmation before accepting a requires-decision group", async () => {

@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeProvider, SettingsProvider, type ChromeContextValue, type SettingsContextValue } from "../src/contexts/AppContexts";
 import { makeTranslator } from "../src/i18n";
 import { OnboardingDialog, ONBOARDING_STORAGE_KEY } from "../src/components/OnboardingDialog";
-import type { AISettings, AppSettings } from "../src/types/domain";
+import type { AIProductFeatureReadiness, AppSettings } from "../src/types/domain";
+import { SETTINGS_SECTION_EVENT } from "../src/components/spotlight/commandRegistry";
+import { AI_SETTINGS_MODE_REQUEST_KEY } from "../src/views/settings/settingsNavigation";
 
 const apiMocks = vi.hoisted(() => ({
-  getAISettings: vi.fn(),
-  listAIProviderPresets: vi.fn(),
-  saveAISettings: vi.fn()
+  getAIFeatureReadiness: vi.fn(),
+  addManagedScope: vi.fn()
 }));
 const dialogMocks = vi.hoisted(() => ({ open: vi.fn() }));
 
@@ -34,30 +35,47 @@ const settings: AppSettings = {
   useLegacyBuiltinClassificationRules: false,
   useLearnedRulesAsAutoRules: false
 };
-const aiSettings: AISettings = {
-  enabled: false,
-  provider: "openai_compatible",
-  preset: "deepseek",
-  baseUrl: "https://api.deepseek.com",
-  chatPath: "/chat/completions",
-  apiKey: "",
-  apiKeyConfigured: false,
-  model: "deepseek-chat",
-  temperature: 0.2,
-  maxTokens: 2048,
-  batchSize: 10,
-  classificationConcurrency: 2,
-  timeoutSeconds: 60,
-  sendFullPath: false,
-  sendParentPath: true,
-  classificationMode: "hybrid",
-  cleanupAiEnabled: false,
-  cleanupLocalAiAllowed: false,
-  cleanupCloudAiAllowed: false,
-  forceJsonOutput: true,
-  enableThinking: false,
-  reasoningEffort: null,
-  extraBodyJson: null
+const readiness: AIProductFeatureReadiness = {
+  provider: {
+    state: "disabled",
+    reason: "provider_disabled",
+    providerMode: "cloud",
+    providerKind: "openai_compatible",
+    providerPreset: null,
+    model: null,
+    credentialRequired: true,
+    credentialConfigured: false,
+    settingsRevision: "fixture",
+    bindingFingerprint: "fixture"
+  },
+  managedScopes: [],
+  cleanup: {
+    state: "disabled",
+    reason: "provider_disabled",
+    provider: {
+      state: "disabled",
+      reason: "provider_disabled",
+      providerMode: "cloud",
+      providerKind: "openai_compatible",
+      providerPreset: null,
+      model: null,
+      credentialRequired: true,
+      credentialConfigured: false,
+      settingsRevision: "fixture",
+      bindingFingerprint: "fixture"
+    },
+    cleanupAiEnabled: true,
+    localAiAllowed: false,
+    cloudAiAllowed: false,
+    bindingFingerprint: "fixture",
+    disclosure: {
+      providerPayloadIncludesFileName: false,
+      providerPayloadIncludesParentPath: false,
+      providerPayloadIncludesFullPath: false,
+      providerPayloadIncludesFileContent: false,
+      providerContentIsBounded: true
+    }
+  }
 };
 
 function makeSettingsContext(overrides: Partial<SettingsContextValue> = {}) {
@@ -106,9 +124,9 @@ describe("first-run onboarding", () => {
     document.body.innerHTML = '<div id="app-shell-content"><button id="background">Background</button></div><div id="test-root"></div>';
     HTMLElement.prototype.getClientRects = () => [{ width: 120, height: 40, top: 0, left: 0, right: 120, bottom: 40, x: 0, y: 0, toJSON() { return {}; } }] as unknown as DOMRectList;
     setView = vi.fn();
-    apiMocks.getAISettings.mockReset().mockResolvedValue({ ...aiSettings });
-    apiMocks.listAIProviderPresets.mockReset().mockResolvedValue([]);
-    apiMocks.saveAISettings.mockReset().mockImplementation(async (next: AISettings) => next);
+    sessionStorage.clear();
+    apiMocks.getAIFeatureReadiness.mockReset().mockResolvedValue(readiness);
+    apiMocks.addManagedScope.mockReset().mockResolvedValue({ id: "managed-scope" });
     dialogMocks.open.mockReset().mockResolvedValue("D:/Documents");
     root = createRoot(document.getElementById("test-root")!);
   });
@@ -127,101 +145,140 @@ describe("first-run onboarding", () => {
     )));
   }
 
+  async function clickNext() {
+    const next = document.querySelector<HTMLButtonElement>("[data-onboarding-next]");
+    expect(next).toBeTruthy();
+    await act(async () => next?.click());
+    await flushAsync();
+  }
+
+  async function reachConnectStep() {
+    await clickNext();
+    expect(document.querySelector('[data-onboarding-step="2"]')).toBeTruthy();
+  }
+
   async function reachFolderStep() {
-    const firstNext = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "继续");
-    await act(async () => firstNext?.click());
-    expect(document.body.textContent).toContain("选择要建立索引的范围");
+    await reachConnectStep();
+    await clickNext();
+    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
   }
 
   async function chooseFolder() {
     const chooseFolderButton = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("选择文件夹"));
     expect(chooseFolderButton).toBeTruthy();
     await act(async () => chooseFolderButton?.click());
+    await flushAsync();
     expect(dialogMocks.open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: false }));
   }
 
-  it("keeps first-run actions reachable in a 200% text viewport", async () => {
-    renderOnboarding();
-    await flushAsync();
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    const description = document.querySelector<HTMLElement>("#onboarding-description");
-    expect(dialog?.className).toContain("max-h-[calc(100dvh-2rem)]");
-    expect(dialog?.className).toContain("overflow-hidden");
-    expect(description?.className).toContain("overflow-y-auto");
-    expect(description?.className).toContain("overscroll-contain");
-  });
-
-  it("opens the File Library after folder setup when background indexing is enabled, without touching AI settings", async () => {
-    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    renderOnboarding({
-      settings: { ...settings, backgroundIndexOnStartup: true },
-      setDefaultScanFolders
-    });
-    await flushAsync();
-
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("本地优先");
-    expect(document.body.textContent).not.toContain("选择 AI 处理模式");
-
-    await reachFolderStep();
-    const finishBeforeFolder = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "打开文件库");
-    expect(finishBeforeFolder?.disabled).toBe(true);
-
-    await chooseFolder();
-    expect(setDefaultScanFolders).toHaveBeenCalledOnce();
-
-    const finish = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "打开文件库");
-    expect(finish?.disabled).toBe(false);
-    await act(async () => finish?.click());
-
-    expect(apiMocks.getAISettings).not.toHaveBeenCalled();
-    expect(apiMocks.listAIProviderPresets).not.toHaveBeenCalled();
-    expect(apiMocks.saveAISettings).not.toHaveBeenCalled();
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
-    expect(setView).toHaveBeenCalledWith("library");
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-  });
-
-  it("routes to Overview for manual scanning when background indexing is disabled instead of bouncing through an empty Library", async () => {
+  it("completes the five-step first-run flow with separate Managed AI and Cleanup permissions", async () => {
     const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
     renderOnboarding({ setDefaultScanFolders });
     await flushAsync();
 
+    expect(document.querySelector('[data-onboarding-step="1"]')).toBeTruthy();
     await reachFolderStep();
-    expect([...document.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent === "进入概览")).toBe(true);
     await chooseFolder();
+    const managedConsents = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    expect(managedConsents).toHaveLength(2);
+    await act(async () => {
+      managedConsents[0].click();
+      managedConsents[1].click();
+    });
+    await clickNext();
 
-    const finish = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "进入概览");
-    expect(finish?.disabled).toBe(false);
-    await act(async () => finish?.click());
+    expect(setDefaultScanFolders).toHaveBeenCalledOnce();
+    expect(apiMocks.addManagedScope).toHaveBeenCalledWith({
+      path: "D:/Documents",
+      enabled: true,
+      allowLocalAi: true,
+      allowCloudAi: true
+    });
+    expect(document.querySelector('[data-onboarding-step="4"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("Cleanup 授权与 Organize 授权互相独立");
+    await clickNext();
+
+    expect(document.querySelector('[data-onboarding-step="5"]')).toBeTruthy();
+    expect(document.querySelectorAll('[data-onboarding-step="5"] ol li')).toHaveLength(6);
+    expect(document.body.textContent).toContain("AI 整理");
+    expect(document.body.textContent).toContain("AI 清理");
+    await clickNext();
 
     expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
     expect(setView).toHaveBeenCalledWith("scanner");
-    expect(apiMocks.saveAISettings).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(apiMocks.getAIFeatureReadiness).toHaveBeenCalled();
   });
 
-  it("does not permanently complete setup when a no-folder user chooses later setup, and lets them reopen it", async () => {
+  it.each(["local", "cloud"] as const)("routes the %s AI choice through existing AI Settings", async (mode) => {
     renderOnboarding();
     await flushAsync();
-
-    const skip = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "稍后设置");
-    await act(async () => skip?.click());
-
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-    expect(setView).toHaveBeenCalledWith("scanner");
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-
-    const restart = document.querySelector<HTMLButtonElement>("[data-getting-started]");
-    expect(restart?.textContent).toContain("开始使用");
-    await act(async () => restart?.click());
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    await reachConnectStep();
+    const choice = document.querySelector<HTMLButtonElement>(`[data-onboarding-provider-mode="${mode}"]`);
+    expect(choice).toBeTruthy();
+    await act(async () => choice?.click());
+    expect(choice?.getAttribute("aria-pressed")).toBe("true");
+    const configure = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("在 AI 设置中继续"));
+    await act(async () => configure?.click());
+    expect(sessionStorage.getItem(AI_SETTINGS_MODE_REQUEST_KEY)).toBe(mode);
+    expect(setView).toHaveBeenCalledWith("settings");
+    expect(document.querySelector('[data-onboarding-step="2"]')).toBeNull();
   });
 
-  it("keeps Getting Started discoverable from Overview after setup was previously completed", async () => {
+  it("routes Cleanup permission to its separate existing Settings controls", async () => {
+    renderOnboarding();
+    await flushAsync();
+    await reachFolderStep();
+    await clickNext();
+    expect(document.querySelector('[data-onboarding-step="4"]')).toBeTruthy();
+    const cleanupSettings = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("打开 Cleanup AI 设置"));
+    await act(async () => cleanupSettings?.click());
+    expect(sessionStorage.getItem(SETTINGS_SECTION_EVENT)).toBe("settings-ai-cleanup");
+    expect(setView).toHaveBeenCalledWith("settings");
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+  });
+
+  it("allows Skip AI to complete onboarding while keeping non-AI core features available", async () => {
+    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
+    renderOnboarding({ setDefaultScanFolders });
+    await flushAsync();
+    await act(async () => document.querySelector<HTMLButtonElement>("[data-onboarding-skip-ai]")?.click());
+
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(setDefaultScanFolders).not.toHaveBeenCalled();
+    expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
+    expect(setView).toHaveBeenCalledWith("scanner");
+    expect(t("modeAIDisabledDesc")).toContain("文件、搜索、预览和历史恢复仍可使用");
+    expect(t("modeAIDisabledDesc")).toContain("AI 整理与 AI 清理需要连接提供商");
+  });
+
+  it("lets Escape exit the modal without trapping first-run setup", async () => {
+    renderOnboarding();
+    await flushAsync();
+    expect(document.activeElement?.closest('[role="dialog"]')).toBeTruthy();
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("keeps the default and narrow layout scrollable with reachable keyboard controls", async () => {
+    renderOnboarding();
+    await flushAsync();
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const description = document.querySelector<HTMLElement>("#onboarding-description");
+    const footer = dialog?.querySelector("footer");
+    expect(dialog?.className).toContain("w-full max-w-3xl");
+    expect(dialog?.className).toContain("max-h-[calc(100dvh-2rem)]");
+    expect(description?.className).toContain("overflow-y-auto");
+    expect(description?.className).toContain("overscroll-contain");
+    expect(footer?.className).toContain("flex-wrap");
+    expect(document.querySelector<HTMLButtonElement>("[data-onboarding-next]")?.disabled).toBe(false);
+  });
+
+  it("keeps Getting Started discoverable after onboarding was completed", async () => {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     renderOnboarding();
     await flushAsync();
-
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     const restart = document.querySelector<HTMLButtonElement>("[data-getting-started]");
     expect(restart).toBeTruthy();

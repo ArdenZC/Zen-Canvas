@@ -292,6 +292,9 @@ const explicitContracts: CommandContract[] = [
     "test_ai_provider_connection",
     "list_ai_models",
   ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/ai/readiness.rs", [
+    "get_ai_feature_readiness",
+  ]),
   ...groupedContracts("READ_ONLY", "none", "src-tauri/src/ai/trace.rs", [
     "list_ai_request_traces",
     "export_ai_request_traces",

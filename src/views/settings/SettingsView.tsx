@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { tauriApi, type GlobalHotkeyStatus } from "../../api/tauriApi";
 import { useCommandContext, useI18nContext, useNavigationContext, useSettingsContext, useThemeContext, useWindowContext } from "../../contexts/AppContexts";
@@ -71,6 +71,7 @@ import {
 import { SettingsSecretField } from "./components/SettingsSecretField";
 import { AboutSettingsSection } from "./sections/AboutSettingsSection";
 import { AISettingsSection } from "./sections/AISettingsSection";
+import { AI_SETTINGS_MODE_REQUEST_KEY } from "./settingsNavigation";
 import { AutomationSettingsSection } from "./sections/AutomationSettingsSection";
 import { FileSourcesSettingsSection } from "./sections/FileSourcesSettingsSection";
 import { GeneralSettingsSection } from "./sections/GeneralSettingsSection";
@@ -619,7 +620,7 @@ export function SettingsView() {
     setAiSettings((current) => current ? applyAIClassificationPreset(current, mode) : current);
   }
 
-  function updateAIUserMode(mode: AIUserMode) {
+  const updateAIUserMode = useCallback((mode: AIUserMode) => {
     setAiSettingsSaveError(false);
     setAiConnectionStatus(null);
     setAiSettings((current) => {
@@ -636,7 +637,26 @@ export function SettingsView() {
           ?? aiPresets.find((preset) => preset.providerKind !== "ollama");
       return targetPreset ? applyProviderPreset({ ...current, enabled: true }, targetPreset) : { ...current, enabled: true };
     });
-  }
+  }, [aiPresets]);
+
+  useEffect(() => {
+    if (!aiSettings || !aiPresets.length) return;
+    let requestedMode: string | null = null;
+    try {
+      requestedMode = window.sessionStorage.getItem(AI_SETTINGS_MODE_REQUEST_KEY);
+      if (requestedMode === "local" || requestedMode === "cloud") {
+        window.sessionStorage.removeItem(AI_SETTINGS_MODE_REQUEST_KEY);
+      } else {
+        requestedMode = null;
+      }
+    } catch {
+      requestedMode = null;
+    }
+    if (requestedMode === "local" || requestedMode === "cloud") {
+      updateAIUserMode(requestedMode);
+      focusSettingsSection("settings-ai-provider");
+    }
+  }, [aiPresets.length, aiSettings, focusSettingsSection, updateAIUserMode]);
 
   function selectAIPreset(presetId: AIProviderPresetId) {
     const preset = aiPresets.find((item) => item.id === presetId);

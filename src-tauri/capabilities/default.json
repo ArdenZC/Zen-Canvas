@@ -117,6 +117,7 @@
     "allow-get-settings",
     "allow-save-settings",
     "allow-get-ai-settings",
+    "allow-get-ai-feature-readiness",
     "allow-save-ai-settings",
     "allow-list-ai-provider-presets",
     "allow-list-ai-models",
