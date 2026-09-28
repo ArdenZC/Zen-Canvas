@@ -2861,8 +2861,10 @@ mod tests {
                 .expect("load semantic fixture source")
                 .expect("semantic fixture source exists")
         };
-        let mut settings = crate::ai::settings::AISettings::default();
-        settings.enabled = true;
+        let settings = crate::ai::settings::AISettings {
+            enabled: true,
+            ..Default::default()
+        };
         let settings_json =
             serde_json::to_string(&settings).expect("serialize semantic fixture AI settings");
         let entry_id = format!("organization-test-global-{file_id}");
@@ -3066,7 +3068,7 @@ mod tests {
             "suggestedAction": "Rename",
             "suggestedName": suggested_name,
             "confidence": 0.95,
-            "reason": "updated current semantic organization test fixture",
+            "reason": "current semantic organization test fixture",
             "keywords": [],
             "requiresConfirmation": false
         })
@@ -5739,8 +5741,10 @@ mod tests {
     }
 
     fn seed_performance_current_managed_semantics(db: &Database, count: usize) {
-        let mut settings = crate::ai::settings::AISettings::default();
-        settings.enabled = true;
+        let settings = crate::ai::settings::AISettings {
+            enabled: true,
+            ..Default::default()
+        };
         let settings_json =
             serde_json::to_string(&settings).expect("serialize benchmark AI settings");
         let mut conn = db.conn().expect("benchmark semantic seed connection");
