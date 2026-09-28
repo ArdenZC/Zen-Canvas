@@ -135,13 +135,17 @@ export function validateDataset(records) {
     if (!errors.length) {
       const fingerprint = caseContentFingerprint(record);
       const previous = fingerprints.get(fingerprint);
-      if (previous && previous.split !== record.split) {
+      if (previous) {
         issues.push({
           index,
           case_id: record.case_id,
-          errors: [`cross_split_duplicate:${previous.case_id}:${previous.split}`]
+          errors: [
+            previous.split !== record.split
+              ? `cross_split_duplicate:${previous.case_id}:${previous.split}`
+              : `duplicate_case_content:${previous.case_id}:${previous.split}`
+          ]
         });
-      } else if (!previous) {
+      } else {
         fingerprints.set(fingerprint, { case_id: record.case_id, split: record.split });
       }
     }
@@ -221,6 +225,9 @@ export function evaluate(dataset, predictions) {
   predictions.forEach((prediction, index) => {
     const errors = validatePrediction(prediction);
     if (errors.length) predictionIssues.push({ index, case_id: prediction?.case_id ?? null, errors });
+    if (typeof prediction?.case_id === "string" && !caseMap.has(prediction.case_id)) {
+      predictionIssues.push({ index, case_id: prediction.case_id, errors: ["unknown_prediction_case_id"] });
+    }
     if (predictionMap.has(prediction?.case_id)) predictionIssues.push({ index, case_id: prediction?.case_id ?? null, errors: ["duplicate_prediction"] });
     predictionMap.set(prediction?.case_id, prediction);
   });
