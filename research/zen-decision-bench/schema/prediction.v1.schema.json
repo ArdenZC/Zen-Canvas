@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/prediction.v1.schema.json",
+  "title": "ZenDecisionBench Prediction v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "decision",
+    "confidence",
+    "latency_ms",
+    "error"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "zdb.prediction.v1"
+    },
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "latency_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}
