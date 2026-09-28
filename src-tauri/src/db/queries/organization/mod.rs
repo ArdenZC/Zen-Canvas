@@ -3016,7 +3016,8 @@ mod tests {
             params![job_item_id, job_id, entry_id],
         )
         .expect("seed semantic fixture completed AI job item");
-        tx.commit().expect("publish semantic organization test fixture");
+        tx.commit()
+            .expect("publish semantic organization test fixture");
     }
 
     fn reset_full_projection_count() {
@@ -6117,8 +6118,7 @@ mod tests {
                         ],
                     )
                     .expect("seed authoritative execution proposal");
-                    let source_path_text =
-                        source_path.to_string_lossy().replace('\\', "/");
+                    let source_path_text = source_path.to_string_lossy().replace('\\', "/");
                     let source_path_normalized =
                         crate::global_index::models::normalize_path(&source_path_text);
                     tx.execute(
