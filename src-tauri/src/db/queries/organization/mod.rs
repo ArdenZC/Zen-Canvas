@@ -3020,11 +3020,7 @@ mod tests {
             .expect("publish semantic organization test fixture");
     }
 
-    fn replace_current_managed_semantic_rename(
-        db: &Database,
-        file_id: &str,
-        suggested_name: &str,
-    ) {
+    fn replace_current_managed_semantic_rename(db: &Database, file_id: &str, suggested_name: &str) {
         let row = {
             let conn = db.conn().expect("semantic replacement source connection");
             load_indexed_file_by_id(&conn, file_id)
