@@ -89,23 +89,23 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE — PM-01 implementation and Owner Review remediation complete; PR #287 is OPEN / Draft awaiting Owner Re-Review; the prior Owner Review disposition is CHANGES REQUESTED pending re-review; issue #273; branch product/pm-01-ai-only-core-experience; activation baseline master@189c0fd522579d643216e313d6fcb6bcc8467ab7.**
+Status: **ACTIVE INITIATIVE / BETWEEN IMPLEMENTATION WAVES — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; issue #273 remains OPEN; PM-02 is NOT ACTIVE.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
-Result: [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Remediation source candidate cbb1d44820d1fe3186fde83a03bb5f40a0f3c818 passed exact-head CI [36435526936](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36435526936); owner-review evidence ZIP is at F:\CargoTarget\pm01-287-owner-review-evidence-cbb1d448.zip. Owner re-review and merge remain pending.
+Result: [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Final reviewed PR head `3d91c6689bb62d10eddf343419f00c4abaea9fee` passed exact-head CI [36439052294](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36439052294); PR #287 squash-merged as `master@ee3347dbc9963067851378da2acd0fd0d85d114c`; merge-after master CI [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) / run #1623 is **SUCCESS**. Owner Review passed after direct code/CI/evidence inspection.
 
-Current production sequence:
+Current production / research sequence:
 
 1. Pre-PM foundations #272 / #276 / #279 / #285 — **COMPLETE / MERGED**.
 2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
-3. **PM-01 AI-only Core Experience — IMPLEMENTATION COMPLETE / READY FOR OWNER RE-REVIEW; PR #287 remains OPEN / Draft.**
-4. PM-02 Automation Intent + Policies — **NOT ACTIVE; requires PM-01 owner review/merge**.
-5. PM-03 migration closeout — later.
-6. ZenDecisionBench / Preference Memory / Laya-Jev evaluation — **parallel research-only via #283; not a PM-01 merge gate**.
+3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
+4. **ZenDecisionBench / Preference Memory / Laya-Jev Phase 1 research via #283 — NEXT ELIGIBLE / NOT YET STARTED; research-only and not production authority.**
+5. PM-02 Automation Intent + Policies — **NOT ACTIVE; requires separate activation/review after PM-01 and is not implied by #287 merge**.
+6. PM-03 migration closeout — later.
 7. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
 
-PM-01 must consume rather than recreate the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded and must not be rebased into this branch.
+PM-01 consumed rather than recreated the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded. No production implementation branch is active after the PM-01 closeout.
 
 #270 remains separate. Release publication remains deferred.
 
