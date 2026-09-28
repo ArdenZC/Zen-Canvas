@@ -936,6 +936,11 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         createdAt: Math.floor(Date.now() / 1000),
         updatedAt: Math.floor(Date.now() / 1000)
       };
+      if (mockCleanupPresentationScenario() === "request-unavailable") {
+        mockAnalysisFindings = mockAnalysisFindings.map((finding) => finding.findingKey === decision.findingKey
+          ? { ...finding, decision: decision.decision, decisionRevision: decision.revision }
+          : finding);
+      }
       return decision as T;
     }
     case "revalidate_analysis_finding":
@@ -1773,7 +1778,7 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
   const now = Math.floor(Date.now() / 1000);
   const scenario = mockCleanupPresentationScenario();
   const failed = scenario === "analysis-failure";
-  const hasPresentationFindings = scenario === "current-assessment" || scenario === "preview";
+  const hasPresentationFindings = scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview";
   const requestedPaths = request?.scope?.paths?.map((path) => path.trim()).filter(Boolean) ?? [];
   const cleanupCandidates = mockStorageAnalysis().candidates;
   const safeCandidate = cleanupCandidates.find((candidate) => candidate.id === "storage-safe-node-modules");
@@ -1828,9 +1833,9 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
   return run;
 }
 
-function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "preview" {
+function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  return value === "analysis-failure" || value === "current-assessment" || value === "preview" ? value : "none";
+  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" ? value : "none";
 }
 
 function makeMockCleanupFinding(
@@ -1878,7 +1883,7 @@ function makeMockCleanupFinding(
 }
 
 function mockAnalysisFindingEvidence(findingId: string): AnalysisFindingEvidence[] {
-  if (mockCleanupPresentationScenario() !== "current-assessment" || !mockAnalysisFindings.some((finding) => finding.id === findingId && finding.tier === "review")) return [];
+  if (!["current-assessment", "request-unavailable"].includes(mockCleanupPresentationScenario()) || !mockAnalysisFindings.some((finding) => finding.id === findingId && finding.tier === "review")) return [];
   return [{
     id: `browser-presentation-only-assessment:${findingId}`,
     findingId,
@@ -3878,6 +3883,9 @@ function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupEx
 }
 
 function mockAnalyzeCleanupCandidatesWithAI(args?: Record<string, unknown>): StorageCandidate[] {
+  if (mockCleanupPresentationScenario() === "request-unavailable") {
+    throw new Error("provider_request_unavailable: browser presentation fixture only");
+  }
   const requested = new Set(
     Array.isArray(args?.ids)
       ? args.ids.filter((id): id is string => typeof id === "string")
@@ -4103,6 +4111,45 @@ function mockCleanupPreviewOperations(args?: Record<string, unknown>): Operation
       };
     });
 
+  if (mockCleanupPresentationScenario() === "request-unavailable") {
+    const reviewSelections = new Map<string, number>();
+    if (Array.isArray(args?.selections)) {
+      for (const selection of args.selections) {
+        if (!selection || typeof selection !== "object") continue;
+        const candidate = selection as { findingId?: unknown; reviewConfirmation?: { decisionRevision?: unknown } };
+        if (typeof candidate.findingId === "string" && typeof candidate.reviewConfirmation?.decisionRevision === "number") {
+          reviewSelections.set(candidate.findingId, candidate.reviewConfirmation.decisionRevision);
+        }
+      }
+    }
+    for (const finding of mockAnalysisFindings) {
+      if (!ids.has(finding.id) || finding.tier !== "review" || finding.decision !== "acknowledged") continue;
+      if (reviewSelections.get(finding.id) !== finding.decisionRevision) continue;
+      const name = finding.pathSnapshot?.split(/[\\/]/).filter(Boolean).pop() ?? finding.title;
+      previews.push({
+        id: `browser-presentation-only-preview:${finding.id}`,
+        fileId: finding.id,
+        operation_type: "move_to_trash",
+        source_path: finding.pathSnapshot ?? "",
+        target_path: "Recycle Bin",
+        old_name: name,
+        new_name: name,
+        status: "pending",
+        risk_level: "Normal",
+        confidence: 1,
+        requires_confirmation: true,
+        suggested_action: "DeleteCandidate",
+        is_duplicate: false,
+        reason: "Browser presentation fixture only; backend authority is not represented.",
+        selected_by_default: true,
+        is_executable: true,
+        editable_new_name: false,
+        target_parent_exists: true,
+        will_create_parent: false
+      });
+    }
+  }
+
   return {
     previews,
     total: previews.length,
@@ -4125,13 +4172,22 @@ function cleanupSelectionIds(args?: Record<string, unknown>): string[] {
 }
 
 function mockSettings(settings?: AppSettings): AppSettings {
-  return settings ?? {
+  if (settings) return settings;
+  const onboardingFixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-onboarding");
+  const hasPresentationFolder = onboardingFixture === "folder-index-on" || onboardingFixture === "folder-index-off";
+  return {
     closeBehavior: "ask",
     folderNamingLanguage: "en",
-    defaultScanFolders: [],
+    defaultScanFolders: hasPresentationFolder ? [{
+      id: "browser-presentation-only-onboarding-root",
+      path: "C:/Presentation/Zen Documents",
+      label: "Zen Documents",
+      enabled: true,
+      createdAt: "2026-09-28T00:00:00.000Z"
+    }] : [],
     restoreRetentionDays: 30,
     launchAtLogin: false,
-    backgroundIndexOnStartup: true,
+    backgroundIndexOnStartup: onboardingFixture !== "folder-index-off",
     searchHotkey: DEFAULT_SEARCH_HOTKEY,
     searchScopeMode: "all",
     customSearchRoots: [],

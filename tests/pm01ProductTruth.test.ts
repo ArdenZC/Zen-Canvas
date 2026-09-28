@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { makeTranslator } from "../src/i18n";
+import { maturityCopy } from "../src/i18n/maturityCopy";
 
 const zh = makeTranslator("zh");
 const en = makeTranslator("en");
@@ -43,5 +44,14 @@ describe("PM-01 product truth", () => {
       expect(zh(key).length).toBeGreaterThan(0);
       expect(en(key).length).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps Skip AI separate from the required useful-folder first value", () => {
+    expect(zh("onboardingSkipAI")).toBe("跳过 AI 配置");
+    expect(en("onboardingSkipAI")).toBe("Skip AI setup");
+    expect(zh("onboardingUsefulFolderRequired")).toContain("选择并保存一个有用的文件夹");
+    expect(en("onboardingUsefulFolderRequired")).toContain("Choose and save a useful folder");
+    expect(maturityCopy("zh").onboardingNeedsFolder).toContain("添加一个有用的文件夹");
+    expect(maturityCopy("en").onboardingNeedsFolder).toContain("Add a useful folder");
   });
 });

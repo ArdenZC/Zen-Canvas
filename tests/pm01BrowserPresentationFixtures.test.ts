@@ -6,10 +6,11 @@ afterEach(() => {
 });
 
 describe("PM-01 browser presentation fixtures", () => {
-  it("keeps Cleanup assessment and Preview data explicitly presentation-only", async () => {
-    vi.stubGlobal("location", new URL("http://localhost/?pm01-readiness=disconnected&pm01-cleanup=current-assessment"));
+  it("keeps the same current-assessment finding visible across a later request failure and Preview fixture", async () => {
+    vi.stubGlobal("location", new URL("http://localhost/?pm01-readiness=ready&pm01-cleanup=request-unavailable"));
     const readiness = await mockInvokeCommand<any>("get_ai_feature_readiness");
-    expect(readiness.provider.state).toBe("disabled");
+    expect(readiness.provider.state).toBe("ready");
+    expect(readiness.cleanup.state).toBe("ready");
 
     const run = await mockInvokeCommand<any>("start_analysis_run", {
       request: {
@@ -22,16 +23,32 @@ describe("PM-01 browser presentation fixtures", () => {
     const page = await mockInvokeCommand<any>("list_analysis_findings", { runId: run.id, limit: 100 });
     expect(page.findings).toHaveLength(2);
     const review = page.findings.find((finding: { tier: string }) => finding.tier === "review");
-    const safe = page.findings.find((finding: { tier: string }) => finding.tier === "safe");
     const evidence = await mockInvokeCommand<any[]>("list_analysis_finding_evidence", { findingId: review.id });
     expect(evidence[0]).toMatchObject({ isCurrentAssessment: true, value: { presentationOnly: true } });
 
+    await expect(mockInvokeCommand<any>("analyze_cleanup_candidates_with_ai", {
+      jobId: run.id,
+      ids: [review.id]
+    })).rejects.toThrow("provider_request_unavailable");
+    const retainedEvidence = await mockInvokeCommand<any[]>("list_analysis_finding_evidence", { findingId: review.id });
+    expect(retainedEvidence[0]).toMatchObject({ isCurrentAssessment: true, value: { presentationOnly: true } });
+
+    const decision = await mockInvokeCommand<any>("set_analysis_finding_decision", {
+      findingKey: review.findingKey,
+      decision: "acknowledged"
+    });
+    const acknowledged = await mockInvokeCommand<any>("get_analysis_finding", { findingId: review.id });
+    expect(acknowledged).toMatchObject({ id: review.id, decision: "acknowledged", decisionRevision: decision.revision });
     const preview = await mockInvokeCommand<any>("preview_cleanup_operations", {
       jobId: run.id,
-      selections: [{ findingId: safe.id, expectedRevision: safe.revision }]
+      selections: [{
+        findingId: review.id,
+        expectedRevision: acknowledged.revision,
+        reviewConfirmation: { decisionRevision: acknowledged.decisionRevision }
+      }]
     });
     expect(preview.previews).toHaveLength(1);
-    expect(preview.previews[0].source_path).toBe(safe.pathSnapshot);
+    expect(preview.previews[0]).toMatchObject({ fileId: review.id, source_path: review.pathSnapshot });
   });
 
   it("can show a failed analysis without claiming a backend readiness change", async () => {
@@ -43,5 +60,18 @@ describe("PM-01 browser presentation fixtures", () => {
       }
     });
     expect(run).toMatchObject({ status: "failed", errorCode: "browser_presentation_analysis_failure" });
+  });
+
+  it("labels useful-folder and manual-index routes as browser presentation settings", async () => {
+    vi.stubGlobal("location", new URL("http://localhost/?pm01-onboarding=folder-index-off"));
+    const versioned = await mockInvokeCommand<any>("get_settings");
+    expect(versioned.settings).toMatchObject({
+      backgroundIndexOnStartup: false,
+      defaultScanFolders: [{
+        id: "browser-presentation-only-onboarding-root",
+        path: "C:/Presentation/Zen Documents",
+        enabled: true
+      }]
+    });
   });
 });

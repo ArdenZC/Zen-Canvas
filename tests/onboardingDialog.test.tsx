@@ -171,9 +171,15 @@ describe("first-run onboarding", () => {
     expect(dialogMocks.open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: false }));
   }
 
-  it("completes the five-step first-run flow with separate Managed AI and Cleanup permissions", async () => {
+  it.each([
+    { backgroundIndexOnStartup: true, destination: "library" },
+    { backgroundIndexOnStartup: false, destination: "scanner" }
+  ])("completes the five-step first-run flow with separate permissions and routes to $destination", async ({ backgroundIndexOnStartup, destination }) => {
     const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    renderOnboarding({ setDefaultScanFolders });
+    renderOnboarding({
+      settings: { ...settings, backgroundIndexOnStartup },
+      setDefaultScanFolders
+    });
     await flushAsync();
 
     expect(document.querySelector('[data-onboarding-step="1"]')).toBeTruthy();
@@ -205,7 +211,7 @@ describe("first-run onboarding", () => {
     await clickNext();
 
     expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
-    expect(setView).toHaveBeenCalledWith("scanner");
+    expect(setView).toHaveBeenCalledWith(destination);
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(apiMocks.getAIFeatureReadiness).toHaveBeenCalled();
   });
@@ -226,10 +232,14 @@ describe("first-run onboarding", () => {
   });
 
   it("routes Cleanup permission to its separate existing Settings controls", async () => {
-    renderOnboarding();
+    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
+    dialogMocks.open.mockResolvedValue("D:/Documents");
+    renderOnboarding({ setDefaultScanFolders });
     await flushAsync();
     await reachFolderStep();
+    await chooseFolder();
     await clickNext();
+    expect(setDefaultScanFolders).toHaveBeenCalledOnce();
     expect(document.querySelector('[data-onboarding-step="4"]')).toBeTruthy();
     const cleanupSettings = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("打开 Cleanup AI 设置"));
     await act(async () => cleanupSettings?.click());
@@ -238,27 +248,78 @@ describe("first-run onboarding", () => {
     expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
   });
 
-  it("allows Skip AI to complete onboarding while keeping non-AI core features available", async () => {
+  it("lets Skip AI bypass AI setup but continue to the required folder first value", async () => {
     const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
     renderOnboarding({ setDefaultScanFolders });
     await flushAsync();
+    await reachConnectStep();
     await act(async () => document.querySelector<HTMLButtonElement>("[data-onboarding-skip-ai]")?.click());
 
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("选择要建立索引的范围");
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
     expect(setDefaultScanFolders).not.toHaveBeenCalled();
     expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
-    expect(setView).toHaveBeenCalledWith("scanner");
+    expect(setView).not.toHaveBeenCalledWith("library");
     expect(t("modeAIDisabledDesc")).toContain("文件、搜索、预览和历史恢复仍可使用");
     expect(t("modeAIDisabledDesc")).toContain("AI 整理与 AI 清理需要连接提供商");
   });
 
-  it("lets Escape exit the modal without trapping first-run setup", async () => {
+  it("dismisses a no-folder first run without completing it and reopens from Getting Started", async () => {
     renderOnboarding();
     await flushAsync();
     expect(document.activeElement?.closest('[role="dialog"]')).toBeTruthy();
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+    const gettingStarted = document.querySelector<HTMLButtonElement>("[data-getting-started]");
+    expect(gettingStarted).toBeTruthy();
+    await act(async () => gettingStarted?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.querySelector('[data-onboarding-step="1"]')).toBeTruthy();
+  });
+
+  it("retains a selected unsaved folder across Skip AI, Escape, and Getting Started re-entry", async () => {
+    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
+    renderOnboarding({ setDefaultScanFolders });
+    await flushAsync();
+    await reachFolderStep();
+    await chooseFolder();
+
+    await act(async () => document.querySelector<HTMLButtonElement>("[data-onboarding-skip-ai]")?.click());
+    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("所选文件夹：D:/Documents");
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    expect(setDefaultScanFolders).not.toHaveBeenCalled();
+
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    const gettingStarted = document.querySelector<HTMLButtonElement>("[data-getting-started]");
+    expect(gettingStarted).toBeTruthy();
+    await act(async () => gettingStarted?.click());
+    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("所选文件夹：D:/Documents");
+
+    await clickNext();
+    expect(setDefaultScanFolders).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-onboarding-step="5"]')).toBeTruthy();
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    await clickNext();
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+  });
+
+  it("requires a saved useful folder before leaving the folder step", async () => {
+    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
+    renderOnboarding({ setDefaultScanFolders });
+    await flushAsync();
+    await reachFolderStep();
+    await clickNext();
+
+    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("请先选择并保存一个有用的文件夹");
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    expect(setDefaultScanFolders).not.toHaveBeenCalled();
+    expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
   });
 
   it("keeps the default and narrow layout scrollable with reachable keyboard controls", async () => {

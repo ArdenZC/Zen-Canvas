@@ -42,6 +42,7 @@ export function OnboardingDialog() {
   const [selectedFolderPath, setSelectedFolderPath] = useState("");
   const [allowManagedLocal, setAllowManagedLocal] = useState(false);
   const [allowManagedCloud, setAllowManagedCloud] = useState(false);
+  const [skipAIConfiguration, setSkipAIConfiguration] = useState(false);
   const [selectedProviderMode, setSelectedProviderMode] = useState<AIProviderMode | null>(null);
   const [readiness, setReadiness] = useState<AIProductFeatureReadiness | null>(null);
   const [isLoadingReadiness, setIsLoadingReadiness] = useState(false);
@@ -54,6 +55,7 @@ export function OnboardingDialog() {
 
   const configuredScanCount = settings.defaultScanFolders.filter((root) => root.enabled && root.path.trim()).length;
   const scanCount = Math.max(configuredScanCount, folderAdded || selectedFolderPath ? 1 : 0);
+  const hasUsefulConfiguredFolder = configuredScanCount > 0 || folderAdded;
   const canIndexInBackground = settings.backgroundIndexOnStartup !== false;
 
   const refreshReadiness = useCallback(async () => {
@@ -88,19 +90,14 @@ export function OnboardingDialog() {
     return () => { readinessRequestEpoch.current += 1; };
   }, [openDialog, refreshReadiness]);
 
-  function dismiss(markComplete: boolean) {
-    if (markComplete) completeOnboarding();
+  function dismiss() {
     setOpenDialog(false);
     setDismissedForSession(true);
     setError("");
-    setView(markComplete && scanCount > 0 && canIndexInBackground ? "library" : "scanner");
+    setView("scanner");
   }
 
   function reopen() {
-    setStep(0);
-    setSelectedFolderPath("");
-    setAllowManagedLocal(false);
-    setAllowManagedCloud(false);
     setError("");
     setDismissedForSession(false);
     setOpenDialog(true);
@@ -135,11 +132,11 @@ export function OnboardingDialog() {
         setFolderAdded(true);
         managedScopePaths = [selectedFolderPath];
       }
-      if (allowManagedLocal || allowManagedCloud) {
-        if (!managedScopePaths.length) {
-          setError(t("onboardingManagedScopeNeedsFolder"));
-          return;
-        }
+      if (!managedScopePaths.length) {
+        setError(t("onboardingUsefulFolderRequired"));
+        return;
+      }
+      if (!skipAIConfiguration && (allowManagedLocal || allowManagedCloud)) {
         for (const path of managedScopePaths) {
           await tauriApi.addManagedScope({
             path,
@@ -149,7 +146,7 @@ export function OnboardingDialog() {
           });
         }
       }
-      setStep(3);
+      setStep(skipAIConfiguration ? 4 : 3);
       await refreshReadiness();
     } catch (caught) {
       setError(t("onboardingSaveFailed"));
@@ -178,8 +175,35 @@ export function OnboardingDialog() {
       void saveFolderSetup().catch(() => undefined);
       return;
     }
+    if (step === 3 && skipAIConfiguration) {
+      setStep(4);
+      return;
+    }
     if (step < 4) setStep((current) => current + 1);
-    else dismiss(true);
+    else finishOnboarding();
+  }
+
+  function skipAISetup() {
+    setError("");
+    setAllowManagedLocal(false);
+    setAllowManagedCloud(false);
+    setSkipAIConfiguration(true);
+    if (step < 2) setStep(2);
+    else if (step === 3) setStep(4);
+  }
+
+  function finishOnboarding() {
+    if (!hasUsefulConfiguredFolder) {
+      setStep(2);
+      setError(t("onboardingUsefulFolderRequired"));
+      return;
+    }
+    completeOnboarding();
+    setOpenDialog(false);
+    setDismissedForSession(true);
+    setError("");
+    setStep(0);
+    setView(canIndexInBackground ? "library" : "scanner");
   }
 
   if (!openDialog) {
@@ -203,7 +227,7 @@ export function OnboardingDialog() {
   const descriptionId = "onboarding-description";
 
   return (
-    <ModalPortal modalId="onboarding-dialog" initialFocusRef={primaryRef} onEscape={() => dismiss(true)}>
+    <ModalPortal modalId="onboarding-dialog" initialFocusRef={primaryRef} onEscape={dismiss}>
       <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 sm:p-6">
         <section className={cn(overlaySurface, "grid max-h-[calc(100dvh-2rem)] w-full max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto_auto] gap-5 overflow-hidden p-5 sm:max-h-[calc(100dvh-3rem)] sm:p-7")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
           <header className="flex items-start justify-between gap-4">
@@ -304,9 +328,9 @@ export function OnboardingDialog() {
 
           {error ? <p className="text-sm text-[var(--zc-danger-text)]" role="alert">{error}</p> : null}
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--zc-divider)] pt-4">
-            <button type="button" data-onboarding-skip-ai className={buttonGhost} onClick={() => dismiss(true)}>{t("onboardingSkipAI")}</button>
+            <button type="button" data-onboarding-skip-ai className={buttonGhost} onClick={skipAISetup}>{t("onboardingSkipAI")}</button>
             <div className="flex flex-wrap justify-end gap-2">
-              {step > 0 ? <button type="button" className={buttonSecondary} onClick={() => { setError(""); setStep((current) => current - 1); }}>{t("onboardingBack")}</button> : null}
+              {step > 0 ? <button type="button" className={buttonSecondary} onClick={() => { setError(""); if (step === 2 && skipAIConfiguration) setSkipAIConfiguration(false); setStep((current) => current - 1); }}>{t("onboardingBack")}</button> : null}
               <button ref={primaryRef} type="button" data-onboarding-next className={buttonPrimary} onClick={nextStep} disabled={isSavingScope}>{isSavingScope ? t("onboardingSaving") : finishLabel}</button>
             </div>
           </footer>
