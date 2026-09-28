@@ -92,6 +92,66 @@ export type RuleExecutionMode = "inbox_only" | "all_changed_or_rule_changed";
 export type SearchScopeMode = "all" | "current_scan" | "custom_roots";
 export type OrganizeRootMode = "current_folder" | "zen_canvas_folder" | "custom_root";
 export type AIProviderKind = "openai_compatible" | "ollama";
+export type AIReadinessState =
+  | "ready"
+  | "disabled"
+  | "needs_provider"
+  | "needs_credential"
+  | "needs_consent"
+  | "scope_missing"
+  | "scope_disabled"
+  | "policy_blocked"
+  | "temporarily_unavailable"
+  | "error";
+export type AIProviderMode = "local" | "cloud";
+
+export interface AIDataDisclosure {
+  providerPayloadIncludesFileName: boolean;
+  providerPayloadIncludesParentPath: boolean;
+  providerPayloadIncludesFullPath: boolean;
+  providerPayloadIncludesFileContent: boolean;
+  providerContentIsBounded: boolean;
+}
+
+export interface AIProviderReadiness {
+  state: AIReadinessState;
+  reason: string;
+  providerMode: AIProviderMode | null;
+  providerKind: AIProviderKind | null;
+  providerPreset: AIProviderPresetId | null;
+  model: string | null;
+  credentialRequired: boolean;
+  credentialConfigured: boolean;
+  settingsRevision: string | null;
+  bindingFingerprint: string;
+}
+
+export interface ManagedAIReadiness {
+  state: AIReadinessState;
+  reason: string;
+  provider: AIProviderReadiness;
+  managedScopeId: string;
+  scopeFingerprint: string | null;
+  bindingFingerprint: string;
+  disclosure: AIDataDisclosure;
+}
+
+export interface CleanupAIReadiness {
+  state: AIReadinessState;
+  reason: string;
+  provider: AIProviderReadiness;
+  cleanupAiEnabled: boolean;
+  localAiAllowed: boolean;
+  cloudAiAllowed: boolean;
+  bindingFingerprint: string;
+  disclosure: AIDataDisclosure;
+}
+
+export interface AIProductFeatureReadiness {
+  provider: AIProviderReadiness;
+  managedScopes: ManagedAIReadiness[];
+  cleanup: CleanupAIReadiness;
+}
 export type AIProviderPresetId =
   | "deepseek"
   | "kimi"
@@ -601,6 +661,7 @@ export interface AnalysisFindingEvidence {
   pathSnapshot: string | null;
   value: Record<string, unknown>;
   createdAt: number;
+  isCurrentAssessment?: boolean;
 }
 
 export interface AnalysisFindingDecision {
@@ -1035,6 +1096,7 @@ export interface OrganizationPlanItem {
   sourceMtimeSnapshot: number;
   sourceIsDirSnapshot: boolean;
   proposalFingerprint: string;
+  semanticExplanation: OrganizationSemanticExplanation | null;
   proposalKind: "move" | "rename" | "move_rename" | "keep" | "blocked";
   proposedTargetDirectory: string;
   proposedName: string;
@@ -1057,6 +1119,11 @@ export interface OrganizationPlanItem {
   revision: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface OrganizationSemanticExplanation {
+  assessmentFingerprint: string;
+  reason: string;
 }
 
 export interface OrganizationPlanItemPage {

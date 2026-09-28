@@ -5,7 +5,7 @@ import { tauriApi } from "../../api/tauriApi";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySelectionStore } from "../../store/useFileLibraryV2Store";
 import { isHistoricalOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
-import type { OrganizationPlanGroupSummary, OrganizationPlanItem, OrganizationPlanStatus, LibrarySelectionV1 } from "../../types/domain";
+import type { AIProductFeatureReadiness, OrganizationPlanGroupSummary, OrganizationPlanItem, OrganizationPlanStatus, LibrarySelectionV1 } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { formatBytes } from "../../utils/format";
@@ -25,6 +25,7 @@ import {
   type WorkflowStepState,
   pageFrame
 } from "../shared/ui";
+import { AIReadinessNotice, organizationPlanReadiness } from "../shared/AIReadinessNotice";
 
 const GROUP_ROW_HEIGHT = 174;
 const GROUP_PAGE_SIZE = 100;
@@ -124,11 +125,37 @@ export function OrganizeSuggestionsView() {
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionNeedsRefresh, setReviewActionNeedsRefresh] = useState(false);
   const [dryRunErrorOwner, setDryRunErrorOwner] = useState<DryRunErrorOwner | null>(null);
+  const [aiReadiness, setAiReadiness] = useState<AIProductFeatureReadiness | null>(null);
+  const [aiReadinessLoading, setAiReadinessLoading] = useState(true);
+  const [aiReadinessError, setAiReadinessError] = useState(false);
   const mutationUnavailable = useFileMutationUnavailableCode();
   const groupListRef = useRef<HTMLDivElement | null>(null);
   const groupRequestEpoch = useRef(0);
   const activeGroupIdRef = useRef<string | null>(null);
   const activeItemIdRef = useRef<string | null>(null);
+  const aiReadinessRequestEpoch = useRef(0);
+
+  const refreshAiReadiness = useCallback(async () => {
+    const epoch = ++aiReadinessRequestEpoch.current;
+    setAiReadinessLoading(true);
+    setAiReadinessError(false);
+    try {
+      const readiness = await tauriApi.getAIFeatureReadiness();
+      if (epoch !== aiReadinessRequestEpoch.current) return;
+      setAiReadiness(readiness);
+    } catch {
+      if (epoch !== aiReadinessRequestEpoch.current) return;
+      setAiReadiness(null);
+      setAiReadinessError(true);
+    } finally {
+      if (epoch === aiReadinessRequestEpoch.current) setAiReadinessLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAiReadiness().catch(() => undefined);
+    return () => { aiReadinessRequestEpoch.current += 1; };
+  }, [refreshAiReadiness]);
 
   useEffect(() => {
     activeGroupIdRef.current = activeGroupId;
@@ -173,6 +200,10 @@ export function OrganizeSuggestionsView() {
   const canCancel = Boolean(plan && ["draft", "building", "ready", "stale"].includes(plan.status));
   const canDryRun = Boolean(plan && ["ready", "partially_completed"].includes(plan.status) && plan.summary.remainingExecutable > 0);
   const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
+  const canGenerateSemanticProposals = Boolean(
+    aiReadiness?.provider.state === "ready"
+    && aiReadiness.managedScopes.some((scope) => scope.state === "ready")
+  );
   const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
   const effectiveSummary = plan?.effectiveSummary ?? (plan ? {
     ready: plan.summary.ready,
@@ -550,6 +581,16 @@ export function OrganizeSuggestionsView() {
 
   return (
     <div className={cn(pageFrame, "gap-3") }>
+      <AIReadinessNotice
+        feature="organize"
+        readiness={aiReadiness}
+        loading={aiReadinessLoading}
+        error={aiReadinessError}
+        planReadiness={organizationPlanReadiness(plan)}
+        t={t}
+        setView={setView}
+        onRetry={() => void refreshAiReadiness().catch(() => undefined)}
+      />
       {!plan && (planListState === "idle" || planListState === "loading") ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="w-full max-w-xl">
@@ -630,7 +671,7 @@ export function OrganizeSuggestionsView() {
                   <summary className={cn(buttonGhost, "cursor-pointer list-none")}>{t("organizePlanActions")} <MoreHorizontal size={14} aria-hidden="true" /></summary>
                   <div className="absolute right-0 z-20 mt-1 grid min-w-52 gap-1 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1 shadow-[var(--zc-shadow-menu)]" role="menu">
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !["stale", "ready", "partially_completed"].includes(plan.status)} onClick={() => void handleRefreshPlan().catch(() => undefined)}><RefreshCw size={14} aria-hidden="true" />{t("organizePlanRefresh")}</Button>
-                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
+                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount || !canGenerateSemanticProposals} title={needsAnalysisCount && !canGenerateSemanticProposals ? t("organizeReadinessAnalyzeBlocked") : undefined} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canCancel} onClick={() => void handleCancelPlan().catch(() => undefined)}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
                   </div>
                 </details>
@@ -844,6 +885,16 @@ export function OrganizeSuggestionsView() {
             {activeItem ? (
               <section className="grid gap-3 border-t border-[var(--zc-divider)] pt-4" aria-label={t("organizeGroupDetails")}>
                 <div className="grid gap-2 text-sm"><div><span className="text-xs text-[var(--zc-text-tertiary)]">{t("organizeGroupItemFrom")}</span><p className="mt-1 break-all text-[var(--zc-text-secondary)]">{activeItem.sourcePathSnapshot}</p></div><div><span className="text-xs text-[var(--zc-text-tertiary)]">{t("organizeGroupItemTo")}</span><p className="mt-1 break-all text-[var(--zc-text-secondary)]">{activeItem.proposedTargetPath}</p></div></div>
+                <div
+                  className="grid gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3"
+                  data-organize-semantic-explanation
+                  data-semantic-explanation-current={activeItem.semanticExplanation ? "true" : "false"}
+                  data-semantic-explanation-source={activeItem.semanticExplanation?.assessmentFingerprint.startsWith("browser-presentation-only:") ? "presentation-fixture" : activeItem.semanticExplanation ? "backend-authority" : "unavailable"}
+                  data-assessment-fingerprint={activeItem.semanticExplanation?.assessmentFingerprint ?? undefined}
+                >
+                  <strong className="text-xs font-semibold text-[var(--zc-text-secondary)]">{t("organizeSemanticExplanation")}</strong>
+                  <p className="break-words text-sm leading-5 text-[var(--zc-text-primary)]">{activeItem.semanticExplanation?.reason || t("organizeSemanticExplanationUnavailable")}</p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="secondary"

@@ -145,12 +145,32 @@ pub(super) fn analyze_cleanup_candidates_with_provider(
             .iter()
             .map(|snapshot| snapshot.candidate.clone())
             .collect::<Vec<_>>();
-        let content = call_ai_cleanup_provider(provider, settings, &batch_candidates, false)?;
+        let batch_id = format!("{request_id}-batch-{}", batch_index + 1);
+        let trace_context = AITraceContext {
+            operation: AITraceOperation::CleanupAnalysis,
+            job_id: Some(job_id.to_string()),
+            batch_id: Some(batch_id.clone()),
+            target_count: Some(batch_candidates.len()),
+            batch_size: Some(batch_candidates.len()),
+            ..Default::default()
+        };
+        let content = call_ai_cleanup_provider(
+            provider,
+            settings,
+            &batch_candidates,
+            false,
+            trace_context.clone(),
+        )?;
         let outputs = match parse_ai_cleanup_analysis_response(&content) {
             Ok(outputs) => outputs,
             Err(_) => {
-                let retry_content =
-                    call_ai_cleanup_provider(provider, settings, &batch_candidates, true)?;
+                let retry_content = call_ai_cleanup_provider(
+                    provider,
+                    settings,
+                    &batch_candidates,
+                    true,
+                    trace_context,
+                )?;
                 parse_ai_cleanup_analysis_response(&retry_content).map_err(|error| {
                     format!(
                         "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
@@ -169,7 +189,6 @@ pub(super) fn analyze_cleanup_candidates_with_provider(
         total_coverage.duplicated += coverage.counts.duplicated;
         total_coverage.unknown += coverage.counts.unknown;
 
-        let batch_id = format!("{request_id}-batch-{}", batch_index + 1);
         let batch_candidate_set_fingerprint = candidate_set_fingerprint(&batch_candidate_ids)?;
         for snapshot in batch {
             let Some(output) = coverage.unique_outputs.get(&snapshot.finding.id) else {
@@ -546,13 +565,6 @@ fn candidate_identity_fingerprint(
 
 /// Reports whether the current durable Cleanup Finding has a live AI assessment.
 /// Callers must use this backend predicate rather than interpreting evidence JSON.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reserved backend currentness authority for PM-01 while that initiative is inactive."
-    )
-)]
 pub(crate) fn has_current_ai_assessment(db: &Database, finding_id: &str) -> bool {
     let Ok(Some(finding)) = db.get_analysis_finding(finding_id) else {
         return false;

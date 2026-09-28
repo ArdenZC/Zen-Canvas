@@ -122,6 +122,7 @@
 | `get_settings` | `read_only` | main/search | Read app settings | default/search-window | no | capability allow-list |
 | `save_settings` | `main_state_mutation` | main | Write settings and watcher state | default | yes | command permission contract |
 | `get_ai_settings` | `read_only` | main | Read AI metadata | default | no | command permission contract |
+| `get_ai_feature_readiness` | `read_only` | main | Read the current provider, Managed AI scope and Cleanup readiness projection | default | no | readiness projection contract |
 | `save_ai_settings` | `credential_mutation` | main | Credential store plus metadata | default | yes | credential transaction tests |
 | `list_ai_provider_presets` | `read_only` | main | Read static presets | default | no | command permission contract |
 | `list_ai_models` | `read_only` | main | Network request, no persistence | default | no | model discovery tests |

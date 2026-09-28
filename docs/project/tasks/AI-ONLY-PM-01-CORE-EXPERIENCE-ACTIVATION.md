@@ -1,12 +1,14 @@
 # AI-only Product Migration — PM-01 Core Experience Activation
 
-Status: **PLANNED — READY FOR ACTIVATION**
+Status: **ACTIVE — implementation**
 
 Product-direction issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
 Historical superseded PR: #274 — closed/not merged.
 
-Fresh implementation branch: `product/pm-01-ai-only-core-experience` after this handoff merges.
+Fresh implementation branch: `product/pm-01-ai-only-core-experience`.
+
+Activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.
 
 ## Mandatory foundations
 
@@ -168,6 +170,6 @@ Owner review is direct diff/evidence review; Codex Review is not merge authority
 
 No PM-02 schema/runtime, autonomous/scheduled execution, agent/tool/shell runtime, RAG/vector store, System One/Laya/Jev production integration, Preference Memory persistence, release publication or #270 repair.
 
-## Activation stop condition
+## Activation disposition
 
-Do not modify production code until this handoff is merged and a fresh implementation branch from then-current master has switched this Track to **ACTIVE — implementation**.
+**ACTIVE — implementation.** The fresh branch is based on the reviewed post-Pre-PM master. Production implementation is authorized only within this taskbook; owner review remains required before merge and before PM-02.

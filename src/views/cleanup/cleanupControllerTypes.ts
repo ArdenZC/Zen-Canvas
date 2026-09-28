@@ -18,6 +18,7 @@ export type CleanupApi = Partial<Pick<
   | "previewCleanupOperations"
   | "moveCleanupCandidatesToSafeTrash"
   | "revealInFolder"
+  | "getAIFeatureReadiness"
   | "getAISettings"
   | "analyzeCleanupCandidatesWithAI"
   | "onAnalysisRunUpdated"

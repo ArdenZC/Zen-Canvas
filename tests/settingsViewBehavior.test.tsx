@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AIProviderPreset, AISettings, FileLibraryDetail } from "../src/types/domain";
 import { requestSettingsSection } from "../src/components/spotlight/commandRegistry";
+import { AI_SETTINGS_MODE_REQUEST_KEY } from "../src/views/settings/settingsNavigation";
 import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
 
 const mocks = vi.hoisted(() => ({
@@ -242,6 +243,7 @@ async function changeInput(input: HTMLInputElement, value: string) {
 beforeEach(async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   window.localStorage.setItem("zc-developer-mode", "true");
+  window.sessionStorage.clear();
   if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = () => undefined;
   vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => undefined);
   vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -281,11 +283,27 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });
 
 describe("settings view behavior", () => {
+  it.each([
+    ["local", "Using a local model"],
+    ["cloud", "Using cloud AI"]
+  ] as const)("consumes onboarding's %s mode request in the existing Settings controls", async (mode, label) => {
+    await act(async () => root.render(null));
+    window.sessionStorage.setItem(AI_SETTINGS_MODE_REQUEST_KEY, mode);
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    const selected = [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="AI mode"] [role="radio"]')]
+      .find((radio) => radio.textContent === label);
+    expect(selected?.getAttribute("aria-checked")).toBe("true");
+    expect(window.sessionStorage.getItem(AI_SETTINGS_MODE_REQUEST_KEY)).toBeNull();
+  });
+
   it("uses the explicit-single V2 selection and matching Inspector detail for the AI debug target", async () => {
     mocks.getFileLibraryDetail.mockResolvedValue(libraryDetail("settings-file"));
     await act(async () => useFileLibrarySelectionStore.getState().setExplicit(["settings-file"], "settings-file", -1));

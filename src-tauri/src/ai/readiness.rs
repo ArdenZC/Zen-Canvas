@@ -10,6 +10,7 @@ use super::{
 };
 use crate::{content::ContentScopePolicyDto, db::Database, global_index::ManagedScope};
 use rusqlite::{params, OptionalExtension};
+use tauri::State;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -103,6 +104,17 @@ pub struct CleanupAIReadiness {
     pub cloud_ai_allowed: bool,
     pub binding_fingerprint: String,
     pub disclosure: AIDataDisclosure,
+}
+
+/// Read-only readiness snapshot for the main product surfaces. This composes
+/// the existing provider, Managed AI and Cleanup authorities without storing
+/// a second readiness record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AIProductFeatureReadiness {
+    pub provider: AIProviderReadiness,
+    pub managed_scopes: Vec<ManagedAIReadiness>,
+    pub cleanup: CleanupAIReadiness,
 }
 
 #[derive(Debug, Clone)]
@@ -455,6 +467,29 @@ pub fn cleanup_ai_readiness(db: &Database) -> CleanupAIReadiness {
 
 pub fn cleanup_ai_readiness_is_current(db: &Database, expected_binding_fingerprint: &str) -> bool {
     cleanup_ai_readiness(db).binding_fingerprint == expected_binding_fingerprint
+}
+
+pub fn ai_product_feature_readiness(
+    db: &Database,
+) -> Result<AIProductFeatureReadiness, crate::db::DbError> {
+    let scopes = db.list_managed_scopes()?;
+    Ok(AIProductFeatureReadiness {
+        provider: provider_readiness(db),
+        managed_scopes: scopes
+            .iter()
+            .map(|scope| managed_ai_readiness(db, &scope.id))
+            .collect(),
+        cleanup: cleanup_ai_readiness(db),
+    })
+}
+
+/// Renderer projection only. Execution still revalidates Managed AI and
+/// Cleanup readiness at their existing backend boundaries.
+#[tauri::command]
+pub fn get_ai_feature_readiness(
+    db: State<'_, Database>,
+) -> Result<AIProductFeatureReadiness, String> {
+    ai_product_feature_readiness(db.inner()).map_err(|error| error.to_string())
 }
 
 fn content_disclosure() -> AIDataDisclosure {

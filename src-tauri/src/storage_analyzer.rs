@@ -1228,6 +1228,11 @@ pub(crate) fn resolve_analysis_candidates_for_cleanup(
             let _ = db.mark_analysis_finding_stale(&finding.id);
             return Err(format!("Storage cleanup finding identity changed: {id}"));
         }
+        if require_executable && !crate::ai::cleanup::has_current_ai_assessment(db, &finding.id) {
+            return Err(format!(
+                "Storage cleanup finding requires a current AI assessment: {id}"
+            ));
+        }
         let mut candidate = storage_candidate_from_analysis_finding(&finding)?;
         if require_executable {
             authorize_cleanup_candidate(
@@ -6260,15 +6265,27 @@ mod analysis_cleanup_contract_tests {
                 decision_revision: decision.revision,
             }),
         };
-        let candidates =
+        let missing_assessment =
             resolve_analysis_candidates_for_cleanup(&db, &finding.run_id, &[confirmed], true)
-                .expect("server validated review confirmation");
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].tier, CleanupTier::Safe);
-        assert_eq!(
-            candidates[0].suggested_action,
-            CleanupActionKind::MoveToTrash
-        );
+                .expect_err("execution requires current AI assessment before review authorization");
+        assert!(missing_assessment.contains("requires a current AI assessment"));
+
+        let current_finding = db
+            .get_analysis_finding(&finding.id)
+            .expect("reload acknowledged finding")
+            .expect("acknowledged finding exists");
+        let mut candidate =
+            storage_candidate_from_analysis_finding(&current_finding).expect("project candidate");
+        authorize_cleanup_candidate(
+            &current_finding,
+            &mut candidate,
+            Some(&ReviewFindingConfirmation {
+                decision_revision: decision.revision,
+            }),
+        )
+        .expect("review decision CAS remains independently valid");
+        assert_eq!(candidate.tier, CleanupTier::Safe);
+        assert_eq!(candidate.suggested_action, CleanupActionKind::MoveToTrash);
 
         drop(db);
         fs::remove_dir_all(root).expect("remove cleanup selection root");

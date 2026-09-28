@@ -178,9 +178,9 @@ describe("automation rule workspace behavior", () => {
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     await renderRules(props);
-    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => run.click());
-    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => confirm.click());
     await act(async () => Promise.resolve());
   }
@@ -265,9 +265,9 @@ describe("automation rule workspace behavior", () => {
     await renderRules();
 
     const openRunConfirmation = async () => {
-      const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+      const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
       await act(async () => run.click());
-      const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+      const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
       await act(async () => confirm.click());
     };
 
@@ -275,12 +275,12 @@ describe("automation rule workspace behavior", () => {
     useFileLibraryStore.getState().setScope({ kind: "roots", roots: ["C:/new-scope"] });
     await act(async () => Promise.resolve());
     await openRunConfirmation();
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Calculating suggestions");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Recalculating compatibility classification fields");
 
     await act(async () => { firstRun.resolve(); await firstRun.promise; });
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Calculating suggestions");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Recalculating compatibility classification fields");
     await act(async () => { secondRun.resolve(); await secondRun.promise; await Promise.resolve(); await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Updated 2");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Recalculated 2");
   });
 
   it("invalidates a pending run when a rule is toggled", async () => {
@@ -291,9 +291,9 @@ describe("automation rule workspace behavior", () => {
     let resolveToggle!: () => void;
     const toggleGate = new Promise<void>((resolve) => { resolveToggle = resolve; });
     await renderRules({ toggleGate });
-    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => run.click());
-    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => confirm.click());
 
     const firstSwitch = document.querySelector<HTMLButtonElement>('[role="switch"]')!;
@@ -301,7 +301,7 @@ describe("automation rule workspace behavior", () => {
     resolveToggle();
     await act(async () => { await toggleGate; await Promise.resolve(); });
     await act(async () => { pendingRun.resolve(); await pendingRun.promise; });
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous compatibility-field result has expired");
     expect(document.querySelector('[role="status"]')?.textContent).not.toContain("Updated 1");
   });
 
@@ -314,7 +314,7 @@ describe("automation rule workspace behavior", () => {
     await act(async () => setInputValue(name, "Edited rule"));
     const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
     await act(async () => save.click());
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous compatibility-field result has expired");
   });
 
   it("reports a durable rule save with rule-specific feedback", async () => {
@@ -390,7 +390,7 @@ describe("automation rule workspace behavior", () => {
   it("marks a completed result stale after a rule toggle", async () => {
     await completeRun();
     await act(async () => document.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous compatibility-field result has expired");
   });
 
   it("marks a completed result stale after a rule delete", async () => {
@@ -398,14 +398,14 @@ describe("automation rule workspace behavior", () => {
     await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Delete rule"]')!.click());
     const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent === "Delete rule")!;
     await act(async () => confirm.click());
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous compatibility-field result has expired");
   });
 
   it("marks a completed result stale after a scope change", async () => {
     await completeRun();
     act(() => useFileLibraryStore.getState().setScope({ kind: "roots", roots: ["C:/changed-scope"] }));
     await act(async () => Promise.resolve());
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous compatibility-field result has expired");
   });
 
   it("keeps a stale state after the old response resolves", async () => {
@@ -414,15 +414,15 @@ describe("automation rule workspace behavior", () => {
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     await renderRules();
-    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => run.click());
-    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => confirm.click());
     act(() => useFileLibraryStore.getState().setScope({ kind: "roots", roots: ["C:/stale-scope"] }));
     await act(async () => Promise.resolve());
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous compatibility-field result has expired");
     await act(async () => { pending.resolve(); await pending.promise; await Promise.resolve(); });
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous compatibility-field result has expired");
     expect(document.querySelector('[role="status"]')?.textContent).not.toContain("Updated 1");
   });
 
@@ -590,9 +590,9 @@ describe("automation rule workspace behavior", () => {
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     await renderRules({ initialRules: [rule("rule-a", "First rule", true), systemRule] });
 
-    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => run.click());
-    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("Recalculate compatibility policies"))!;
     await act(async () => confirm.click());
     await act(async () => Promise.resolve());
     expect(execute).toHaveBeenCalledWith(

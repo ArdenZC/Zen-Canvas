@@ -202,7 +202,8 @@ describe("app render architecture", () => {
 
     expect(rulesView).toContain('setConfirmation({ kind: "run" })');
     expect(rulesView).toContain("ConfirmDialog");
-    expect(i18n).toContain("自动化只写入建议");
+    expect(i18n).toContain("兼容性策略只更新旧分类展示字段");
+    expect(i18n).toContain("不会生成新的 Managed AI 语义建议");
     expect(i18n).toContain("不会直接移动、重命名、删除或覆盖文件");
     expect(i18n).toContain("执行仍需进入预览确认");
   });

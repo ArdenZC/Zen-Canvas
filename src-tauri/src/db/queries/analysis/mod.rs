@@ -150,6 +150,7 @@ pub struct AnalysisFindingEvidenceDto {
     pub path_snapshot: Option<String>,
     pub value: Value,
     pub created_at: i64,
+    pub is_current_assessment: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

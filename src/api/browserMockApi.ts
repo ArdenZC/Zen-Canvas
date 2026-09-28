@@ -2,9 +2,11 @@ import type {
   AIConnectionTestResult,
   AIDebugClassificationResult,
   AIModelInfo,
+  AIProductFeatureReadiness,
   AIProviderPreset,
   AIRequestTrace,
   AISettings,
+  AIReadinessState,
   AddManagedScopeRequest,
   AiManagementStatus,
   AppSettings,
@@ -30,6 +32,7 @@ import type {
   AnalysisFindingEvidence,
   AnalysisFindingPage,
   AnalysisRun,
+  StartAnalysisRunRequest,
   ExecuteOperationResult,
   FileLibraryFilters,
   FileLibraryDetail,
@@ -887,11 +890,12 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "list_analysis_detectors":
       return mockAnalysisDetectors as T;
     case "start_analysis_run":
-      return startMockAnalysisRun(args?.request as { requestKey?: string | null } | undefined) as T;
+      return startMockAnalysisRun(args?.request as StartAnalysisRunRequest | undefined) as T;
     case "retry_analysis_run": {
       const previous = mockAnalysisRuns.find((run) => run.id === String(args?.runId ?? ""));
       if (!previous) throw new Error("Mock analysis run not found");
-      return startMockAnalysisRun({ requestKey: previous.requestKey }) as T;
+      const paths = Array.isArray(previous.scope.paths) ? previous.scope.paths.map(String) : [];
+      return startMockAnalysisRun({ requestKey: previous.requestKey, scope: { kind: "approvedCleanupPaths", paths } }) as T;
     }
     case "cancel_analysis_run": {
       const runId = String(args?.runId ?? "");
@@ -919,7 +923,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "get_analysis_finding":
       return (mockAnalysisFindings.find((finding) => finding.id === String(args?.findingId ?? "")) ?? null) as T;
     case "list_analysis_finding_evidence":
-      return [] as AnalysisFindingEvidence[] as T;
+      return mockAnalysisFindingEvidence(String(args?.findingId ?? "")) as T;
     case "get_dedupe_authority":
       return { revision: 1, status: "healthy", lastAuthoritativeRunId: "mock-dedupe-run", scopeHash: "mock", updatedAt: Math.floor(Date.now() / 1000) } as T;
     case "set_analysis_finding_decision": {
@@ -932,6 +936,11 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         createdAt: Math.floor(Date.now() / 1000),
         updatedAt: Math.floor(Date.now() / 1000)
       };
+      if (mockCleanupPresentationScenario() === "request-unavailable") {
+        mockAnalysisFindings = mockAnalysisFindings.map((finding) => finding.findingKey === decision.findingKey
+          ? { ...finding, decision: decision.decision, decisionRevision: decision.revision }
+          : finding);
+      }
       return decision as T;
     }
     case "revalidate_analysis_finding":
@@ -1029,7 +1038,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "create_organization_plan":
       return createMockOrganizationPlan(args?.request as { title?: string; source?: LibrarySelectionV1; expectedCount?: number } | undefined) as T;
     case "list_organization_plans":
-      return mockOrganizationPlans as T;
+      return listMockOrganizationPlans() as T;
     case "get_organization_plan": {
       const plan = mockOrganizationPlans.find((item) => item.id === String(args?.planId ?? ""));
       if (!plan) throw new Error("organization_plan_not_found");
@@ -1256,6 +1265,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return saveMockVersionedSettings(args?.request as SaveSettingsRequest) as T;
     case "get_ai_settings":
       return mockAISettings() as T;
+    case "get_ai_feature_readiness":
+      return browserPresentationFeatureReadinessFixture() as T;
     case "get_runtime_capabilities":
       return {
         platform: "browser",
@@ -1763,45 +1774,127 @@ function startMockDedupeRun(request?: { parentScanSessionId?: string | null }): 
   return run;
 }
 
-function startMockAnalysisRun(request?: { requestKey?: string | null }): AnalysisRun {
+function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
   const now = Math.floor(Date.now() / 1000);
+  const scenario = mockCleanupPresentationScenario();
+  const failed = scenario === "analysis-failure";
+  const hasPresentationFindings = scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview";
+  const requestedPaths = request?.scope?.paths?.map((path) => path.trim()).filter(Boolean) ?? [];
+  const cleanupCandidates = mockStorageAnalysis().candidates;
+  const safeCandidate = cleanupCandidates.find((candidate) => candidate.id === "storage-safe-node-modules");
+  const reviewCandidate = cleanupCandidates.find((candidate) => candidate.id === "storage-review-download");
+  const rootPath = requestedPaths[0] ?? "C:/Users/Zen/Documents";
+  const safeFindingId = safeCandidate?.id ?? "browser-presentation-cleanup-safe";
+  const reviewFindingId = reviewCandidate?.id ?? "browser-presentation-cleanup-review";
+  const safePath = `${rootPath.replace(/[\\/]$/, "")}/node_modules`;
+  const reviewPath = `${rootPath.replace(/[\\/]$/, "")}/course-video.mp4`;
   const run: AnalysisRun = {
     id: `mock-analysis-run-${Date.now()}`,
     requestKey: request?.requestKey ?? `mock-analysis-request-${Date.now()}`,
     requestAttempt: 1,
-    scope: { kind: "approved_cleanup_paths", paths: [] },
+    scope: { kind: "approved_cleanup_paths", paths: requestedPaths },
     scopeHash: "mock-analysis-scope",
     sourceSnapshot: {},
     sourceSnapshotHash: "mock-analysis-snapshot",
     detectorSet: mockAnalysisDetectors.map((detector) => `${detector.detectorId}:v${detector.version}`),
     detectorSetHash: "mock-analysis-detectors",
-    status: "completed",
-    phase: "completed",
+    status: failed ? "failed" : "completed",
+    phase: failed ? "failed" : "completed",
     revision: 2,
     cancelRequested: false,
     rerunRequired: false,
     detectorsTotal: mockAnalysisDetectors.length,
     detectorsCompleted: mockAnalysisDetectors.length,
-    detectorsFailed: 0,
-    findingsStaged: 0,
-    findingsPublished: 0,
-    safeCount: 0,
-    reviewCount: 0,
+    detectorsFailed: failed ? 1 : 0,
+    findingsStaged: hasPresentationFindings ? 2 : 0,
+    findingsPublished: hasPresentationFindings ? 2 : 0,
+    safeCount: hasPresentationFindings ? 1 : 0,
+    reviewCount: hasPresentationFindings ? 1 : 0,
     cautionCount: 0,
-    exactReclaimableBytes: 0,
-    potentialReclaimableBytes: 0,
+    exactReclaimableBytes: hasPresentationFindings ? safeCandidate?.size ?? 1024 : 0,
+    potentialReclaimableBytes: hasPresentationFindings ? (safeCandidate?.size ?? 1024) + (reviewCandidate?.size ?? 1024) : 0,
     warningCount: 0,
-    errorCount: 0,
+    errorCount: failed ? 1 : 0,
     startedAt: now,
     finishedAt: now,
     lastCheckpointAt: now,
     createdAt: now,
     updatedAt: now,
-    errorCode: null,
-    errorMessage: null
+    errorCode: failed ? "browser_presentation_analysis_failure" : null,
+    errorMessage: failed ? "Presentation-only browser fixture: cleanup analysis failed." : null
   };
+  mockAnalysisFindings = hasPresentationFindings
+    ? [
+      makeMockCleanupFinding(run, safeCandidate, safeFindingId, safePath, "safe"),
+      makeMockCleanupFinding(run, reviewCandidate, reviewFindingId, reviewPath, "review")
+    ]
+    : [];
   mockAnalysisRuns = [run, ...mockAnalysisRuns].slice(0, 20);
   return run;
+}
+
+function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
+  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" ? value : "none";
+}
+
+function makeMockCleanupFinding(
+  run: AnalysisRun,
+  candidate: StorageAnalysis["candidates"][number] | undefined,
+  id: string,
+  pathSnapshot: string,
+  tier: "safe" | "review"
+): AnalysisFinding {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    id,
+    findingKey: `browser-presentation-only:${id}`,
+    runId: run.id,
+    detectorId: "cleanup_heuristics_v1",
+    detectorVersion: 1,
+    scopeHash: run.scopeHash,
+    status: "active",
+    tier,
+    category: candidate?.category ?? "Browser presentation fixture",
+    actionKind: "safe_trash_candidate",
+    title: candidate?.name ?? (tier === "safe" ? "node_modules" : "course-video.mp4"),
+    reason: candidate?.reason ?? "Browser presentation fixture only.",
+    riskNote: candidate?.risk_note ?? null,
+    confidence: tier === "safe" ? "exact" : "estimated",
+    sizeBytes: candidate?.size ?? 1024,
+    exactReclaimableBytes: tier === "safe" ? (candidate?.size ?? 1024) : null,
+    potentialReclaimableBytes: candidate?.size ?? 1024,
+    requiresConfirmation: tier === "review",
+    executable: true,
+    primarySubjectKind: "approved_path",
+    primarySubjectId: pathSnapshot,
+    pathSnapshot,
+    identitySnapshot: { presentationFixture: true },
+    evidenceSummary: { presentationOnly: true },
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+    publishedAt: now,
+    staleAt: null,
+    decision: null,
+    snoozedUntil: null,
+    decisionRevision: null
+  };
+}
+
+function mockAnalysisFindingEvidence(findingId: string): AnalysisFindingEvidence[] {
+  if (!["current-assessment", "request-unavailable"].includes(mockCleanupPresentationScenario()) || !mockAnalysisFindings.some((finding) => finding.id === findingId && finding.tier === "review")) return [];
+  return [{
+    id: `browser-presentation-only-assessment:${findingId}`,
+    findingId,
+    evidenceKind: "ai_assessment",
+    subjectKind: "analysis_finding",
+    subjectId: findingId,
+    pathSnapshot: mockAnalysisFindings.find((finding) => finding.id === findingId)?.pathSnapshot ?? null,
+    value: { schema: "cleanup_ai_assessment_v1", presentationOnly: true },
+    createdAt: Math.floor(Date.now() / 1000),
+    isCurrentAssessment: true
+  }];
 }
 
 function startMockManagedScan(request?: ManagedScanRequest): ManagedScanStartDto {
@@ -2581,7 +2674,8 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
   if (request.expectedCount !== undefined && request.expectedCount !== summary.count) throw new Error("organization_plan_expected_count_mismatch");
   if (summary.count > 10_000) throw new Error("organization_plan_too_large");
   const timestamp = Math.floor(Date.now() / 1000);
-  const id = `browser-organization-plan-${Date.now()}`;
+  const presentationOnly = new URLSearchParams(globalThis.location?.search ?? "").has("pm01-organize");
+  const id = `${presentationOnly ? "browser-presentation-organization-plan" : "browser-organization-plan"}-${Date.now()}`;
   const plan: OrganizationPlan = {
     id,
     title: request.title?.trim() || "Organization plan",
@@ -2608,11 +2702,23 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
     ? mockFiles.filter((file) => source.fileIds.includes(file.id) && !file.is_stale)
     : filterMockLibraryFiles(source.query).filter((file) => !source.excludedFileIds.includes(file.id));
   mockOrganizationItems.set(id, sourceFiles.sort((left, right) => left.id.localeCompare(right.id)).map((file, ordinal) => {
-    const proposedTargetPath = file.suggested_target_path
-      ? `${file.suggested_target_path.replace(/[\\/]$/, "")}/${file.suggested_name || file.name}`
-      : file.path;
-    const actionable = ["Move", "Rename", "MoveAndRename", "Archive"].includes(file.suggested_action);
-    const blocked = ["Review", "DeleteCandidate"].includes(file.suggested_action);
+    // This is a deterministic display fixture selected by the browser URL. It
+    // intentionally never reads files.suggested_* or claims AI authority.
+    const state = presentationOnly ? mockOrganizationPresentationState() : "needs-analysis";
+    const actionable = state === "ready" || state === "review";
+    const blocked = state === "blocked";
+    const validity: OrganizationPlanItem["validity"] = blocked ? "blocked" : state === "needs-analysis" ? "needs_analysis" : state === "review" ? "needs_review" : "ready";
+    const proposalKind: OrganizationPlanItem["proposalKind"] = blocked ? "blocked" : actionable ? "move" : "keep";
+    const confidence = state === "ready" ? 0.94 : state === "review" ? 0.68 : 0;
+    const requiresConfirmation = state === "review";
+    const proposedTargetDirectory = actionable ? `${file.directory.replace(/[\\/]$/, "")}/Presentation fixture` : file.directory;
+    const proposedTargetPath = actionable ? `${proposedTargetDirectory}/${file.name}` : file.path;
+    const previewId = actionable ? `browser-presentation-only-preview-${file.id}` : null;
+    const blockingCode = blocked ? "browser_presentation_fixture_blocked" : null;
+    const semanticExplanation = actionable ? {
+      assessmentFingerprint: `browser-presentation-only:${file.id}`,
+      reason: "Browser presentation fixture only; no current backend SemanticAssessmentV1 is present."
+    } : null;
     return {
       id: `${id}-item-${ordinal}`,
       planId: id,
@@ -2624,41 +2730,36 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
       sourceMtimeSnapshot: mockFileTimestamp(file.modified_at),
       sourceIsDirSnapshot: false,
       proposalFingerprint: mockLibraryFingerprint(defaultFileLibraryQueryForMock(file.id)),
-      proposalKind: blocked ? "blocked" : actionable ? (file.suggested_action === "Rename" ? "rename" : "move") : "keep",
-      proposedTargetDirectory: file.suggested_target_path || file.directory,
-      proposedName: file.suggested_name || file.name,
+      semanticExplanation,
+      proposalKind,
+      proposedTargetDirectory,
+      proposedName: file.name,
       proposedTargetPath,
       decision: "undecided",
       editedName: null,
-      validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
-      reviewState: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
-      effectiveReadiness: blocked
-        ? "blocked"
-        : actionable && (file.requires_confirmation || file.confidence < 0.8)
-          ? "requires-decision"
-          : actionable
-            ? "ready"
-            : "blocked",
-      confidence: file.confidence,
-      riskLevel: file.risk_level,
-      requiresConfirmation: file.requires_confirmation,
-      blockingCode: blocked ? "cleanup_review_required" : null,
-      blockingDetail: blocked ? "Use the Cleanup review flow for delete or review candidates." : null,
-      authoritativePreviewId: actionable ? `mock-preview-${file.id}` : null,
+      validity,
+      reviewState: validity,
+      effectiveReadiness: blocked || state === "needs-analysis" ? "blocked" : state === "review" ? "requires-decision" : "ready",
+      confidence,
+      riskLevel: "Normal",
+      requiresConfirmation,
+      blockingCode,
+      blockingDetail: blocked ? "Browser presentation fixture state; backend authority is not available." : null,
+      authoritativePreviewId: previewId,
       reviewReasons: mockOrganizationReviewReasons({
-        validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
-        confidence: file.confidence,
-        riskLevel: file.risk_level,
-        requiresConfirmation: file.requires_confirmation,
-        authoritativePreviewId: actionable ? `mock-preview-${file.id}` : null,
-        blockingCode: blocked ? "cleanup_review_required" : null,
-        isDuplicate: file.is_duplicate
+        validity,
+        confidence,
+        riskLevel: "Normal",
+        requiresConfirmation,
+        authoritativePreviewId: previewId,
+        blockingCode,
+        isDuplicate: false
       }),
       availableActions: mockOrganizationAvailableActions({
-        validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
+        validity,
         decision: "undecided",
-        proposalKind: blocked ? "blocked" : actionable ? (file.suggested_action === "Rename" ? "rename" : "move") : "keep",
-        authoritativePreviewId: actionable ? `mock-preview-${file.id}` : null
+        proposalKind,
+        authoritativePreviewId: previewId
       }),
       operationLogId: null,
       executionId: null,
@@ -2668,9 +2769,14 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
     } satisfies OrganizationPlanItem;
   }));
   plan.summary = mockOrganizationSummary(mockOrganizationItems.get(id) ?? []);
-  plan.effectiveSummary = null;
+  plan.effectiveSummary = mockOrganizationEffectiveSummary(mockOrganizationItems.get(id) ?? []);
   mockOrganizationPlans = [plan, ...mockOrganizationPlans];
   return plan;
+}
+
+function mockOrganizationPresentationState(): "needs-analysis" | "ready" | "review" | "blocked" {
+  const value = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-organize");
+  return value === "ready" || value === "review" || value === "blocked" ? value : "needs-analysis";
 }
 
 function queryMockOrganizationItems(request?: { planId?: string; cursor?: string | null; pageSize?: number }) {
@@ -3777,6 +3883,9 @@ function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupEx
 }
 
 function mockAnalyzeCleanupCandidatesWithAI(args?: Record<string, unknown>): StorageCandidate[] {
+  if (mockCleanupPresentationScenario() === "request-unavailable") {
+    throw new Error("provider_request_unavailable: browser presentation fixture only");
+  }
   const requested = new Set(
     Array.isArray(args?.ids)
       ? args.ids.filter((id): id is string => typeof id === "string")
@@ -3976,27 +4085,70 @@ function mockCleanupPreviewOperations(args?: Record<string, unknown>): Operation
     .candidates
     .filter((candidate) => ids.has(candidate.id))
     .filter((candidate) => candidate.tier === "Safe" && candidate.trash_allowed)
-    .map((candidate) => ({
-      id: `cleanup-trash-${candidate.id}`,
-      fileId: candidate.id,
-      operation_type: "move_to_trash",
-      source_path: candidate.path,
-      target_path: "Recycle Bin",
-      old_name: candidate.name,
-      new_name: candidate.name,
-      status: "pending",
-      risk_level: "Normal",
-      confidence: 1,
-      requires_confirmation: true,
-      suggested_action: "DeleteCandidate",
-      is_duplicate: false,
-      reason: candidate.reason,
-      selected_by_default: true,
-      is_executable: true,
-      editable_new_name: false,
-      target_parent_exists: true,
-      will_create_parent: false
-    }));
+    .map((candidate) => {
+      const finding = mockAnalysisFindings.find((item) => item.id === candidate.id);
+      const name = finding?.pathSnapshot?.split(/[\\/]/).filter(Boolean).pop() ?? candidate.name;
+      return {
+        id: `cleanup-trash-${candidate.id}`,
+        fileId: candidate.id,
+        operation_type: "move_to_trash",
+        source_path: finding?.pathSnapshot ?? candidate.path,
+        target_path: "Recycle Bin",
+        old_name: name,
+        new_name: name,
+        status: "pending",
+        risk_level: "Normal",
+        confidence: 1,
+        requires_confirmation: true,
+        suggested_action: "DeleteCandidate",
+        is_duplicate: false,
+        reason: finding?.reason ?? candidate.reason,
+        selected_by_default: true,
+        is_executable: true,
+        editable_new_name: false,
+        target_parent_exists: true,
+        will_create_parent: false
+      };
+    });
+
+  if (mockCleanupPresentationScenario() === "request-unavailable") {
+    const reviewSelections = new Map<string, number>();
+    if (Array.isArray(args?.selections)) {
+      for (const selection of args.selections) {
+        if (!selection || typeof selection !== "object") continue;
+        const candidate = selection as { findingId?: unknown; reviewConfirmation?: { decisionRevision?: unknown } };
+        if (typeof candidate.findingId === "string" && typeof candidate.reviewConfirmation?.decisionRevision === "number") {
+          reviewSelections.set(candidate.findingId, candidate.reviewConfirmation.decisionRevision);
+        }
+      }
+    }
+    for (const finding of mockAnalysisFindings) {
+      if (!ids.has(finding.id) || finding.tier !== "review" || finding.decision !== "acknowledged") continue;
+      if (reviewSelections.get(finding.id) !== finding.decisionRevision) continue;
+      const name = finding.pathSnapshot?.split(/[\\/]/).filter(Boolean).pop() ?? finding.title;
+      previews.push({
+        id: `browser-presentation-only-preview:${finding.id}`,
+        fileId: finding.id,
+        operation_type: "move_to_trash",
+        source_path: finding.pathSnapshot ?? "",
+        target_path: "Recycle Bin",
+        old_name: name,
+        new_name: name,
+        status: "pending",
+        risk_level: "Normal",
+        confidence: 1,
+        requires_confirmation: true,
+        suggested_action: "DeleteCandidate",
+        is_duplicate: false,
+        reason: "Browser presentation fixture only; backend authority is not represented.",
+        selected_by_default: true,
+        is_executable: true,
+        editable_new_name: false,
+        target_parent_exists: true,
+        will_create_parent: false
+      });
+    }
+  }
 
   return {
     previews,
@@ -4020,13 +4172,22 @@ function cleanupSelectionIds(args?: Record<string, unknown>): string[] {
 }
 
 function mockSettings(settings?: AppSettings): AppSettings {
-  return settings ?? {
+  if (settings) return settings;
+  const onboardingFixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-onboarding");
+  const hasPresentationFolder = onboardingFixture === "folder-index-on" || onboardingFixture === "folder-index-off";
+  return {
     closeBehavior: "ask",
     folderNamingLanguage: "en",
-    defaultScanFolders: [],
+    defaultScanFolders: hasPresentationFolder ? [{
+      id: "browser-presentation-only-onboarding-root",
+      path: "C:/Presentation/Zen Documents",
+      label: "Zen Documents",
+      enabled: true,
+      createdAt: "2026-09-28T00:00:00.000Z"
+    }] : [],
     restoreRetentionDays: 30,
     launchAtLogin: false,
-    backgroundIndexOnStartup: true,
+    backgroundIndexOnStartup: onboardingFixture !== "folder-index-off",
     searchHotkey: DEFAULT_SEARCH_HOTKEY,
     searchScopeMode: "all",
     customSearchRoots: [],
@@ -4058,6 +4219,112 @@ function saveMockVersionedSettings(request: SaveSettingsRequest): VersionedAppSe
 
 let mockAISettingsState: AISettings | null = null;
 let mockApiKeyConfigured = false;
+
+// Explicit URL-selected browser fixtures exercise the renderer only. They are
+// not derived from persisted AI settings and do not represent backend authority.
+function browserPresentationFeatureReadinessFixture(): AIProductFeatureReadiness {
+  const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-readiness") ?? "disconnected";
+  let providerState: AIReadinessState = "disabled";
+  let providerReason = "provider_disabled";
+  let providerMode: "local" | "cloud" = "cloud";
+  if (fixture === "invalid-provider") {
+    providerState = "needs_provider";
+    providerReason = "provider_configuration_invalid";
+  } else if (fixture === "missing-credential") {
+    providerState = "needs_credential";
+    providerReason = "provider_credential_missing";
+  } else if (fixture !== "disconnected") {
+    providerState = "ready";
+    providerReason = "provider_configuration_ready";
+  }
+  if (fixture.includes("local")) providerMode = "local";
+
+  const provider: AIProductFeatureReadiness["provider"] = {
+    state: providerState,
+    reason: providerReason,
+    providerMode,
+    providerKind: providerMode === "local" ? "ollama" : "openai_compatible",
+    providerPreset: null,
+    model: providerState === "ready" ? "browser-presentation-only" : null,
+    credentialRequired: providerMode === "cloud",
+    credentialConfigured: providerState === "ready" && providerMode === "cloud",
+    settingsRevision: "browser-presentation-fixture",
+    bindingFingerprint: "browser-presentation-fixture"
+  };
+  const disclosure = {
+    providerPayloadIncludesFileName: false,
+    providerPayloadIncludesParentPath: false,
+    providerPayloadIncludesFullPath: false,
+    providerPayloadIncludesFileContent: false,
+    providerContentIsBounded: true
+  };
+  const managedState: AIReadinessState = fixture === "scope-missing"
+    ? "scope_missing"
+    : fixture === "managed-consent-missing"
+      ? "needs_consent"
+      : providerState;
+  const managedReason = fixture === "scope-missing"
+    ? "managed_scope_missing"
+    : fixture === "managed-consent-missing"
+      ? "managed_local_ai_consent_required"
+      : providerReason;
+  const managedScopes: AIProductFeatureReadiness["managedScopes"] = fixture === "scope-missing"
+    ? []
+    : [{
+      state: managedState,
+      reason: managedReason,
+      provider,
+      managedScopeId: "browser-presentation-scope",
+      scopeFingerprint: "browser-presentation-scope",
+      bindingFingerprint: "browser-presentation-fixture",
+      disclosure
+    }];
+
+  let cleanupState: AIReadinessState = providerState;
+  let cleanupReason = providerReason;
+  if (providerState === "ready") {
+    cleanupState = "ready";
+    cleanupReason = "cleanup_ai_ready";
+    if (fixture === "cleanup-disabled") {
+      cleanupState = "disabled";
+      cleanupReason = "cleanup_ai_disabled";
+    } else if (fixture === "cleanup-local-consent-missing") {
+      cleanupState = "needs_consent";
+      cleanupReason = "cleanup_local_ai_consent_required";
+    } else if (fixture === "cleanup-cloud-consent-missing") {
+      cleanupState = "needs_consent";
+      cleanupReason = "cleanup_cloud_ai_consent_required";
+    }
+  }
+  return {
+    provider,
+    managedScopes,
+    cleanup: {
+      state: cleanupState,
+      reason: cleanupReason,
+      provider,
+      cleanupAiEnabled: cleanupState !== "disabled",
+      localAiAllowed: cleanupState === "ready" && providerMode === "local",
+      cloudAiAllowed: cleanupState === "ready" && providerMode === "cloud",
+      bindingFingerprint: "browser-presentation-fixture",
+      disclosure
+    }
+  };
+}
+
+function listMockOrganizationPlans(): OrganizationPlan[] {
+  const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-organize");
+  if (fixture && ["needs-analysis", "ready", "review", "blocked"].includes(fixture)
+    && !mockOrganizationPlans.some((plan) => plan.id.startsWith("browser-presentation-organization-plan-"))) {
+    const fileIds = mockFiles.filter((file) => !file.is_stale).slice(0, 3).map((file) => file.id);
+    createMockOrganizationPlan({
+      title: "Browser presentation fixture",
+      source: { kind: "explicit", fileIds },
+      expectedCount: fileIds.length
+    });
+  }
+  return mockOrganizationPlans;
+}
 
 function mockAISettings(settings?: AISettings): AISettings {
   if (settings) {

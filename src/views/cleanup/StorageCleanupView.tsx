@@ -12,6 +12,7 @@ import type {
   AnalysisFindingEvidence,
   AnalysisFindingPage,
   AnalysisRun,
+  AIProductFeatureReadiness,
   CleanupExecutionResult,
   OperationPreview,
   OperationPreviewResult,
@@ -20,6 +21,7 @@ import type {
 import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
+import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
@@ -62,6 +64,7 @@ import type { CleanupApi, CleanupMutationKind, CleanupMutationOwner } from "./cl
 import { useCleanupAnalysisController } from "./useCleanupAnalysisController";
 import { useCleanupExecutionController } from "./useCleanupExecutionController";
 import { useCleanupSelectionController } from "./useCleanupSelectionController";
+import { AIReadinessNotice, cleanupReadinessText } from "../shared/AIReadinessNotice";
 
 type Props = {
   initialRoots?: string[];
@@ -70,6 +73,19 @@ type Props = {
   onError?: (message: string) => void;
   onNavigate?: (view: View) => void;
 };
+
+function browserPresentationCleanupPath(kind: "downloads" | "desktop" | "documents" | "temp"): string | null {
+  if (!isBrowserMockEnabled()) return null;
+  const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
+  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview"].includes(fixture)) return null;
+  // Explicit PM-01 browser fixtures use synthetic paths; native scope selection remains OS-owned.
+  return {
+    downloads: "C:/Users/Zen/Downloads",
+    desktop: "C:/Users/Zen/Desktop",
+    documents: "C:/Users/Zen/Documents",
+    temp: "C:/Users/Zen/AppData/Local/Temp"
+  }[kind];
+}
 
 type AiWorkState = "idle" | "running" | "canceling";
 type AiOperation = {
@@ -122,6 +138,10 @@ function StorageCleanupPanel({
   const [failedMutationKind, setFailedMutationKind] = useState<CleanupMutationKind | null>(null);
   const [aiWorkState, setAiWorkState] = useState<AiWorkState>("idle");
   const isAiWorking = aiWorkState !== "idle";
+  const [aiReadiness, setAiReadiness] = useState<AIProductFeatureReadiness | null>(null);
+  const [aiReadinessLoading, setAiReadinessLoading] = useState(false);
+  const [aiReadinessError, setAiReadinessError] = useState(false);
+  const [isCheckingAIReadiness, setIsCheckingAIReadiness] = useState(false);
   const [aiStatus, setAiStatus] = useState("");
   const [error, setError] = useState("");
   const [unsupported, setUnsupported] = useState(false);
@@ -142,6 +162,8 @@ function StorageCleanupPanel({
   const aiWorkStateRef = useRef<AiWorkState>("idle");
   const aiOperationRef = useRef<AiOperation | null>(null);
   const aiOperationSequenceRef = useRef(0);
+  const aiReadinessRequestEpoch = useRef(0);
+  const aiReadinessCheckInFlight = useRef(false);
   const interactionLockedRef = useRef(false);
   const scopeHydrated = useRef(Boolean(normalizeScopePaths(initialRoots ?? []).length));
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
@@ -237,6 +259,31 @@ function StorageCleanupPanel({
       t(key)
     );
   }, [t]);
+
+  const refreshAIReadiness = useCallback(async () => {
+    const epoch = ++aiReadinessRequestEpoch.current;
+    setAiReadinessLoading(true);
+    setAiReadinessError(false);
+    try {
+      if (!api.getAIFeatureReadiness) throw new Error("cleanup_ai_readiness_unavailable");
+      const next = await api.getAIFeatureReadiness();
+      if (epoch !== aiReadinessRequestEpoch.current) return null;
+      setAiReadiness(next);
+      return next;
+    } catch {
+      if (epoch !== aiReadinessRequestEpoch.current) return null;
+      setAiReadiness(null);
+      setAiReadinessError(true);
+      return null;
+    } finally {
+      if (epoch === aiReadinessRequestEpoch.current) setAiReadinessLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void refreshAIReadiness().catch(() => undefined);
+    return () => { aiReadinessRequestEpoch.current += 1; };
+  }, [refreshAIReadiness]);
 
   const resetReviewStateForScopeChange = useCallback(() => {
     scopeEpoch.current += 1;
@@ -359,13 +406,14 @@ function StorageCleanupPanel({
   const chooseQuickScope = useCallback(async (kind: "downloads" | "desktop" | "documents" | "temp") => {
     if (interactionLockedRef.current) return;
     try {
-      const path = kind === "downloads"
+      const presentationPath = browserPresentationCleanupPath(kind);
+      const path = presentationPath ?? (kind === "downloads"
         ? await downloadDir()
         : kind === "desktop"
           ? await desktopDir()
           : kind === "documents"
             ? await documentDir()
-            : await tempDir();
+            : await tempDir());
       applyScopeSelection([path]);
     } catch (scopeError) {
       reportError(scopeError);
@@ -621,16 +669,42 @@ function StorageCleanupPanel({
   }, [invalidatePreviewState]);
 
   const recheckReviewFindings = useCallback(async () => {
-    if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAISettings) {
+    if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAIFeatureReadiness) {
       reportError(t("storageCleanupAIUnsupported"));
       return;
     }
-    if (interactionLockedRef.current) return;
+    if (interactionLockedRef.current || aiReadinessCheckInFlight.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const expectedTierEpoch = activeTierEpoch.current;
     const expectedTier = activeTierRef.current;
     const reviewRunId = run.id;
     const reviewRunRevision = run.revision;
+    aiReadinessCheckInFlight.current = true;
+    setIsCheckingAIReadiness(true);
+    let currentReadiness: AIProductFeatureReadiness | null = null;
+    try {
+      currentReadiness = await refreshAIReadiness();
+    } finally {
+      aiReadinessCheckInFlight.current = false;
+      setIsCheckingAIReadiness(false);
+    }
+    if (expectedScopeEpoch !== scopeEpoch.current
+      || expectedTierEpoch !== activeTierEpoch.current
+      || activeTierRef.current !== expectedTier
+      || runRef.current?.id !== reviewRunId
+      || (runRef.current?.revision ?? -1) < reviewRunRevision) return;
+    if (!currentReadiness || currentReadiness.cleanup.state !== "ready") {
+      setAiStatus(currentReadiness
+        ? cleanupReadinessText(
+          currentReadiness.cleanup.state,
+          currentReadiness.cleanup.reason,
+          currentReadiness.cleanup.provider.state,
+          currentReadiness.cleanup.provider.reason,
+          t
+        )
+        : t("cleanupReadinessUnavailable"));
+      return;
+    }
     const operationEpoch = aiOperationEpoch.current + 1;
     aiOperationEpoch.current = operationEpoch;
     const operation: AiOperation = {
@@ -721,11 +795,6 @@ function StorageCleanupPanel({
       return true;
     };
     try {
-      const settings = await api.getAISettings();
-      if (stopAfterCancellation()) return;
-      if (!ownsOperation()) return;
-      if (!settings.enabled) throw new Error("cleanup_ai_disabled");
-      if (!settings.cleanupAiEnabled) throw new Error("cleanup_ai_feature_disabled");
       const ids: string[] = [];
       let cursor: string | null = null;
       do {
@@ -800,7 +869,7 @@ function StorageCleanupPanel({
         updateAiWorkState("idle");
       }
     }
-  }, [api, invalidateReadbackFailures, loadFindings, loadRunDetails, reconcileUpdatedFindings, removeSelectionsForIds, reportError, replaceCopy, run, t, updateAiWorkState]);
+  }, [api, invalidateReadbackFailures, loadFindings, loadRunDetails, reconcileUpdatedFindings, refreshAIReadiness, removeSelectionsForIds, reportError, replaceCopy, run, t, updateAiWorkState]);
 
   const cancelAiRecheck = useCallback(() => {
     const operation = aiOperationRef.current;
@@ -867,10 +936,20 @@ function StorageCleanupPanel({
 
   return (
     <>
-      <div className={cn(pageSurface, "grid content-start gap-4")} data-cleanup-authority="analysis-run-finding">
+      <div className={cn(pageSurface, "grid content-start gap-4")} data-cleanup-authority="analysis-run-finding" data-cleanup-preview-state={preview ? "ready" : "none"}>
         <NoticeBanner tone="info" title={t("storageCleanupSafetyTitle")}>
           {t("storageCleanupSafetyDesc")}
         </NoticeBanner>
+
+        <AIReadinessNotice
+          feature="cleanup"
+          readiness={aiReadiness}
+          loading={aiReadinessLoading}
+          error={aiReadinessError}
+          t={t}
+          setView={onNavigate ?? (() => undefined)}
+          onRetry={() => void refreshAIReadiness().catch(() => undefined)}
+        />
 
         <WorkflowSteps
           label={t("storageCleanupWorkflowLabel")}
@@ -938,7 +1017,7 @@ function StorageCleanupPanel({
         {loading ? <DurableTaskStatus state="running" title={t("storageCleanupDurableLoading")} description={t("storageCleanupDurableLoadingDesc")} density="compact" /> : null}
 
         {run ? (
-          <section className="grid gap-3" data-analysis-run-id={run.id}>
+          <section className="grid gap-3" data-analysis-run-id={run.id} data-cleanup-analysis-state={runState}>
             <MetricStrip
               ariaLabel={t("storageCleanupRunMetricsLabel")}
               density="compact"
@@ -1009,11 +1088,11 @@ function StorageCleanupPanel({
                 <p className={sectionDescription}>{t("storageCleanupFindingsDescription")}</p>
               </div>
               {activeTier === "review" && api.analyzeCleanupCandidatesWithAI ? (
-                <Button variant="secondary" size="compact" disabled={aiWorkState === "canceling" || isMutating || (aiWorkState === "idle" && !run.reviewCount)} onClick={() => {
+                <Button variant="secondary" size="compact" disabled={isCheckingAIReadiness || aiWorkState === "canceling" || isMutating || (aiWorkState === "idle" && (!run.reviewCount || aiReadiness?.cleanup.state !== "ready"))} onClick={() => {
                   if (aiWorkState === "running") cancelAiRecheck();
                   else if (aiWorkState === "idle") void recheckReviewFindings().catch(() => undefined);
                 }}>
-                  {aiWorkState !== "idle" ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
+                  {aiWorkState !== "idle" || isCheckingAIReadiness ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
                   {aiWorkState === "running" ? t("storageCleanupAIRecheckCancel") : aiWorkState === "canceling" ? t("storageCleanupAIRecheckCanceling") : t("storageCleanupAIRecheck")}
                 </Button>
               ) : null}

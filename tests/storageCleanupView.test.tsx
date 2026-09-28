@@ -82,7 +82,10 @@ describe("StorageCleanupView V4.3 durable UX", () => {
 
     expect(source).toContain('t("storageCleanupAIRecheck")');
     expect(source).toContain("analyzeCleanupCandidatesWithAI");
-    expect(source).toContain("getAISettings");
+    expect(source).toContain("getAIFeatureReadiness");
+    expect(source).toContain("cleanupReadinessText");
+    expect(source).not.toContain("getAISettings");
+    expect(source).not.toContain("cleanupAiEnabled)");
     expect(source).toContain("ConfirmDialog");
     expect(source).toContain("SideSheet");
     expect(source).not.toContain("AI 分析全部候选");

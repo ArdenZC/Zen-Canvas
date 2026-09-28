@@ -15,7 +15,7 @@ describe("automation workspace source contract", () => {
     const feedback = read("src/views/rules/AutomationRunFeedback.tsx");
     const t = makeTranslator("zh");
 
-    expect(t("automationWorkspaceTitle")).toBe("自动化工作区");
+    expect(t("automationWorkspaceTitle")).toBe("高级策略与兼容性");
     expect(t("automationRuleLibrary")).toBe("规则库");
     expect(view).toContain('useMediaQuery("(max-width: 1179px)")');
     expect(view).toContain("min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]");
