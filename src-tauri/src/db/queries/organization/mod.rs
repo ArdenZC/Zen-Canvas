@@ -5531,7 +5531,7 @@ mod tests {
                 &platform_file_id,
                 &source_name,
                 1,
-                1,
+                Some(1),
                 false,
             );
             let binding = crate::ai::semantic::SemanticSourceBinding {

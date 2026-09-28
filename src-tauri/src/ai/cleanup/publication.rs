@@ -565,13 +565,6 @@ fn candidate_identity_fingerprint(
 
 /// Reports whether the current durable Cleanup Finding has a live AI assessment.
 /// Callers must use this backend predicate rather than interpreting evidence JSON.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reserved backend currentness authority for PM-01 while that initiative is inactive."
-    )
-)]
 pub(crate) fn has_current_ai_assessment(db: &Database, finding_id: &str) -> bool {
     let Ok(Some(finding)) = db.get_analysis_finding(finding_id) else {
         return false;
