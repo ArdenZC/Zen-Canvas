@@ -2,9 +2,9 @@
 
 Last verified: 2026-09-28
 
-**IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW**
+**COMPLETE / MERGED — OWNER REVIEW PASSED**
 
-PR #287 remains OPEN / Draft. The Owner Review disposition is still CHANGES REQUESTED until the owner re-reviews this remediation. This result records implementation and evidence; it does not claim that Owner Review passed or authorize a Draft-state change or merge.
+PR #287 passed direct Owner Review, left Draft, and was squash-merged to `master@ee3347dbc9963067851378da2acd0fd0d85d114c`. Merge-after master CI [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) / run #1623 is **SUCCESS**. PM-01 is closed as an implementation stage; issue #273 remains open because it owns the wider AI-only Product Migration sequence.
 
 ## Activation and candidate
 
@@ -14,7 +14,9 @@ PR #287 remains OPEN / Draft. The Owner Review disposition is still CHANGES REQU
 - Previous head before this Owner Review remediation: d1f190abd7139a8133280a2f568e15f2ac3d4562.
 - Remediation source candidate: cbb1d44820d1fe3186fde83a03bb5f40a0f3c818; tree b06ff4c1ce9cd384547370a28df78317bb268159.
 - Exact source-candidate CI: [36435526936](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36435526936) — SUCCESS on cbb1d448.
-- PR base remains master@189c0fd522579d643216e313d6fcb6bcc8467ab7. The PR is OPEN / Draft and has not been merged.
+- Final reviewed PR head: `3d91c6689bb62d10eddf343419f00c4abaea9fee`.
+- PR #287 squash merge: `master@ee3347dbc9963067851378da2acd0fd0d85d114c`.
+- Merge-after master CI: [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) / run #1623 — **SUCCESS**.
 
 ## Delivered product scope
 
@@ -121,12 +123,23 @@ Packaging, dependency audit, native Preview Handler, native macOS performance an
 - Database schema remains version 35; no migration or durable authority was added.
 - Organize remains AI-only for semantic authority. Legacy suggestion/classification fields are not execution fallback.
 - Operation Preview, confirmation, Safe Trash, journal and Restore remain deterministic and fail closed.
-- PM-02 is NOT ACTIVE. #283 research was not started; #270 remains separate. Preference Memory production, autonomous execution and release publication remain out of scope.
+- PM-02 is **NOT ACTIVE**. #283 research remains separate and authorized as the next eligible research lane; no #283 implementation was part of PM-01. #270 remains separate. Preference Memory production, autonomous execution and release publication remain out of scope.
 - F:\pm01-287-temp still contains 1,142 task-generated local Rust test files (about 0.29 GiB). The prior cleanup attempt was blocked by tool policy; no files were removed and this pass did not retry it. This is a local hygiene residual, not a source-tree or hosted-CI blocker.
-- No PM-01 implementation or required source-candidate CI blocker remains. Owner re-review is pending; PR #287 remains OPEN / Draft.
+- No PM-01 implementation, evidence, Owner Review, merge, or merge-after CI blocker remains. PR #287 is merged and PM-01 is complete.
+
+## Merge closeout
+
+- Owner Review evidence package SHA-256: `2cb24b85d624a6aced3c0615fb5690c4d12ab2649b7fb28d65f8b7fd6c5867a0`.
+- Direct Owner Review inspected the PR diff, CI, manifest, and all 12 browser presentation screenshots.
+- Owner disposition: **PASS**.
+- Final PR head: `3d91c6689bb62d10eddf343419f00c4abaea9fee`.
+- Squash merge: `ee3347dbc9963067851378da2acd0fd0d85d114c`.
+- Merge-after master CI: [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) / run #1623 — **SUCCESS**.
+- Database schema remains 35.
+- PM-02 was not activated by this merge. #283 research remains separate from production authority.
 
 ## Final disposition
 
-**IMPLEMENTATION COMPLETE — READY FOR OWNER RE-REVIEW**
+**PM-01 COMPLETE / MERGED — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**
 
-Owner review must inspect the PR diff and evidence package directly. This disposition does not claim Owner Review passed, authorize a Ready transition, or authorize merge.
+The wider AI-only Product Migration initiative (#273) remains open for later stages. No active production implementation is implied by this PM-01 closeout.
