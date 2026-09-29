@@ -27,10 +27,15 @@ const ACTIONS = new Map([
   ["delete", "DeleteCandidate"], ["unknown", "Unknown"]
 ]);
 
-const ALLOWED_KEYS = new Set([
+const V1_ALLOWED_KEYS = new Set([
   "version", "refId", "fileType", "purpose", "lifecycle", "context", "riskLevel",
   "suggestedAction", "targetTemplate", "suggestedName", "confidence", "reason",
   "keywords", "requiresConfirmation"
+]);
+
+const V0_ALLOWED_KEYS = new Set([
+  "version", "refId", "fileType", "purpose", "lifecycle", "riskLevel",
+  "suggestedAction", "confidence", "reason"
 ]);
 
 export const metadata = Object.freeze({
@@ -145,48 +150,6 @@ function assertText(field, value, maxChars, allowEmpty) {
   }
 }
 
-function cleanJsonText(content) {
-  let text = String(content ?? "").replace(/<think>[\s\S]*?<\/think>/giu, "").trim();
-  if (text.startsWith("```")) {
-    text = text.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim();
-  }
-  const objectStart = text.indexOf("{");
-  const arrayStart = text.indexOf("[");
-  const starts = [objectStart, arrayStart].filter((index) => index >= 0);
-  if (starts.length) text = text.slice(Math.min(...starts));
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  const expected = [];
-  let start = -1;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') inString = false;
-      continue;
-    }
-    if (character === '"') {
-      inString = true;
-      continue;
-    }
-    if (character === "{" || character === "[") {
-      if (start < 0) start = index;
-      depth += 1;
-      expected.push(character === "{" ? "}" : "]");
-      continue;
-    }
-    if ((character === "}" || character === "]") && depth > 0 && expected.at(-1) === character) {
-      expected.pop();
-      depth -= 1;
-      if (depth === 0 && start >= 0) return text.slice(start, index + 1);
-    }
-  }
-  return text.trim();
-}
-
 function extractTextPart(value) {
   if (typeof value === "string" && value.trim()) return value;
   if (Array.isArray(value)) {
@@ -252,27 +215,35 @@ export function buildDeepSeekRequest(testCase, options = {}) {
 
 function canonicalizeAssessment(raw, expectedRef, sourceName, sourceExtension) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("managed_ai_invalid_json_object");
+
+  const isV1 = raw.version === 1;
+  const isV0 = raw.version === undefined || raw.version === 0;
+  if (!isV1 && !isV0) throw new Error("managed_ai_unsupported_semantic_version");
+
+  const allowedKeys = isV1 ? V1_ALLOWED_KEYS : V0_ALLOWED_KEYS;
   for (const key of Object.keys(raw)) {
-    if (!ALLOWED_KEYS.has(key)) throw new Error(`managed_ai_unknown_field:${key}`);
+    if (!allowedKeys.has(key)) throw new Error(`managed_ai_unknown_field:${key}`);
   }
-  for (const key of [
-    "version", "refId", "fileType", "purpose", "lifecycle", "context", "riskLevel",
-    "suggestedAction", "confidence", "reason", "requiresConfirmation"
-  ]) {
+
+  const requiredKeys = isV1
+    ? ["version", "refId", "fileType", "purpose", "lifecycle", "context", "riskLevel", "suggestedAction", "confidence", "reason", "requiresConfirmation"]
+    : ["refId", "fileType", "purpose", "lifecycle", "riskLevel", "suggestedAction", "confidence", "reason"];
+  for (const key of requiredKeys) {
     if (!(key in raw)) throw new Error(`managed_ai_missing_field:${key}`);
   }
-  if (raw.version !== 1) throw new Error("managed_ai_unsupported_semantic_version");
+
   if (raw.refId !== expectedRef) throw new Error("managed_ai_ref_id_mismatch");
   if (typeof raw.confidence !== "number" || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) {
     throw new Error("managed_ai_confidence_out_of_range");
   }
   assertText("reason", raw.reason, 512, false);
-  assertText("context", raw.context, 512, true);
+  const context = isV1 ? raw.context : "";
+  assertText("context", context, 512, true);
   if (raw.keywords !== undefined) {
     if (!Array.isArray(raw.keywords) || raw.keywords.length > 16) throw new Error("managed_ai_keywords_invalid");
     for (const keyword of raw.keywords) assertText("keyword", keyword, 80, false);
   }
-  if (typeof raw.requiresConfirmation !== "boolean") throw new Error("managed_ai_requires_confirmation_invalid");
+  if (isV1 && typeof raw.requiresConfirmation !== "boolean") throw new Error("managed_ai_requires_confirmation_invalid");
 
   const fileType = canonicalFileType(raw.fileType);
   if (!fileType) throw new Error("managed_ai_invalid_file_type");
@@ -282,9 +253,9 @@ function canonicalizeAssessment(raw, expectedRef, sourceName, sourceExtension) {
   let suggestedAction = canonicalFrom(ACTIONS, raw.suggestedAction);
   if (raw.targetTemplate != null && typeof raw.targetTemplate !== "string") throw new Error("managed_ai_invalid_target_template_type");
   if (raw.suggestedName != null && typeof raw.suggestedName !== "string") throw new Error("managed_ai_invalid_suggested_name_type");
-  let targetTemplate = raw.targetTemplate == null ? null : raw.targetTemplate;
-  let suggestedName = raw.suggestedName == null ? null : raw.suggestedName;
-  let requiresConfirmation = raw.requiresConfirmation;
+  let targetTemplate = isV1 && raw.targetTemplate != null ? raw.targetTemplate : null;
+  let suggestedName = isV1 && raw.suggestedName != null ? raw.suggestedName : null;
+  let requiresConfirmation = isV1 ? raw.requiresConfirmation : true;
   let forceReview = [purpose, lifecycle, riskLevel, suggestedAction].includes("Unknown");
 
   if (targetTemplate !== null && !validTargetTemplate(targetTemplate)) {
@@ -366,7 +337,8 @@ export function assessmentToDecision(testCase, rawAssessment, expectedRef = buil
 
 export function parseProviderResponse(testCase, providerResponse, expectedRef = buildManagedMetadata(testCase).refId) {
   const content = extractOpenAiContent(providerResponse);
-  const raw = JSON.parse(cleanJsonText(content));
+  if (content.length > 64 * 1024) throw new Error("managed_ai_response_too_large");
+  const raw = JSON.parse(content);
   return assessmentToDecision(testCase, raw, expectedRef);
 }
 
