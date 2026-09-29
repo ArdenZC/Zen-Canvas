@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/preference-evidence.v1.schema.json",
+  "title": "ZenDecisionBench Preference Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "kind",
+    "task",
+    "decision",
+    "scope",
+    "observed_at",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "zdb.preference_evidence.v1"
+    },
+    "evidence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "passive_acceptance",
+        "explicit_selection",
+        "explicit_correction",
+        "explicit_rejection"
+      ]
+    },
+    "task": {
+      "enum": [
+        "purpose",
+        "lifecycle",
+        "suggested_action",
+        "existing_folder_choice"
+      ]
+    },
+    "decision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "global_user": {
+          "type": "boolean"
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "managed_folder": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task_family": {
+          "enum": [
+            "purpose",
+            "lifecycle",
+            "suggested_action",
+            "existing_folder_choice"
+          ]
+        },
+        "domain_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lifecycle": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "minProperties": 1
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target_case_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correction_of": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "conflict_state": {
+      "enum": [
+        "none",
+        "weak",
+        "conflicting",
+        "superseded",
+        "unresolved"
+      ]
+    },
+    "ambiguity": {
+      "enum": [
+        "none",
+        "bounded",
+        "material"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "source"
+      ],
+      "properties": {
+        "category": {
+          "enum": [
+            "synthetic",
+            "repo_fixture",
+            "manual_nonsensitive"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
