@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
+
 const PRODUCTION_SYSTEM_PROMPT =
   "Classify one explicitly managed file from metadata only. Return exactly one JSON object for SemanticAssessmentV1: version=1, refId, fileType, purpose, lifecycle, context, riskLevel, suggestedAction, optional relative targetTemplate, optional suggestedName, confidence from 0 to 1, reason, keywords array, and requiresConfirmation. Do not include sourceBinding, filesystem paths, operation IDs, permission claims, tools, or file contents. targetTemplate is only a relative folder hint; never return an absolute path or traversal.";
+
+const PRODUCTION_SYSTEM_PROMPT_SHA256 = createHash("sha256").update(PRODUCTION_SYSTEM_PROMPT).digest("hex");
 
 const FILE_TYPES = ["Document", "Image", "Video", "Audio", "Code", "ArchivePackage", "Installer", "Spreadsheet", "Presentation", "Other"];
 
@@ -49,8 +53,77 @@ export const metadata = Object.freeze({
   temperature: 0,
   max_tokens: 4096,
   thinking: "disabled",
-  response_format: "json_object"
+  response_format: "json_object",
+  prompt_template_id: "managed-ai-semantic-assessment-v1",
+  prompt_template_sha256: PRODUCTION_SYSTEM_PROMPT_SHA256
 });
+
+function positiveTimeout(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error("invalid_provider_timeout");
+  return parsed;
+}
+
+function resolvedProviderConfig() {
+  const baseUrl = process.env.ZDB_DEEPSEEK_BASE_URL?.trim() || metadata.default_base_url;
+  const chatPath = process.env.ZDB_DEEPSEEK_CHAT_PATH?.trim() || metadata.default_chat_path;
+  const model = process.env.ZDB_DEEPSEEK_MODEL?.trim() || metadata.default_model;
+  const timeoutMs = positiveTimeout(process.env.ZDB_PROVIDER_TIMEOUT_MS ?? 120000);
+  if (!model) throw new Error("invalid_provider_model");
+  let parsedBase;
+  try {
+    parsedBase = new URL(baseUrl);
+  } catch {
+    throw new Error("invalid_provider_base_url");
+  }
+  if (parsedBase.username || parsedBase.password) throw new Error("provider_base_url_must_not_embed_credentials");
+  return { baseUrl, baseUrlOrigin: parsedBase.origin, chatPath, model, timeoutMs };
+}
+
+export function describeRun() {
+  const config = resolvedProviderConfig();
+  return {
+    adapter_id: metadata.adapter_id,
+    evidence_status: metadata.evidence_status,
+    production_contract: metadata.production_contract,
+    provider: metadata.provider,
+    model: config.model,
+    endpoint_origin: config.baseUrlOrigin,
+    chat_path: config.chatPath,
+    temperature: metadata.temperature,
+    max_tokens: metadata.max_tokens,
+    thinking: metadata.thinking,
+    response_format: metadata.response_format,
+    timeout_ms: config.timeoutMs,
+    prompt_template_id: metadata.prompt_template_id,
+    prompt_template_sha256: metadata.prompt_template_sha256,
+    credential_env: "DEEPSEEK_API_KEY"
+  };
+}
+
+function measuredProviderUsage(payload) {
+  const usage = payload?.usage;
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) {
+    return { status: "UNAVAILABLE" };
+  }
+  const fields = [
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "prompt_cache_hit_tokens",
+    "prompt_cache_miss_tokens"
+  ];
+  const measured = { status: "MEASURED_PROVIDER_RESPONSE" };
+  let count = 0;
+  for (const field of fields) {
+    const value = usage[field];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      measured[field] = value;
+      count += 1;
+    }
+  }
+  return count ? measured : { status: "UNAVAILABLE" };
+}
 
 function normalizedEnum(value) {
   return String(value ?? "")
@@ -338,7 +411,12 @@ export function assessmentToDecision(testCase, rawAssessment, expectedRef = buil
 export function parseProviderResponse(testCase, providerResponse, expectedRef = buildManagedMetadata(testCase).refId) {
   const content = extractOpenAiContent(providerResponse);
   if (content.length > 64 * 1024) throw new Error("managed_ai_response_too_large");
-  const raw = JSON.parse(content);
+  let raw;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    throw new Error("managed_ai_invalid_json_syntax");
+  }
   return assessmentToDecision(testCase, raw, expectedRef);
 }
 
@@ -350,28 +428,49 @@ export async function predict(testCase) {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY_REQUIRED_FOR_LIVE_ZDB_BASELINE");
 
-  const baseUrl = process.env.ZDB_DEEPSEEK_BASE_URL?.trim() || metadata.default_base_url;
-  const chatPath = process.env.ZDB_DEEPSEEK_CHAT_PATH?.trim() || metadata.default_chat_path;
-  const model = process.env.ZDB_DEEPSEEK_MODEL?.trim() || metadata.default_model;
-  const timeoutMs = Math.max(1, Number(process.env.ZDB_PROVIDER_TIMEOUT_MS ?? 120000));
-  const { expected_ref_id, body } = buildDeepSeekRequest(testCase, { model, maxTokens: 4096 });
+  const config = resolvedProviderConfig();
+  const { expected_ref_id, body } = buildDeepSeekRequest(testCase, {
+    model: config.model,
+    maxTokens: metadata.max_tokens
+  });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
-    const response = await fetch(joinUrl(baseUrl, chatPath), {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    let response;
+    try {
+      response = await fetch(joinUrl(config.baseUrl, config.chatPath), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error("provider_timeout");
+      throw new Error("provider_transport_error");
+    }
+
     const responseText = await response.text();
-    if (!response.ok) throw new Error(`provider_http_${response.status}:${responseText.slice(0, 500)}`);
-    const payload = JSON.parse(responseText);
-    return parseProviderResponse(testCase, payload, expected_ref_id);
+    if (!response.ok) throw new Error(`provider_http_${response.status}`);
+
+    let payload;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error("provider_response_invalid_json");
+    }
+
+    const decision = parseProviderResponse(testCase, payload, expected_ref_id);
+    return {
+      ...decision,
+      telemetry: {
+        provider_usage: measuredProviderUsage(payload),
+        response_model: typeof payload?.model === "string" ? payload.model : null
+      }
+    };
   } finally {
     clearTimeout(timer);
   }
