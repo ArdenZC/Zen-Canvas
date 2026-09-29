@@ -76,6 +76,17 @@ describe("ZDB-03 Preference Memory research activation", () => {
     ]);
     expect(contextSchema.properties).not.toHaveProperty("conflict_state");
     expect(contextSchema.properties).not.toHaveProperty("final_decision");
+    expect(contextSchema.$defs.scope.properties.global_user.const).toBe(true);
+    expect(contextSchema.allOf).toEqual([
+      {
+        if: { properties: { cold_start: { const: true } }, required: ["cold_start"] },
+        then: { properties: { preference_evidence: { maxItems: 0 } } }
+      },
+      {
+        if: { properties: { cold_start: { const: false } }, required: ["cold_start"] },
+        then: { properties: { preference_evidence: { minItems: 1 } } }
+      }
+    ]);
   });
 
   it("freezes authority, chronology, safety, attribution and anti-leakage semantics", () => {
