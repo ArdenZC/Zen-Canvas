@@ -1,11 +1,11 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-28
+Last verified: 2026-09-29
 
 ## Current execution truth
 
 - Latest merged production baseline: `master@ee3347dbc9963067851378da2acd0fd0d85d114c`, the squash merge for PM-01 AI-only Core Experience / PR #287. Final reviewed PR head `3d91c6689bb62d10eddf343419f00c4abaea9fee` passed exact-head CI [36439052294](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36439052294); merge-after master CI [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) / run #1623 is **SUCCESS**.
-- Current engineering initiative: **AI-only Product Migration (#273) remains open, but there is no active production implementation. PM-01 is COMPLETE / MERGED / Owner Review PASS.** PM-02 is **NOT ACTIVE**. Research issue #283 is the next eligible research lane and remains separate from production authority.
+- Current engineering initiative: **AI-only Product Migration (#273) remains open, but there is no active production implementation. PM-01 is COMPLETE / MERGED / Owner Review PASS.** PM-02 is **NOT ACTIVE**. Research issue #283 is active only as a research lane: ZDB-01 is COMPLETE/FROZEN, ZDB-02 baseline/remediation evidence is COMPLETE/ACCEPTED, and ZDB-03 Preference Memory Offline Hypothesis is ACTIVE FOR RESEARCH ONLY.
 - PM-01 is **COMPLETE / MERGED — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**. The final product/evidence disposition is recorded in the PM-01 Result; schema remains 35.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -29,7 +29,7 @@ Last verified: 2026-09-28
 
 **AI-only Product Migration**
 
-Status: **BETWEEN IMPLEMENTATION WAVES — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02 NOT ACTIVE. #283 research is eligible to start next and is not production authority.**
+Status: **BETWEEN PRODUCTION IMPLEMENTATION WAVES — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02 NOT ACTIVE. #283 research is active but remains non-production authority; ZDB-03 is OFFLINE RESEARCH ONLY.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Branch: `product/pm-01-ai-only-core-experience`. Activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.
 
@@ -46,7 +46,7 @@ Immediate implementation boundaries:
 - preserve Operation Preview, confirmation, Safe Trash, journal and Restore authority;
 - do not implement PM-02 Automation architecture, System One/Laya/Jev production runtime or Preference Memory persistence.
 
-Research issue #283 remains separate/non-blocking and is the next eligible research lane after PM-01 closeout. PM-02 requires its own later activation and remains NOT ACTIVE. #270 remains separate. Release publication remains deferred.
+Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; the ZDB-02 original baseline and canonical-enum remediation are COMPLETE/ACCEPTED; ZDB-03 Preference Memory Offline Hypothesis is ACTIVE FOR RESEARCH ONLY under its dedicated activation taskbook. PM-02 requires its own later activation and remains NOT ACTIVE. #270 remains separate. Release publication remains deferred.
 
 ## Release, schema and platform truth
 
