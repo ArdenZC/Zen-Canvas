@@ -76,8 +76,15 @@ function resolvedProviderConfig() {
   } catch {
     throw new Error("invalid_provider_base_url");
   }
+  if (!["https:", "http:"].includes(parsedBase.protocol)) throw new Error("unsupported_provider_protocol");
   if (parsedBase.username || parsedBase.password) throw new Error("provider_base_url_must_not_embed_credentials");
-  return { baseUrl, baseUrlOrigin: parsedBase.origin, chatPath, model, timeoutMs };
+  if (parsedBase.search || parsedBase.hash) throw new Error("provider_base_url_must_not_include_query_or_fragment");
+  if (!chatPath.startsWith("/") || chatPath.includes("?") || chatPath.includes("#")) {
+    throw new Error("invalid_provider_chat_path");
+  }
+  const normalizedBaseUrl = `${parsedBase.origin}${parsedBase.pathname.replace(/\/+$/u, "")}`;
+  const endpointUrl = joinUrl(normalizedBaseUrl, chatPath);
+  return { baseUrl: normalizedBaseUrl, endpointUrl, chatPath, model, timeoutMs };
 }
 
 export function assertRunReady() {
@@ -94,7 +101,7 @@ export function describeRun() {
     production_contract: metadata.production_contract,
     provider: metadata.provider,
     model: config.model,
-    endpoint_origin: config.baseUrlOrigin,
+    endpoint_url: config.endpointUrl,
     chat_path: config.chatPath,
     temperature: metadata.temperature,
     max_tokens: metadata.max_tokens,
