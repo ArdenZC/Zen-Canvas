@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/preference-context.v1.schema.json",
+  "title": "ZenDecisionBench Preference Context v1",
+  "description": "Research-only decision context that keeps explicit truth, deterministic rules, and inferred-preference evidence as separate authorities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "context_id",
+    "target_task",
+    "target_at",
+    "cold_start",
+    "preference_evidence",
+    "explicit_user_truth",
+    "deterministic_rules",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "zdb.preference_context.v1"
+    },
+    "context_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_task": {
+      "enum": [
+        "purpose",
+        "lifecycle",
+        "suggested_action",
+        "existing_folder_choice"
+      ]
+    },
+    "target_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "cold_start": {
+      "type": "boolean"
+    },
+    "preference_evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "https://zen-canvas.local/research/zdb/preference-evidence.v1.schema.json"
+      }
+    },
+    "explicit_user_truth": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "truth_id",
+          "task",
+          "decision",
+          "scope",
+          "asserted_at"
+        ],
+        "properties": {
+          "truth_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "enum": [
+              "purpose",
+              "lifecycle",
+              "suggested_action",
+              "existing_folder_choice"
+            ]
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": "object",
+            "minProperties": 1
+          },
+          "asserted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "deterministic_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rule_id",
+          "authority",
+          "task",
+          "decision",
+          "scope",
+          "asserted_at"
+        ],
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "authority": {
+            "enum": [
+              "user_rule",
+              "safety_rule"
+            ]
+          },
+          "task": {
+            "enum": [
+              "purpose",
+              "lifecycle",
+              "suggested_action",
+              "existing_folder_choice"
+            ]
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": "object",
+            "minProperties": 1
+          },
+          "asserted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "source"
+      ],
+      "properties": {
+        "category": {
+          "enum": [
+            "synthetic",
+            "repo_fixture",
+            "manual_nonsensitive"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
