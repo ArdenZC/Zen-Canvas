@@ -2,7 +2,7 @@
 
 Last verified: 2026-09-29
 
-Status: **DEFINITION CANDIDATE — OWNER-AUTHORED / RESEARCH ONLY**
+Status: **OWNER REVIEW PASSED — MERGE ACTIVATES ZDB-03B1 PROFILE + TARGET CONSTRUCTION ONLY**
 
 Issue: [#283 — ZenDecisionBench Phase 1 — Offline Baseline + Preference Memory Research](https://github.com/ArdenZC/Zen-Canvas/issues/283)
 
@@ -705,13 +705,13 @@ Do not work around these conditions.
 
 ## 31. Current authoritative state after activation
 
-If this definition is merged:
+On merge of this Owner-reviewed definition:
 
 - ZDB-01 — COMPLETE / FROZEN
 - ZDB-02 original baseline — COMPLETE / ACCEPTED
 - ZDB-02 canonical-enum remediation — COMPLETE / ACCEPTED
 - ZDB-03A — COMPLETE / MERGED / OWNER REVIEW PASSED / CONFORMANCE ONLY
-- ZDB-03B — ACTIVE FOR SYNTHETIC SIGNAL-SCREEN CONSTRUCTION ONLY
+- ZDB-03B — ACTIVE FOR ZDB-03B1 PROFILE + TARGET CONSTRUCTION ONLY
 - ZDB-03 Stage-B >=300 comparative corpus — NOT ACTIVE
 - ZDB-04+ — NOT ACTIVE
 - PM-02 — NOT ACTIVE
@@ -720,8 +720,19 @@ No production authority follows from this activation.
 
 ## Final activation disposition
 
-**ZDB-03B PREFERENCE SIGNAL SCREEN — DEFINITION CANDIDATE**
+**ZDB-03B PREFERENCE SIGNAL SCREEN — OWNER REVIEW PASSED**
 
-This document freezes the intended research design for Owner review.
+Merge of this definition authorizes only **ZDB-03B1 — Profile + Target construction**.
 
-No corpus construction or provider execution is authorized until this definition is merged.
+It does not authorize:
+
+- History Pool construction;
+- Owner Adjudication;
+- assembled signal-corpus freeze;
+- provider execution;
+- Preference comparison;
+- the >=300 comparative corpus;
+- ZDB-04;
+- PM-02.
+
+Each later ZDB-03B slice requires its preceding Owner gate.
