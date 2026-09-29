@@ -1,0 +1,38 @@
+{
+  "schema_version": "zdb.preference_stage_a_manifest.v1",
+  "corpus_file": "preference-stage-a.v1.jsonl",
+  "status": "CANDIDATE — OWNER ADJUDICATION REQUIRED",
+  "frozen": false,
+  "case_count": 60,
+  "split_counts": {
+    "pilot": 40,
+    "dev": 20,
+    "test": 0
+  },
+  "task_counts": {
+    "domain_type": 0,
+    "purpose": 3,
+    "lifecycle": 3,
+    "risk_level": 0,
+    "suggested_action": 18,
+    "existing_folder_choice": 36
+  },
+  "scenario_family_counts": {
+    "cold_start": 6,
+    "consistent_preference": 6,
+    "single_correction": 6,
+    "repeated_correction": 6,
+    "scope_conflict": 6,
+    "recency_conflict": 6,
+    "equal_conflict": 6,
+    "sparse_evidence": 6,
+    "safety_conflict": 6,
+    "explicit_truth_conflict": 6
+  },
+  "dataset_hash": "76abcb22ac4b2aa2f0bc032839fe643a296d25f2f19b266ace16b3f76df1112a",
+  "file_sha256": "1f047dd3f1afacd8821103cb8091965bb27f68fe429589de42fea9241d83d0f3",
+  "creation_commit": null,
+  "research_only": true,
+  "superiority_evidence": false,
+  "evidence_note": "Synthetic conformance candidate. Owner adjudication is required before acceptance. No provider results or real user history were used. This is not Preference effectiveness evidence."
+}
