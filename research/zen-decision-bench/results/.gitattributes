@@ -1,0 +1,5 @@
+/ZDB-02-GENERATIVE-PILOT-BASELINE-RESULT.md text eol=lf
+/evidence/zdb-02-deepseek-pilot-baseline/predictions.jsonl text eol=lf
+/evidence/zdb-02-deepseek-pilot-baseline/run.json text eol=lf
+/evidence/zdb-02-deepseek-pilot-baseline/summary.json text eol=lf
+/evidence/zdb-02-deepseek-pilot-baseline/SHA256SUMS.txt text eol=lf
