@@ -62,7 +62,7 @@ Arms C and D accept `--baseline` with a complete, same-case `zdb.prediction.v1` 
 
 ## ZDB-03B signal screen
 
-**Owner Review passed for the definition. On merge, only ZDB-03B1 Profile + Target construction is active.**
+**Owner Review passed for the definition. ZDB-03B1 Profile + Target packs are now Owner-frozen; merge of PR #302 activates only ZDB-03B2 assignment + History + separate Owner Adjudication construction.**
 
 The Owner-defined research slice is documented in:
 
