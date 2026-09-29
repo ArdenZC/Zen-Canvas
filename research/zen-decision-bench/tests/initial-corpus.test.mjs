@@ -264,7 +264,8 @@ describe("Managed AI DeepSeek baseline adapter", () => {
       expect(run.timeout_ms).toBe(54321);
       expect(run.prompt_template_sha256).toMatch(/^[a-f0-9]{64}$/u);
       expect(run.credential_env).toBe("DEEPSEEK_API_KEY");
-      expect(JSON.stringify(run)).not.toContain(process.env.DEEPSEEK_API_KEY ?? "__missing__");
+      const credentialValue = process.env.DEEPSEEK_API_KEY;
+      if (credentialValue) expect(JSON.stringify(run)).not.toContain(credentialValue);
     } finally {
       if (previousModel === undefined) delete process.env.ZDB_DEEPSEEK_MODEL;
       else process.env.ZDB_DEEPSEEK_MODEL = previousModel;
