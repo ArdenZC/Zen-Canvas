@@ -30,7 +30,11 @@ Phase 1 is executed in this order:
 6. **ZDB-06 — Zen-specific Laya experiment only if justified**
 7. **ZDB-07 — Final Hybrid Comparison**
 
-Only ZDB-01 and ZDB-02 are authorized for immediate implementation after this activation merges. ZDB-03+ remain planned until the first baseline report is owner-reviewed.
+The original activation authorized ZDB-01 and ZDB-02 first. That historical gate is now satisfied: ZDB-01 is COMPLETE/FROZEN and ZDB-02 baseline plus canonical-enum remediation evidence is COMPLETE/ACCEPTED after Owner Review.
+
+ZDB-03 is now separately activated for **OFFLINE RESEARCH ONLY** by [ZDB-03 Preference Memory Offline Hypothesis Activation](ZDB-03-PREFERENCE-MEMORY-OFFLINE-HYPOTHESIS-ACTIVATION.md).
+
+ZDB-04+ remain planned / NOT ACTIVE.
 
 ## 3. Allowed repository surfaces
 
@@ -244,21 +248,23 @@ Forbidden benchmark behavior:
 - using production user data without a separate approved privacy contract;
 - ranking a provider from a smoke fixture.
 
-## 15. Immediate implementation scope after activation
+## 15. Current implementation authority
 
-After this activation merges, the next implementation pass may create only:
+ZDB-01 and ZDB-02 implementation/result work is complete for the Phase 1 baseline gate.
 
-- versioned schema(s) for decision cases/results;
-- validator;
-- deterministic evaluator;
-- small smoke fixture;
-- pilot fixture authoring workflow;
-- generative-baseline adapter interface;
-- one bounded baseline runner;
-- reproducibility/result manifest;
-- ZDB-01/ZDB-02 result document.
+ZDB-03 now authorizes only specification-bounded offline preference research artifacts under its dedicated activation. Allowed next artifacts may include:
 
-Do not start ZDB-03 preference modeling until ZDB-01/ZDB-02 baseline evidence is owner-reviewed.
+- synthetic preference-evidence fixtures;
+- research-only preference context schema;
+- deterministic offline preference hypothesis/aggregator;
+- offline comparison runner;
+- preference-aware research prediction/result schema;
+- Stage A synthetic hypothesis corpus;
+- tests and result documents.
+
+It does not authorize production Preference Memory persistence, product runtime integration, PM-02, System One, Laya, or Jev.
+
+ZDB-04+ remain NOT ACTIVE.
 
 ## 16. Validation
 
@@ -306,6 +312,6 @@ Stop and return for owner review if implementation would require:
 
 ## Final activation disposition
 
-**ZDB PHASE 1 RESEARCH CONTRACT FROZEN — ZDB-01 / ZDB-02 IMPLEMENTATION AUTHORIZED AFTER THIS ACTIVATION MERGES**
+**ZDB PHASE 1 RESEARCH CONTRACT FROZEN — ZDB-01 / ZDB-02 COMPLETE; ZDB-03 OFFLINE RESEARCH ACTIVE UNDER SEPARATE TASKBOOK**
 
-#283 remains research-only. PM-02 remains NOT ACTIVE.
+#283 remains research-only. ZDB-04+ remain NOT ACTIVE. PM-02 remains NOT ACTIVE.

@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-28
+Last verified: 2026-09-29
 
 ## Completed
 
@@ -100,7 +100,7 @@ Current production / research sequence:
 1. Pre-PM foundations #272 / #276 / #279 / #285 — **COMPLETE / MERGED**.
 2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
 3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
-4. **ZenDecisionBench / Preference Memory / Laya-Jev Phase 1 research via #283 — NEXT ELIGIBLE / NOT YET STARTED; research-only and not production authority.**
+4. **ZenDecisionBench Phase 1 research via #283 — ACTIVE / RESEARCH ONLY. ZDB-01 COMPLETE/FROZEN; ZDB-02 baseline + canonical-enum remediation COMPLETE/ACCEPTED; ZDB-03 Preference Memory Offline Hypothesis ACTIVE FOR RESEARCH ONLY; ZDB-04+ NOT ACTIVE.**
 5. PM-02 Automation Intent + Policies — **NOT ACTIVE; requires separate activation/review after PM-01 and is not implied by #287 merge**.
 6. PM-03 migration closeout — later.
 7. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
