@@ -97,7 +97,7 @@ No profile-to-target assignment, assignment seed/map, History Pool, target Prefe
 - Frozen ZDB-01 locked test canonical SHA-256: `4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12` — unchanged.
 - ZDB-03A conformance fixture canonical SHA-256: `76abcb22ac4b2aa2f0bc032839fe643a296d25f2f19b266ace16b3f76df1112a` — unchanged. Git blob `e4bbc0418a788dfa81a59b521142c73ba4d0a879` retains file SHA-256 `1f047dd3f1afacd8821103cb8091965bb27f68fe429589de42fea9241d83d0f3`. The 60-case validator passed on an exact temporary Git-blob copy, then that copy was removed. With `core.autocrlf=true`, the Windows worktree's CRLF copy has different raw bytes; the committed Git blob is the frozen authority.
 - Documentation/governance gate: **PASS** for all three changed Markdown files against the staged candidate tree; project governance validation passed.
-- Hosted exact-head CI: pending PR creation and push.
+- B1 source-head hosted CI: [36591770466](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36591770466) — **SUCCESS** at `22567d12350416a790674a93712a7b5583f90cad` (the head containing both candidate packs and the B1-local LF rule). This CI-record update is documentation-only; its final successor head requires its own exact-head CI, reported in PR #302 and the handoff.
 
 ## Next gate
 
