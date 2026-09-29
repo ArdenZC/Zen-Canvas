@@ -115,6 +115,29 @@ function normalizeFolder(value) {
     .toLowerCase();
 }
 
+function fileExtension(name) {
+  const leaf = String(name).split(/[\\/]/u).at(-1) ?? "";
+  const dot = leaf.lastIndexOf(".");
+  if (dot <= 0 || dot + 1 >= leaf.length) return null;
+  return leaf.slice(dot + 1);
+}
+
+function normalizeProposedFileName(originalName, indexedExtension, proposedName) {
+  const proposed = String(proposedName).trim() || String(originalName).trim();
+  if (!proposed || proposed === "." || proposed === ".." || proposed.includes("..")
+      || /[. ]$/u.test(proposed) || /[\\/\u0000-\u001F\u007F<>:"|?*]/u.test(proposed)) {
+    throw new Error("unsafe_proposed_name");
+  }
+  const indexed = String(indexedExtension ?? "").trim().replace(/^\./u, "");
+  const proposedExtension = fileExtension(proposed);
+  if (!proposedExtension) {
+    return indexed ? `${proposed}.${fileExtension(originalName) ?? indexed}` : proposed;
+  }
+  if (!indexed || proposedExtension.toLowerCase() !== indexed.toLowerCase()) throw new Error("extension_change");
+  const stem = proposed.slice(0, proposed.length - proposedExtension.length - 1);
+  return `${stem}.${fileExtension(originalName) ?? indexed}`;
+}
+
 function assertText(field, value, maxChars, allowEmpty) {
   if (typeof value !== "string") throw new Error(`managed_ai_invalid_${field}`);
   if ((!allowEmpty && !value.trim()) || [...value].length > maxChars || /[\u0000-\u001F\u007F]/u.test(value)) {
@@ -227,7 +250,7 @@ export function buildDeepSeekRequest(testCase, options = {}) {
   };
 }
 
-function canonicalizeAssessment(raw, expectedRef) {
+function canonicalizeAssessment(raw, expectedRef, sourceName, sourceExtension) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("managed_ai_invalid_json_object");
   for (const key of Object.keys(raw)) {
     if (!ALLOWED_KEYS.has(key)) throw new Error(`managed_ai_unknown_field:${key}`);
@@ -257,13 +280,25 @@ function canonicalizeAssessment(raw, expectedRef) {
   const lifecycle = canonicalFrom(LIFECYCLES, raw.lifecycle);
   const riskLevel = canonicalFrom(RISKS, raw.riskLevel);
   let suggestedAction = canonicalFrom(ACTIONS, raw.suggestedAction);
+  if (raw.targetTemplate != null && typeof raw.targetTemplate !== "string") throw new Error("managed_ai_invalid_target_template_type");
+  if (raw.suggestedName != null && typeof raw.suggestedName !== "string") throw new Error("managed_ai_invalid_suggested_name_type");
   let targetTemplate = raw.targetTemplate == null ? null : raw.targetTemplate;
+  let suggestedName = raw.suggestedName == null ? null : raw.suggestedName;
   let requiresConfirmation = raw.requiresConfirmation;
   let forceReview = [purpose, lifecycle, riskLevel, suggestedAction].includes("Unknown");
 
   if (targetTemplate !== null && !validTargetTemplate(targetTemplate)) {
     targetTemplate = null;
     forceReview = true;
+  }
+  if (suggestedName !== null) {
+    try {
+      if ([...suggestedName].length > 255) throw new Error("name_too_long");
+      suggestedName = normalizeProposedFileName(sourceName, sourceExtension, suggestedName);
+    } catch {
+      suggestedName = null;
+      forceReview = true;
+    }
   }
   if (["Move", "MoveAndRename", "Archive"].includes(suggestedAction) && targetTemplate === null) forceReview = true;
   if (riskLevel !== "Normal") forceReview = true;
@@ -293,7 +328,12 @@ function snake(value) {
 }
 
 export function assessmentToDecision(testCase, rawAssessment, expectedRef = buildManagedMetadata(testCase).refId) {
-  const assessment = canonicalizeAssessment(rawAssessment, expectedRef);
+  const assessment = canonicalizeAssessment(
+    rawAssessment,
+    expectedRef,
+    testCase.input.name,
+    testCase.input.extension
+  );
   let decision;
   switch (testCase.task) {
     case "domain_type":
