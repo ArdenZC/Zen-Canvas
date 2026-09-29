@@ -65,7 +65,7 @@ describe("ZenDecisionBench research contract", () => {
     }
   });
 
-  it("validates the expanded pilot corpus while keeping the full corpus unfrozen", () => {
+  it("enforces the owner-adjudicated frozen corpus and locked test split hashes", () => {
     const dataset = "research/zen-decision-bench/fixtures/initial-corpus.v1.jsonl";
     const manifestPath = "research/zen-decision-bench/fixtures/initial-corpus.v1.manifest.json";
     const validation = JSON.parse(runNode([
@@ -85,11 +85,11 @@ describe("ZenDecisionBench research contract", () => {
       existing_folder_choice: 30
     });
     expect(validation.split_counts).toEqual({ pilot: 120, dev: 30, test: 30 });
-    expect(manifest.status).toBe("PILOT_EXPANDED_OWNER_ADJUDICATION_PENDING");
-    expect(manifest.frozen).toBe(false);
+    expect(manifest.status).toBe("FROZEN_OWNER_ADJUDICATED");
+    expect(manifest.frozen).toBe(true);
     expect(manifest.test_split_locked).toBe(true);
-    expect(manifest.dataset_hash).toBeNull();
-    expect(manifest.draft_dataset_hash).toBe(validation.dataset_hash);
+    expect(manifest.dataset_hash).toBe(validation.dataset_hash);
+    expect(manifest.dataset_hash).toBe("d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68");
     expect(manifest.test_split_hash).toBe(validation.split_hashes.test);
     expect(manifest.test_split_hash).toBe("4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12");
     expect(manifest.pilot_task_counts).toEqual({
@@ -101,7 +101,8 @@ describe("ZenDecisionBench research contract", () => {
       existing_folder_choice: 20
     });
     expect(manifest.owner_adjudication.previously_reviewed_120).toBe("ACCEPTED_2026-09-29");
-    expect(manifest.owner_adjudication.pilot_expansion_60).toBe("PENDING_OWNER_REVIEW");
+    expect(manifest.owner_adjudication.pilot_expansion_60).toBe("ACCEPTED_AFTER_SECOND_PASS_2026-09-29");
+    expect(manifest.owner_adjudication.full_corpus).toBe("ACCEPTED_AND_FROZEN_2026-09-29");
     expect(manifest.live_baseline.status).toBe("NOT_RUN");
     expect(manifest.live_baseline.first_allowed_split).toBe("pilot");
     expect(manifest.live_baseline.test_split_allowed_for_tuning).toBe(false);
