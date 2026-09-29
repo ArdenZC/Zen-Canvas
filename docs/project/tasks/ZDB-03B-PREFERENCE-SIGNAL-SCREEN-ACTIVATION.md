@@ -147,6 +147,8 @@ Contains only the 12 latent synthetic user preference briefs.
 
 It contains no target cases, target IDs, target gold, provider predictions, or target-specific decisions.
 
+If a generator is used, its inputs and source must not read/import the Target Pack.
+
 ### B. Target Pack
 
 Contains exactly 120 current target situations with:
@@ -161,6 +163,8 @@ Contains exactly 120 current target situations with:
 - any deterministic user/safety Rule fixture.
 
 It contains no Preference Evidence and no gold/acceptable answer.
+
+Target construction is independent of synthetic profiles: no target record may contain a profile ID, and any target generator must not read/import the Profile Pack. Profile assignment occurs only after both packs are frozen.
 
 ### C. History Pool
 
@@ -277,7 +281,7 @@ Every historical episode:
 - contains no target gold;
 - contains no provider result.
 
-A history generator, if used, may read Profile Pack but must not read Owner Adjudication or provider evidence.
+A history generator, if used, may read only the Profile Pack plus generic pre-registered history templates/seeds. It must not read/import the Target Pack, profile assignment map, Owner Adjudication, assembled corpus, or provider evidence.
 
 ## 12. Mechanical target context assembly
 
@@ -318,6 +322,8 @@ For each case record:
 - deterministic Rule/Explicit Truth authority where applicable.
 
 The adjudicator must not see the History Pool or baseline predictions.
+
+For folder-choice targets, adjudication must use the already-derived hash-based choice ordering from section 10 (or refer to choices only by stable ID); it must not use ordinal position as evidence.
 
 No script may mechanically compute target gold from a `preferred` variable.
 
