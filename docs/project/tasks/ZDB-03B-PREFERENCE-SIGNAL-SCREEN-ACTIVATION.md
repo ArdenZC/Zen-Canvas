@@ -232,17 +232,21 @@ Assignment generation must not read gold, history, or provider output.
 
 ## 10. Target-choice ordering
 
-Choice ordering must not encode expected answers.
+Choice ordering must not encode expected answers and must not create a hash cycle.
 
-For folder targets, after the candidate set is authored, order choices by:
+Inside the frozen Target Pack, every finite choice set is stored in canonical lexicographic `choice_id` order. The resulting immutable Target Pack hash is then available as an input to later assembly.
+
+For folder targets, the **assembled signal corpus** reorders the already-frozen candidate set by:
 
 `SHA256("zdb-03b-choice-order-v1|" + target_pack_hash + "|" + case_id + "|" + choice_id)`
 
 ascending lexicographically.
 
+Thus the Target Pack hash is computed before derived evaluation/display ordering and never depends on that derived order.
+
 Suggested-action canonical choice order may remain the existing benchmark order.
 
-No choice may be moved because of adjudication or model output.
+No choice may be added, removed, renamed, or moved because of adjudication or model output.
 
 ## 11. History Pool requirements
 
@@ -479,6 +483,14 @@ They remain eligible to expose regressions.
 Primary descriptive endpoint for Arm C:
 
 `Preference Net Benefit = beneficial Preference-caused transitions - harmful Preference-caused transitions`
+
+A **Preference-caused changed decision** exists only when all are true:
+
+- `preference_applied=true`;
+- a real matching baseline decision is available;
+- the final Arm-C decision differs from the baseline decision.
+
+Changes caused solely by safety, Explicit User Truth, deterministic user Rule, provider failure handling, or evaluator repair do not count as Preference-caused transitions.
 
 Raw transition counts are authoritative.
 
