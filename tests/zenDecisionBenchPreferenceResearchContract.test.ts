@@ -55,13 +55,27 @@ describe("ZDB-03 Preference Memory research activation", () => {
     expect(schema.properties.task.enum).not.toContain("risk_level");
     expect(schema.properties.observed_at.format).toBe("date-time");
     expect(schema.properties.scope.minProperties).toBe(1);
-    expect(schema.properties.conflict_state.enum).toEqual([
-      "none",
-      "weak",
-      "conflicting",
-      "superseded",
-      "unresolved"
+    expect(schema.properties.scope.properties.global_user.const).toBe(true);
+    expect(schema.properties).not.toHaveProperty("conflict_state");
+
+    const contextSchema = JSON.parse(readFileSync(
+      "research/zen-decision-bench/schema/preference-context.v1.schema.json",
+      "utf8"
+    ));
+    expect(contextSchema.properties.schema_version.const).toBe("zdb.preference_context.v1");
+    expect(contextSchema.required).toEqual([
+      "schema_version",
+      "context_id",
+      "target_task",
+      "target_at",
+      "cold_start",
+      "preference_evidence",
+      "explicit_user_truth",
+      "deterministic_rules",
+      "provenance"
     ]);
+    expect(contextSchema.properties).not.toHaveProperty("conflict_state");
+    expect(contextSchema.properties).not.toHaveProperty("final_decision");
   });
 
   it("freezes authority, chronology, safety, attribution and anti-leakage semantics", () => {
@@ -90,6 +104,8 @@ describe("ZDB-03 Preference Memory research activation", () => {
     expect(activation).toContain("Preference is not an instruction");
     expect(activation).toContain("NOT PRODUCTION AUTHORITY");
     expect(activation).toContain("Future corrections must never leak backward.");
+    expect(activation).toContain("derived aggregate state over a Preference Context");
+    expect(activation).toContain("must **not** contain a precomputed preference recommendation");
     expect(activation).toContain("Preference must not rewrite objective facts");
     expect(activation).toContain("real personal filesystem history");
   });
