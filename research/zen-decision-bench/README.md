@@ -44,7 +44,7 @@ The smoke adapter is case-ID keyed and exists only to prove the harness. Its sco
 - production canonical Purpose/Lifecycle/Risk/SuggestedAction choices;
 - abstention allowed only on cases whose gold label is `abstain`.
 
-The original 120-case labels are owner-accepted. The additional 60 pilot cases have completed a first-pass semantic review but remain **OWNER_ADJUDICATION_PENDING**, so the full corpus is not frozen yet. The 30-case test split is already locked by hash and must not be used for tuning. See `fixtures/initial-corpus.v1.manifest.json` and `fixtures/initial-corpus.v1.review.md`.
+The full 180-case corpus is **OWNER_ADJUDICATED AND FROZEN** for ZDB-02 baseline work. Frozen dataset hash: `d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68`. The 30-case test split is independently locked at `4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12` and must not be used for tuning. See `fixtures/initial-corpus.v1.manifest.json` and `fixtures/initial-corpus.v1.review.md`.
 
 The live Generative adapter `adapters/managed-ai-deepseek.mjs` mirrors the current production
 Managed AI metadata-only SemanticAssessmentV1 request contract:
@@ -77,7 +77,7 @@ node research/zen-decision-bench/cli/evaluate-predictions.mjs \
   --split pilot
 ```
 
-Do not use the locked test split for prompt, threshold, mapping, calibration, or preference tuning. Until the 60-case pilot expansion is owner-adjudicated and the full 180-case corpus is frozen, even pilot results remain exploratory rather than accepted benchmark evidence.
+Do not use the locked test split for prompt, threshold, mapping, calibration, preference, or case-specific tuning. Provider runs must remain separately attributable and pilot-only until the ZDB-02 baseline review explicitly advances the research.
 
 ## Evidence threshold
 
