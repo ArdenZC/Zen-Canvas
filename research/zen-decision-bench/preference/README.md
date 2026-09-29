@@ -62,7 +62,9 @@ Arms C and D accept `--baseline` with a complete, same-case `zdb.prediction.v1` 
 
 ## ZDB-03B signal screen
 
-The next Owner-defined research slice is documented in:
+**Owner Review passed for the definition. On merge, only ZDB-03B1 Profile + Target construction is active.**
+
+The Owner-defined research slice is documented in:
 
 `docs/project/tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md`
 
@@ -76,3 +78,5 @@ ZDB-03B is deliberately separate from the Stage-A conformance fixture. Its anti-
 A deterministic hash-based assignment joins profiles to targets. Historical evidence is assembled mechanically without target gold or provider output. A live same-case canonical Generative baseline is permitted only after all pre-run artifacts are frozen and Owner-reviewed.
 
 The initial ZDB-03B screen contains 120 synthetic targets and is descriptive only. It does not satisfy the >=300 adjudicated comparative-corpus gate required before provider/hybrid superiority claims.
+
+ZDB-03B1 may create only the Profile Pack and Target Pack. History, gold/adjudication, assembled signal corpus, and provider execution remain gated behind later Owner review.
