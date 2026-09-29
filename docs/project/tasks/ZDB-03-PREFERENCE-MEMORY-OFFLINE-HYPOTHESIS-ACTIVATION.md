@@ -307,18 +307,21 @@ It must not use Preference Memory to improve benchmark scores on objective-domin
 
 ## 13. Preference Context fixture
 
-A future ZDB-03 case may supply a research-only \`preference_context\`.
+A future ZDB-03 case may supply a research-only `preference_context` matching `zdb.preference_context.v1`.
 
 A preference context must be synthetic and chronological.
 
-It may contain:
+It contains structurally separate inputs:
 
 - target decision timestamp;
-- zero or more preference-evidence records;
-- precomputed conflict state only when deterministically derivable and independently testable;
+- zero or more prior Preference Evidence records;
 - cold-start flag;
-- optional explicit user truth fixture;
-- optional deterministic rule fixture.
+- zero or more Explicit User Truth fixtures;
+- zero or more deterministic user/safety Rule fixtures.
+
+It must **not** contain a precomputed preference recommendation, final decision, or derived conflict answer that the candidate is meant to infer.
+
+Conflict is derived from the evidence available before the target time; it is never supplied as an oracle input.
 
 No real personal filesystem history is authorized.
 
