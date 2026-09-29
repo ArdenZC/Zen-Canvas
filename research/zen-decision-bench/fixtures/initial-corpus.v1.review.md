@@ -19,12 +19,14 @@ The 30-case test split is now locked, but the full 180-case corpus remains **unf
 
 ## Structural result
 
-- 120 total cases.
-- Six task families × 20 cases each.
-- 60 pilot / 30 dev / 30 test.
+- 180 total cases.
+- Six task families × 30 total cases each.
+- 120 pilot / 30 dev / 30 test.
+- 20 pilot cases per required task family.
 - Synthetic provenance only.
 - No non-gold abstention permission.
 - Production canonical Purpose/Lifecycle/Risk/SuggestedAction choice coverage.
+- Original 120 labels owner-accepted; new 60 pilot labels remain owner-adjudication pending.
 
 ## First-pass corrections
 
@@ -56,16 +58,9 @@ The following remain intentionally bounded rather than forced into artificial ce
 - suggested action: 05, 06, 13, 14, 20;
 - existing folder: all non-material folder-choice cases are bounded because user filing preference is not yet modeled.
 
-## Owner gate before freeze
+## Original 120 disposition
 
-Before setting `frozen=true` or locking the test split:
-
-1. owner accepts or edits the semantic labels/acceptable alternatives;
-2. final validator output and dataset hash are recorded in the manifest;
-3. test split is marked locked;
-4. no prompt, mapping, threshold, or preference tuning uses the locked test split;
-5. the first real Generative run is executed on pilot only;
-6. ZDB-01/02 evidence is reviewed before ZDB-03 activation.
+The original 120-case labels were accepted by the owner on 2026-09-29. The original 30-case test split from that accepted corpus is now separately hash-locked. This acceptance does not extend to the later 60-case pilot expansion, which remains pending owner adjudication.
 
 
 ## Pilot minimum reconciliation
