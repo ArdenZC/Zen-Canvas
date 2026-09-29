@@ -50,7 +50,7 @@ Research issue #283 remains separate/non-blocking from production. ZDB-01 is COM
 
 ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](../../research/zen-decision-bench/results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md). PR #300 is **MERGED** as `master@b92fe40a18b38b60febe5618caf72ba3e988bcdb`; merge-after CI 36564738415 is **SUCCESS**. ZDB-03A is **COMPLETE / MERGED / OWNER REVIEW PASSED — CONFORMANCE ONLY**. Its 60-case JSONL must never become ZDB-03B signal/effectiveness evidence.
 
-ZDB-03B is now being defined as a separate [120-case synthetic Preference signal screen](tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md). The definition freezes Profile/Target/History/Owner-Adjudication separation, deterministic profile assignment, same-case canonical Generative baseline sequencing, and hard zero-violation gates. Until that definition is Owner-reviewed and merged, ZDB-03B corpus construction and provider execution remain NOT AUTHORIZED. The >=300 comparative-corpus superiority gate remains separate and inactive. ZDB-04+ remain NOT ACTIVE.
+ZDB-03B is defined as a separate [120-case synthetic Preference signal screen](tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md). **OWNER REVIEW PASSED** for the definition. Merge of PR #301 activates only **ZDB-03B1 Profile + Target construction**. History Pool construction, Owner Adjudication, assembled signal-corpus freeze, provider execution, and offline comparison remain separately gated and NOT AUTHORIZED. The >=300 comparative-corpus superiority gate remains separate and inactive. ZDB-04+ remain NOT ACTIVE.
 
 ## Release, schema and platform truth
 
