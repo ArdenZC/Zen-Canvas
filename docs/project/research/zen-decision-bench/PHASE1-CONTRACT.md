@@ -112,6 +112,10 @@ Preference research inputs must be synthetic/non-sensitive, scoped, chronologica
 
 The locked ZDB test split may not be used to construct or tune preference rules, recency weighting, conflict resolution, or confidence.
 
+ZDB-03A is **COMPLETE / MERGED / OWNER REVIEW PASSED — CONFORMANCE ONLY** through PR #300. Its 60-case fixture is permanently ineligible for signal/effectiveness evidence.
+
+[ZDB-03B Preference Signal Screen](../../tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md) is Owner-reviewed. On merge of its activation, **only ZDB-03B1 Profile + Target construction is active**. ZDB-03B is a pre-registered 120-case synthetic signal screen with separate Profile Pack, Target Pack, History Pool, Owner Adjudication, same-case canonical Generative baseline, and offline Preference comparison. Later stages remain separately gated. It does not satisfy the >=300-case superiority gate.
+
 ZDB-04+ remain NOT ACTIVE.
 
 ## Evidence standard
