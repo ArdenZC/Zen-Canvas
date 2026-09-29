@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,24 +42,82 @@ describe("ZenDecisionBench research contract", () => {
         "--split",
         "pilot"
       ]));
+      expect(run.schema_version).toBe("zdb.run.v2");
       expect(run.case_count).toBe(12);
       expect(run.split).toBe("pilot");
       expect(run.source_dataset_hash).toBe(validation.dataset_hash);
       expect(run.dataset_hash).toBe(validation.dataset_hash);
       expect(run.adapter.evidence_status).toBe("NOT_BENCHMARK_EVIDENCE");
+      expect(run.retry_policy).toEqual({
+        policy: "none",
+        max_attempts_per_case: 1,
+        retries_performed: 0
+      });
+      expect(run.request_summary).toEqual({
+        attempted: 12,
+        succeeded: 12,
+        failed: 0,
+        failure_taxonomy: {}
+      });
+      expect(run.monetary_cost.status).toBe("NOT_APPLICABLE_FIXTURE");
+      expect(run.predictions.sha256).toMatch(/^[a-f0-9]{64}$/u);
+      expect(readFileSync(run.run_manifest_path, "utf8")).toContain('"schema_version": "zdb.run.v2"');
       expect(readFileSync(predictions, "utf8").trim().split(/\r?\n/u)).toHaveLength(12);
 
       const summary = JSON.parse(runNode([
         "research/zen-decision-bench/cli/evaluate-predictions.mjs",
         dataset,
         predictions,
-        "--split=pilot"
+        "--split=pilot",
+        "--out",
+        join(root, "summary.json")
       ]));
       expect(summary.case_count).toBe(12);
       expect(summary.metrics.acceptable_adjusted_accuracy).toBe(1);
       expect(summary.metrics.provider_failure_rate).toBe(0);
       expect(summary.dataset_hash).toBe(validation.dataset_hash);
-      expect(summary.selection).toEqual({ split: "pilot", source_case_count: 12 });
+      expect(summary.source_dataset_hash).toBe(validation.dataset_hash);
+      expect(summary.selection).toEqual({ split: "pilot", source_case_count: 12, selected_case_count: 12 });
+      expect(readFileSync(join(root, "summary.json"), "utf8")).toContain('"acceptable_adjusted_accuracy": 1');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails live provider execution before requests unless frozen evidence and credentials are present", () => {
+    const root = mkdtempSync(join(tmpdir(), "zen-zdb-live-readiness-"));
+    try {
+      const dataset = "research/zen-decision-bench/fixtures/initial-corpus.v1.jsonl";
+      const manifest = "research/zen-decision-bench/fixtures/initial-corpus.v1.manifest.json";
+      const adapter = "research/zen-decision-bench/adapters/managed-ai-deepseek.mjs";
+      const predictions = join(root, "predictions.jsonl");
+      const env = { ...process.env, DEEPSEEK_API_KEY: "" };
+
+      const withoutManifest = spawnSync(process.execPath, [
+        "research/zen-decision-bench/cli/run-baseline.mjs",
+        dataset,
+        adapter,
+        predictions,
+        "--split",
+        "pilot"
+      ], { cwd: process.cwd(), encoding: "utf8", env });
+      expect(withoutManifest.status).not.toBe(0);
+      expect(withoutManifest.stderr).toContain("live_zdb_baseline_requires_frozen_manifest");
+      expect(existsSync(predictions)).toBe(false);
+
+      const withoutCredential = spawnSync(process.execPath, [
+        "research/zen-decision-bench/cli/run-baseline.mjs",
+        dataset,
+        adapter,
+        predictions,
+        "--split",
+        "pilot",
+        "--manifest",
+        manifest
+      ], { cwd: process.cwd(), encoding: "utf8", env });
+      expect(withoutCredential.status).not.toBe(0);
+      expect(withoutCredential.stderr).toContain("DEEPSEEK_API_KEY_REQUIRED_FOR_LIVE_ZDB_BASELINE");
+      expect(existsSync(predictions)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
