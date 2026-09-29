@@ -80,6 +80,12 @@ function resolvedProviderConfig() {
   return { baseUrl, baseUrlOrigin: parsedBase.origin, chatPath, model, timeoutMs };
 }
 
+export function assertRunReady() {
+  if (!process.env.DEEPSEEK_API_KEY?.trim()) {
+    throw new Error("DEEPSEEK_API_KEY_REQUIRED_FOR_LIVE_ZDB_BASELINE");
+  }
+}
+
 export function describeRun() {
   const config = resolvedProviderConfig();
   return {
