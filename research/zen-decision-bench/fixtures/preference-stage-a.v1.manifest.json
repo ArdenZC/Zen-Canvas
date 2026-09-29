@@ -2,7 +2,7 @@
   "schema_version": "zdb.preference_stage_a_manifest.v1",
   "corpus_file": "preference-stage-a.v1.jsonl",
   "status": "CONFORMANCE-ONLY — NOT ELIGIBLE FOR ZDB-03B SIGNAL/EFFECTIVENESS EVIDENCE",
-  "owner_review": "RE-REVIEW PENDING AFTER REQUIRED CHANGES",
+  "owner_review": "OWNER REVIEW PASSED — ACCEPTED FOR CONFORMANCE ONLY",
   "frozen": false,
   "case_count": 60,
   "split_counts": {
@@ -39,5 +39,5 @@
   "eligible_for_effectiveness_evidence": false,
   "accepted_purpose": ["schema_validity", "chronology", "cold_start", "scope_resolution", "correction_semantics", "rejection_semantics", "authority_precedence", "conflict_handling", "attribution", "evaluator_accounting", "gold_isolation"],
   "forbidden_claims": ["preference_improves_accuracy", "preference_improves_deepseek", "preference_net_benefit", "generative_preference_superiority", "system_one_value", "production_readiness"],
-  "evidence_note": "Owner Review found family-coded gold-position structure from shared positional choice construction. Preserve this 60-case JSONL byte-for-byte as a deterministic conformance fixture only. It may be accepted for conformance after Owner re-review, but must never become the ZDB-03B signal/effectiveness corpus. No provider results or real user history were used."
+  "evidence_note": "Owner Review passed at 6d83ecceb31a655a1c8fb3482f07f1eaa215a2c3 and accepted this 60-case JSONL for deterministic conformance only. Its shared positional choice construction creates family-coded gold-position structure. Preserve the JSONL byte-for-byte; it must never become the ZDB-03B signal/effectiveness corpus. No provider results or real user history were used."
 }

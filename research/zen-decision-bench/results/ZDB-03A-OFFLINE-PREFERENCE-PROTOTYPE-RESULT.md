@@ -1,6 +1,6 @@
 # ZDB-03A — Offline Preference Resolver and Conformance Fixture Result
 
-Status: **CONFORMANCE-ONLY — OWNER RE-REVIEW PENDING**. The 60-case fixture is **NOT ELIGIBLE FOR ZDB-03B SIGNAL/EFFECTIVENESS EVIDENCE**. This is a synthetic conformance result, not an effectiveness or superiority result. It implements the frozen ZDB-03 hypothesis v1 from PR #299 for research only.
+Status: **OWNER REVIEW PASSED — ACCEPTED FOR CONFORMANCE ONLY** at `6d83ecceb31a655a1c8fb3482f07f1eaa215a2c3`. The 60-case fixture is permanently **CONFORMANCE-ONLY — NOT ELIGIBLE FOR ZDB-03B SIGNAL/EFFECTIVENESS EVIDENCE**. This is a synthetic conformance result, not an effectiveness or superiority result. It implements the frozen ZDB-03 hypothesis v1 from PR #299 for research only.
 
 ## Identity and boundaries
 
@@ -52,7 +52,7 @@ No real matching generative baseline exists for the new 60 case IDs. Baseline-de
 
 ## Accepted use and limits
 
-The 60 cases may test schema validity, chronology, cold start, scope resolution, correction and rejection semantics, authority precedence, conflict handling, attribution, evaluator accounting, and gold isolation. Owner re-review may accept them as a **conformance fixture only**.
+The 60 cases may test schema validity, chronology, cold start, scope resolution, correction and rejection semantics, authority precedence, conflict handling, attribution, evaluator accounting, and gold isolation. Owner Review accepted them as a **conformance fixture only**.
 
 They may **not** support claims that Preference improves accuracy or DeepSeek, Preference Net Benefit, Generative + Preference superiority, System One value, or production readiness. They must **not** become the ZDB-03B signal corpus. ZDB-03B remains a separate Owner-defined experiment requiring independently authored target metadata and historical preference evidence plus a legitimate same-case Generative baseline. No ZDB-03B corpus or baseline was created here. Numeric confidence/calibration and staleness modeling remain outside hypothesis v1. Product runtime, production database/schema, persistence, UI, and SemanticAssessmentV1 were not changed.
 

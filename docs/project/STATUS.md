@@ -48,7 +48,7 @@ Immediate implementation boundaries:
 
 Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; the ZDB-02 original baseline and canonical-enum remediation are COMPLETE/ACCEPTED; ZDB-03 Preference Memory Offline Hypothesis is ACTIVE FOR RESEARCH ONLY under its dedicated activation taskbook. PM-02 requires its own later activation and remains NOT ACTIVE. #270 remains separate. Release publication remains deferred.
 
-ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](../../research/zen-decision-bench/results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md) awaiting Owner re-review on Draft PR #300. Owner Review rejected these cases as a ZDB-03B signal/effectiveness corpus because history and expected choices share a positional construction template. The JSONL remains unchanged and may be accepted for conformance only. ZDB-03B is a separate future Owner-defined experiment; no production authority follows. ZDB-04+ remain NOT ACTIVE.
+ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](../../research/zen-decision-bench/results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md) on Draft PR #300. **OWNER REVIEW PASSED — ACCEPTED FOR CONFORMANCE ONLY** at `6d83ecceb31a655a1c8fb3482f07f1eaa215a2c3`. Owner Review rejected these cases as a ZDB-03B signal/effectiveness corpus because history and expected choices share a positional construction template. The JSONL remains unchanged and must never become the ZDB-03B signal corpus. ZDB-03B is a separate future Owner-defined experiment; no production authority follows. ZDB-04+ remain NOT ACTIVE.
 
 ## Release, schema and platform truth
 
