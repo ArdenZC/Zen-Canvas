@@ -98,6 +98,22 @@ No Phase 1 artifact may:
 - create Preference Memory production persistence;
 - activate PM-02.
 
+## ZDB-03 Preference research authority
+
+ZDB-03 is active for **offline research only** under [ZDB-03 Preference Memory Offline Hypothesis Activation](../../tasks/ZDB-03-PREFERENCE-MEMORY-OFFLINE-HYPOTHESIS-ACTIVATION.md).
+
+Core invariant:
+
+`Explicit User Truth != Preference != Rule`
+
+Preference may not lower deterministic safety, override current Explicit User Truth, silently become a Rule, or rewrite objective file-type/risk truth.
+
+Preference research inputs must be synthetic/non-sensitive, scoped, chronological, correction-aware, conflict-aware, and allowed to abstain.
+
+The locked ZDB test split may not be used to construct or tune preference rules, recency weighting, conflict resolution, or confidence.
+
+ZDB-04+ remain NOT ACTIVE.
+
 ## Evidence standard
 
 Every published result must bind:
