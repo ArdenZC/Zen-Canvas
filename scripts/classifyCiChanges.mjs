@@ -173,9 +173,13 @@ function isDbCorePath(path) {
 }
 
 function isSearchPath(path) {
+  // "research" contains the substring "search". Strip that lexical container
+  // before the legacy broad Search-name check so research-only paths do not
+  // accidentally trigger the product Search performance suite.
+  const searchComparablePath = path.replaceAll("research", "");
   return path.startsWith("src-tauri/src/global_index/")
     || path === "src-tauri/tests/fts_benchmark.rs"
-    || path.includes("search")
+    || searchComparablePath.includes("search")
     || path.includes("fts");
 }
 
