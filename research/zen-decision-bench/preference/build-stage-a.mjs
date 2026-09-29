@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Reproducible, synthetic Stage-A narratives. The target expectation is assigned
-// after each history is authored; no frozen ZDB case or provider result is read.
+// Reproducible synthetic conformance fixture only. Historical choices and
+// expected outputs share a positional template, so this is not signal evidence.
+// No frozen ZDB case or provider result is read. Do not rerun after corpus freeze.
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,13 +153,17 @@ const outputPath = fileURLToPath(new URL("../fixtures/preference-stage-a.v1.json
 const data = records.map((record) => JSON.stringify(record)).join("\n") + "\n";
 const manifest = {
   schema_version: "zdb.preference_stage_a_manifest.v1", corpus_file: "preference-stage-a.v1.jsonl",
-  status: "CANDIDATE — OWNER ADJUDICATION REQUIRED", frozen: false,
+  status: "CONFORMANCE-ONLY — NOT ELIGIBLE FOR ZDB-03B SIGNAL/EFFECTIVENESS EVIDENCE",
+  owner_review: "RE-REVIEW PENDING AFTER REQUIRED CHANGES", frozen: false,
   case_count: records.length, split_counts: validation.split_counts, task_counts: validation.task_counts,
   scenario_family_counts: counts, dataset_hash: validation.dataset_hash,
   file_sha256: createHash("sha256").update(data).digest("hex"),
   creation_commit: null,
   research_only: true, superiority_evidence: false,
-  evidence_note: "Synthetic conformance candidate. Owner adjudication is required before acceptance. No provider results or real user history were used. This is not Preference effectiveness evidence."
+  eligible_for_zdb_03b_signal: false, eligible_for_effectiveness_evidence: false,
+  accepted_purpose: ["schema_validity", "chronology", "cold_start", "scope_resolution", "correction_semantics", "rejection_semantics", "authority_precedence", "conflict_handling", "attribution", "evaluator_accounting", "gold_isolation"],
+  forbidden_claims: ["preference_improves_accuracy", "preference_improves_deepseek", "preference_net_benefit", "generative_preference_superiority", "system_one_value", "production_readiness"],
+  evidence_note: "Owner Review found family-coded gold-position structure from shared positional choice construction. Preserve this 60-case JSONL byte-for-byte as a deterministic conformance fixture only. It may be accepted for conformance after Owner re-review, but must never become the ZDB-03B signal/effectiveness corpus. No provider results or real user history were used."
 };
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, data, "utf8");

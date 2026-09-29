@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { readJsonl, sha256, validateDataset } from "../src/core.mjs";
-import { validatePreferenceCase } from "../preference/src/validate-context.mjs";
+import { scopeRefinesOrEquals, validatePreferenceCase } from "../preference/src/validate-context.mjs";
 import { aggregatePreference, projectPreferenceCase, runPreferenceArm } from "../preference/src/resolver.mjs";
 import { evaluatePreference, NO_REAL_BASELINE } from "../preference/src/evaluate.mjs";
 
@@ -43,6 +43,9 @@ describe("ZDB-03A corpus and locked ZDB boundaries", () => {
     expect(manifest.task_counts).toMatchObject({ existing_folder_choice: 36, suggested_action: 18, purpose: 3, lifecycle: 3 });
     expect(Object.values(manifest.scenario_family_counts)).toEqual(Array(10).fill(6));
     expect(manifest.frozen).toBe(false);
+    expect(manifest.status).toBe("CONFORMANCE-ONLY — NOT ELIGIBLE FOR ZDB-03B SIGNAL/EFFECTIVENESS EVIDENCE");
+    expect(manifest.eligible_for_zdb_03b_signal).toBe(false);
+    expect(manifest.eligible_for_effectiveness_evidence).toBe(false);
   });
   it("rejects invalid cold start, future evidence, future correction, missing linkage and wrong task", () => {
     const record = reset();
@@ -133,6 +136,41 @@ describe("ZDB-03A ordinal preference semantics", () => {
     const result = aggregatePreference(projected(record));
     expect(result.evidence_ids_superseded).not.toContain(narrowId);
     expect(result.recommendation).toBe("course_folder");
+  });
+  it.each([
+    ["global to workspace", { global_user: true }, "workspace", true, "shared_folder"],
+    ["workspace to workspace plus purpose", "workspace", "workspace-purpose", true, "shared_folder"],
+    ["equal workspace", "workspace", "workspace", true, "shared_folder"],
+    ["workspace to incomparable purpose", "workspace", "purpose", false, null],
+    ["purpose to incomparable workspace", "purpose", "workspace", false, null],
+    ["workspace plus purpose to broader workspace", "workspace-purpose", "workspace", false, "course_folder"]
+  ])("uses actual scope refinement for %s", (_label, priorName, correctionName, canSupersede, expected) => {
+    const record = reset();
+    const target = record.context.preference_target_scope;
+    const scopes = {
+      workspace: { workspace: target.workspace },
+      purpose: { purpose: target.purpose },
+      "workspace-purpose": { workspace: target.workspace, purpose: target.purpose }
+    };
+    const priorScope = typeof priorName === "string" ? scopes[priorName] : priorName;
+    const correctionScope = scopes[correctionName];
+    const old = [evidence(record, "explicit_selection", "course_folder", 4), evidence(record, "explicit_selection", "course_folder", 6)];
+    record.preference_context.preference_evidence[0].scope = priorScope;
+    record.preference_context.preference_evidence[1].scope = priorScope;
+    const correctionId = evidence(record, "explicit_correction", "shared_folder", 10, old);
+    record.preference_context.preference_evidence[2].scope = correctionScope;
+    expect(scopeRefinesOrEquals(correctionScope, priorScope)).toBe(canSupersede);
+    const result = aggregatePreference(projected(record));
+    expect(result.recommendation).toBe(expected);
+    expect(result.evidence_ids_superseded).toEqual(canSupersede ? old.sort() : []);
+    expect(result.evidence_ids_considered).toContain(correctionId);
+    if (!canSupersede) expect(result.evidence_ids_considered).toEqual(expect.arrayContaining(old));
+    if (priorName === "workspace" && correctionName === "purpose") {
+      expect(result.conflict_state).toBe("conflicting");
+      expect(result.evidence_ids_used).toEqual(expect.arrayContaining([...old, correctionId]));
+      record.preference_context.preference_evidence.reverse();
+      expect(aggregatePreference(projected(record))).toEqual(result);
+    }
   });
   it("abstains on equal conflict regardless of evidence ordering or case ID", () => {
     const record = byFamily("equal_conflict");
