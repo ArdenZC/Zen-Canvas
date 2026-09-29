@@ -1,0 +1,32 @@
+{
+  "schema_version": "zdb.corpus_manifest.v1",
+  "corpus_file": "initial-corpus.v1.jsonl",
+  "status": "DRAFT_NOT_ADJUDICATED",
+  "frozen": false,
+  "test_split_locked": false,
+  "dataset_hash": null,
+  "case_count": 120,
+  "task_counts": {
+    "domain_type": 20,
+    "purpose": 20,
+    "lifecycle": 20,
+    "risk_level": 20,
+    "suggested_action": 20,
+    "existing_folder_choice": 20
+  },
+  "split_counts": {
+    "pilot": 60,
+    "dev": 30,
+    "test": 30
+  },
+  "provenance_categories": [
+    "synthetic"
+  ],
+  "live_baseline": {
+    "adapter": "../adapters/managed-ai-deepseek.mjs",
+    "status": "NOT_RUN",
+    "first_allowed_split": "pilot",
+    "test_split_allowed_for_tuning": false
+  },
+  "evidence_note": "Construction draft only. No superiority, provider-quality, or production decision claim may be made until adjudication, freeze, live baseline execution, and owner review."
+}
