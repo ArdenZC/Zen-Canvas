@@ -6,14 +6,22 @@ Research-only benchmark harness for issue #283.
 
 ## Current scope
 
-Only ZDB-01 / ZDB-02 are active:
+- ZDB-01 — **COMPLETE / FROZEN**.
+- ZDB-02 original Generative baseline — **COMPLETE / ACCEPTED**.
+- ZDB-02 canonical-enum remediation — **COMPLETE / ACCEPTED**.
+- ZDB-03 Preference Memory Offline Hypothesis — **ACTIVE FOR RESEARCH ONLY**.
+- ZDB-04+ — **NOT ACTIVE**.
 
-- versioned finite-choice case/prediction contracts;
-- deterministic validation/evaluation;
-- smoke fixture and reproducibility runner;
-- later generative baseline evidence.
+ZDB-03 authority is limited to specification-bounded, synthetic, offline research.
+It does not authorize production Preference Memory persistence, implicit learning, PM-02,
+System One, Laya, Jev, or product behavior changes.
 
-ZDB-03 Preference Memory modeling and provider comparison are not active yet.
+Authoritative ZDB-03 contract:
+`docs/project/tasks/ZDB-03-PREFERENCE-MEMORY-OFFLINE-HYPOTHESIS-ACTIVATION.md`.
+
+Core invariant:
+
+`Explicit User Truth != Preference != Rule`.
 
 ## Smoke commands
 
