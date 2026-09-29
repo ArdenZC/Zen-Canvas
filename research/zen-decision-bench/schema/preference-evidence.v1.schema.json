@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zen-canvas.local/research/zdb/preference-evidence.v1.schema.json",
   "title": "ZenDecisionBench Preference Evidence v1",
+  "description": "One historical observation available before a target decision. This is research evidence, not production memory authority.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -28,7 +29,8 @@
         "explicit_selection",
         "explicit_correction",
         "explicit_rejection"
-      ]
+      ],
+      "description": "Evidence semantics. Numeric weights are intentionally not frozen in ZDB-03 activation."
     },
     "task": {
       "enum": [
@@ -40,14 +42,15 @@
     },
     "decision": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "The choice selected, accepted, corrected-to, or rejected according to kind."
     },
     "scope": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "global_user": {
-          "type": "boolean"
+          "const": true
         },
         "workspace": {
           "type": "string",
@@ -88,10 +91,6 @@
       "type": "string",
       "format": "date-time"
     },
-    "target_case_time": {
-      "type": "string",
-      "format": "date-time"
-    },
     "correction_of": {
       "type": "array",
       "uniqueItems": true,
@@ -99,22 +98,6 @@
         "type": "string",
         "minLength": 1
       }
-    },
-    "conflict_state": {
-      "enum": [
-        "none",
-        "weak",
-        "conflicting",
-        "superseded",
-        "unresolved"
-      ]
-    },
-    "ambiguity": {
-      "enum": [
-        "none",
-        "bounded",
-        "material"
-      ]
     },
     "provenance": {
       "type": "object",
@@ -145,5 +128,29 @@
         "minLength": 1
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "explicit_correction"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "correction_of"
+        ],
+        "properties": {
+          "correction_of": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
 }
