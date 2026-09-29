@@ -106,6 +106,8 @@ if (isLiveProvider) {
   if (corpusManifest.dataset_hash !== validation.dataset_hash) throw new Error("live_zdb_baseline_dataset_hash_mismatch");
   if (corpusManifest.test_split_locked !== true) throw new Error("live_zdb_baseline_requires_locked_test_split");
   if (corpusManifest.live_baseline?.first_allowed_split !== "pilot") throw new Error("live_zdb_baseline_manifest_split_mismatch");
+  if (typeof adapter.assertRunReady !== "function") throw new Error("live_adapter_must_export_assert_run_ready");
+  adapter.assertRunReady();
 }
 
 const runnerCommit = process.env.ZDB_RUNNER_COMMIT?.trim() || gitValue(["rev-parse", "HEAD"]);
