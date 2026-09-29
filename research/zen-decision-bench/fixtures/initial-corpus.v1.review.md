@@ -1,9 +1,9 @@
 # ZDB Initial Corpus V1 — First-Pass Semantic Review
 
-Status: **ORIGINAL 120 OWNER-ACCEPTED — PILOT EXPANSION FIRST-PASS COMPLETE — OWNER ADJUDICATION PENDING**
+Status: **OWNER ADJUDICATED — CORPUS FROZEN FOR ZDB-02 BASELINE**
 
 This document records the accepted review of the original 120-case draft plus a first-pass review of the 60-case pilot expansion.
-The 30-case test split is now locked, but the full 180-case corpus remains **unfrozen** until the expanded pilot labels receive owner adjudication.
+The 30-case test split is locked and the full 180-case corpus is now owner-adjudicated and frozen for ZDB-02 baseline measurement.
 
 ## Review rules
 
@@ -26,7 +26,7 @@ The 30-case test split is now locked, but the full 180-case corpus remains **unf
 - Synthetic provenance only.
 - No non-gold abstention permission.
 - Production canonical Purpose/Lifecycle/Risk/SuggestedAction choice coverage.
-- Original 120 labels owner-accepted; new 60 pilot labels remain owner-adjudication pending.
+- Original 120 labels owner-accepted; the added 60 pilot labels were accepted after a second-pass cross-corpus consistency review.
 
 ## First-pass corrections
 
@@ -90,13 +90,39 @@ The owner-accepted 30-case test split was not modified by the pilot expansion.
 
 The test split must not be used for prompt tuning, threshold fitting, mapping changes, calibration fitting, preference construction, or case-specific repair.
 
-## Current owner gate
+## Second-pass owner adjudication
 
-Before the full corpus may be marked frozen:
+The 60-case pilot expansion was re-reviewed against the original 120-case decision standard before freeze.
 
-1. owner accepts or edits the **new 60 pilot cases**;
-2. validator confirms 180 cases, 120 pilot, and 20 pilot cases per task family;
-3. final full-corpus dataset hash is written to the manifest;
-4. `frozen=true` is set without changing the locked test split;
-5. the first real Generative run is executed on pilot only;
-6. ZDB-01/ZDB-02 evidence is reviewed before ZDB-03 activation.
+Cross-corpus consistency checks confirmed:
+
+- personal media remains `Normal` unless metadata places it in a clearly private/sensitive context;
+- unknown executable/driver/firmware-like artifacts remain conservative (`Caution` or `Unknown`) rather than being promoted to safe;
+- Downloads items with clear semantics remain `Move`, while materially unknown items remain `Review`;
+- ambiguous existing-folder choices remain `abstain` rather than forcing a preference;
+- no new case was allowed to use abstention unless `gold=abstain`.
+
+No further gold-label changes were required after the first-pass pilot-expansion corrections.
+
+Owner disposition on 2026-09-29: **ACCEPTED**.
+
+## Freeze disposition
+
+The finite-choice corpus is frozen for ZDB-02 baseline work:
+
+- total cases: **180**
+- pilot/dev/test: **120 / 30 / 30**
+- pilot cases per required task family: **20**
+- frozen dataset hash: `d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68`
+- locked test split hash: `4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12`
+- exact duplicate / cross-split leakage: **0**
+
+Any future change to case facts, choices, labels, acceptable alternates, ambiguity, abstention permission, or split membership requires an explicit dataset version/change and a new hash. It must not silently mutate this frozen evidence.
+
+Next gate:
+
+1. execute the real current-Generative baseline on **pilot only**;
+2. persist predictions and reproducibility metadata;
+3. review accuracy, acceptable accuracy, abstention, unsafe-overclaim, provider failures, latency, calibration, and available cost/accounting;
+4. keep the locked test split untouched by prompt/mapping/threshold/calibration/preference tuning;
+5. owner-review ZDB-01/ZDB-02 evidence before ZDB-03 activation.
