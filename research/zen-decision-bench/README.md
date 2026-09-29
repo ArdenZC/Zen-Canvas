@@ -77,19 +77,20 @@ node research/zen-decision-bench/cli/evaluate-predictions.mjs \
   research/zen-decision-bench/fixtures/initial-corpus.v1.jsonl \
   .tmp-zdb/managed-ai-pilot.jsonl \
   --split pilot \
+  --run-manifest .tmp-zdb/managed-ai-pilot.run.json \
   --out .tmp-zdb/managed-ai-pilot.summary.json
 ```
 
 Do not use the locked test split for prompt, threshold, mapping, calibration, preference, or case-specific tuning. Provider runs must remain separately attributable and pilot-only until the ZDB-02 baseline review explicitly advances the research.
 
-A live provider run fails closed unless the corpus manifest is frozen, its dataset hash matches the validator, the test split is locked, the selected split is `pilot`, the tracked worktree is clean, a runner commit is available, and `DEEPSEEK_API_KEY` is present.
+A live provider run fails closed unless the corpus manifest is frozen, its full dataset hash and locked test-split hash both match the validator, the selected split is `pilot`, the manifest forbids test-split tuning, the tracked worktree is clean, the runner commit matches the actual Git HEAD when Git is available, and `DEEPSEEK_API_KEY` is present.
 
 Each run emits a `zdb.run.v2` sidecar containing:
 
 - frozen corpus/test hashes;
 - runner commit and tracked-worktree cleanliness;
 - Node version, platform, and architecture;
-- actual model/endpoint/settings after environment overrides;
+- actual model and sanitized exact endpoint URL/settings after environment overrides;
 - prompt-template SHA-256;
 - start/end timestamps;
 - explicit no-retry policy;
@@ -99,7 +100,7 @@ Each run emits a `zdb.run.v2` sidecar containing:
 - provider response model identifiers;
 - predictions SHA-256.
 
-The credential value and provider response bodies are never written to benchmark evidence.
+The credential value and provider response bodies are never written to benchmark evidence. The evaluation summary is also hash-bound to the prediction file and, for accepted live evidence, to the matching `zdb.run.v2` sidecar.
 
 ## Evidence threshold
 
