@@ -1,0 +1,27 @@
+{
+  "schema_version": "zdb.preference_signal_target_manifest.v1",
+  "schema_identity": "zdb.preference_signal_target.v1",
+  "artifact_file": "targets.v1.jsonl",
+  "count": 120,
+  "canonical_sha256": "9cefaa0ca0841caef41966bae86ebf3da1e4f89b7d99a5d45c87400e2203b278",
+  "file_sha256": "23067f3d1a350af790fc2ca7bc8658fbe2515005bfc2d3a80128cfe224ca0fed",
+  "task_counts": {
+    "existing_folder_choice": 72,
+    "lifecycle": 6,
+    "purpose": 6,
+    "suggested_action": 36
+  },
+  "control_counts": {
+    "cold_start_candidate": 12,
+    "explicit_truth_control": 6,
+    "non_intervention_control": 12,
+    "ordinary_preference_signal": 84,
+    "safety_control": 6
+  },
+  "creation_commit": null,
+  "provenance": "synthetic_independent_target_authoring",
+  "research_only": true,
+  "status": "CANDIDATE — OWNER REVIEW REQUIRED",
+  "owner_state": "OWNER REVIEW PENDING",
+  "next_gate": "Owner review and freeze of both B1 packs before B2"
+}

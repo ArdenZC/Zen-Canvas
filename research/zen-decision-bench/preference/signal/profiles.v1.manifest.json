@@ -1,0 +1,14 @@
+{
+  "schema_version": "zdb.preference_signal_profile_manifest.v1",
+  "schema_identity": "zdb.preference_signal_profile.v1",
+  "artifact_file": "profiles.v1.jsonl",
+  "count": 12,
+  "canonical_sha256": "e5fa7efa3aecf870c2cad899bf333141b4c651866483281b0a0eab7e79a96103",
+  "file_sha256": "37d67d8f5ba0bbcd7315a7b456cc8f9577af188933ee669e351348de1034ad48",
+  "creation_commit": null,
+  "provenance": "synthetic_independent_profile_authoring",
+  "research_only": true,
+  "status": "CANDIDATE — OWNER REVIEW REQUIRED",
+  "owner_state": "OWNER REVIEW PENDING",
+  "next_gate": "Owner review and freeze of both B1 packs before B2"
+}

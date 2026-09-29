@@ -80,3 +80,16 @@ A deterministic hash-based assignment joins profiles to targets. Historical evid
 The initial ZDB-03B screen contains 120 synthetic targets and is descriptive only. It does not satisfy the >=300 adjudicated comparative-corpus gate required before provider/hybrid superiority claims.
 
 ZDB-03B1 may create only the Profile Pack and Target Pack. History, gold/adjudication, assembled signal corpus, and provider execution remain gated behind later Owner review.
+
+### ZDB-03B1 candidate packs
+
+Status: **CANDIDATE — OWNER REVIEW REQUIRED**. The [B1 result](../results/ZDB-03B1-PROFILE-TARGET-CONSTRUCTION-RESULT.md) records the two independent synthetic packs and their hashes. `signal/profiles.v1.jsonl` contains 12 soft tendency profiles; `signal/targets.v1.jsonl` contains 120 current-file situations without adjudicated answers. Their schemas and separate manifests are under `schema/` and `signal/`.
+
+The profile and target builders are independent. The Target Pack uses symbolic workspace modes; there is no profile-to-target assignment. Neither pack contains a History Pool or target Preference Context. The target controls carry current Explicit User Truth or deterministic safety Rules as separate authorities, not benchmark gold. The candidate packs must be Owner-reviewed and frozen before B2 can start.
+
+From the repository root, validate the committed candidate packs with:
+
+```text
+node research/zen-decision-bench/preference/signal/validate-packs.mjs
+npm test -- research/zen-decision-bench/tests
+```
