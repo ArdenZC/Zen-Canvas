@@ -1,10 +1,10 @@
 {
   "schema_version": "zdb.corpus_manifest.v1",
   "corpus_file": "initial-corpus.v1.jsonl",
-  "status": "PILOT_EXPANDED_OWNER_ADJUDICATION_PENDING",
-  "frozen": false,
+  "status": "FROZEN_OWNER_ADJUDICATED",
+  "frozen": true,
   "test_split_locked": true,
-  "dataset_hash": null,
+  "dataset_hash": "d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68",
   "case_count": 180,
   "task_counts": {
     "domain_type": 30,
@@ -28,8 +28,7 @@
     "first_allowed_split": "pilot",
     "test_split_allowed_for_tuning": false
   },
-  "evidence_note": "The 30-case test split is locked and hash-bound. The 180-case corpus is not frozen because the new 60-case pilot expansion still requires owner adjudication. No provider-quality, superiority, or production decision claim is authorized.",
-  "draft_dataset_hash": "d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68",
+  "evidence_note": "Owner-adjudicated 180-case finite-choice corpus frozen for ZDB-02 baseline work. The 30-case test split remains independently hash-locked and forbidden for prompt, mapping, threshold, calibration, preference, or case-specific tuning. No provider-quality, superiority, or production architecture claim is authorized before provider-run evidence and the later comparative-corpus gate.",
   "test_split_hash": "4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12",
   "test_split_case_count": 30,
   "test_split_locked_from_master": "c80bdc7ba0c67a541abde79505dc5af0d3dc1e98",
@@ -43,6 +42,9 @@
   },
   "owner_adjudication": {
     "previously_reviewed_120": "ACCEPTED_2026-09-29",
-    "pilot_expansion_60": "PENDING_OWNER_REVIEW"
-  }
+    "pilot_expansion_60": "ACCEPTED_AFTER_SECOND_PASS_2026-09-29",
+    "full_corpus": "ACCEPTED_AND_FROZEN_2026-09-29"
+  },
+  "freeze_source_master": "c3a702813b08a0a5e8d4982cbe3a2be3cfdd8c5b",
+  "frozen_on": "2026-09-29"
 }
