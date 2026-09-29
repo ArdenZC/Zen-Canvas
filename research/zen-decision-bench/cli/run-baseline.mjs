@@ -105,15 +105,31 @@ if (isLiveProvider) {
   if (corpusManifest.frozen !== true) throw new Error("live_zdb_baseline_requires_frozen_dataset");
   if (corpusManifest.dataset_hash !== validation.dataset_hash) throw new Error("live_zdb_baseline_dataset_hash_mismatch");
   if (corpusManifest.test_split_locked !== true) throw new Error("live_zdb_baseline_requires_locked_test_split");
+  if (corpusManifest.test_split_hash !== validation.split_hashes.test) throw new Error("live_zdb_baseline_test_split_hash_mismatch");
   if (corpusManifest.live_baseline?.first_allowed_split !== "pilot") throw new Error("live_zdb_baseline_manifest_split_mismatch");
+  if (corpusManifest.live_baseline?.test_split_allowed_for_tuning !== false) {
+    throw new Error("live_zdb_baseline_test_split_tuning_must_be_forbidden");
+  }
+  if (corpusManifest.live_baseline?.required_run_schema !== "zdb.run.v2") {
+    throw new Error("live_zdb_baseline_run_schema_mismatch");
+  }
+  if (corpusManifest.live_baseline?.retry_policy !== "none") {
+    throw new Error("live_zdb_baseline_retry_policy_mismatch");
+  }
   if (typeof adapter.assertRunReady !== "function") throw new Error("live_adapter_must_export_assert_run_ready");
   adapter.assertRunReady();
 }
 
-const runnerCommit = process.env.ZDB_RUNNER_COMMIT?.trim() || gitValue(["rev-parse", "HEAD"]);
+const gitHeadCommit = gitValue(["rev-parse", "HEAD"]);
+const requestedRunnerCommit = process.env.ZDB_RUNNER_COMMIT?.trim() || null;
+if (gitHeadCommit && requestedRunnerCommit && requestedRunnerCommit !== gitHeadCommit) {
+  throw new Error("live_zdb_baseline_runner_commit_mismatch");
+}
+const runnerCommit = gitHeadCommit || requestedRunnerCommit;
 const trackedWorktreeState = gitValue(["status", "--porcelain", "--untracked-files=no"]);
 const trackedWorktreeClean = trackedWorktreeState === "";
 if (isLiveProvider && !runnerCommit) throw new Error("live_zdb_baseline_requires_runner_commit");
+if (isLiveProvider && !/^[0-9a-f]{40}$/u.test(runnerCommit)) throw new Error("live_zdb_baseline_invalid_runner_commit");
 if (isLiveProvider && !trackedWorktreeClean) throw new Error("live_zdb_baseline_requires_clean_tracked_worktree");
 
 const startedAt = new Date().toISOString();
@@ -181,7 +197,8 @@ const runManifest = {
     frozen: corpusManifest.frozen,
     dataset_hash: corpusManifest.dataset_hash,
     test_split_locked: corpusManifest.test_split_locked,
-    test_split_hash: corpusManifest.test_split_hash
+    test_split_hash: corpusManifest.test_split_hash,
+    validated_test_split_hash: validation.split_hashes.test
   } : null,
   runner: {
     commit: runnerCommit ?? "UNAVAILABLE",
