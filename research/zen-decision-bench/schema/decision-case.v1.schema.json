@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/decision-case.v1.schema.json",
+  "title": "ZenDecisionBench Decision Case v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "task",
+    "input",
+    "choices",
+    "gold",
+    "abstain_allowed",
+    "ambiguity",
+    "provenance",
+    "split",
+    "tags"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "zdb.case.v1"
+    },
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task": {
+      "enum": [
+        "domain_type",
+        "purpose",
+        "lifecycle",
+        "risk_level",
+        "suggested_action",
+        "existing_folder_choice"
+      ]
+    },
+    "input": {
+      "type": "object"
+    },
+    "context": {
+      "type": "object"
+    },
+    "choices": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "gold": {
+      "type": "string",
+      "minLength": 1
+    },
+    "acceptable": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "abstain_allowed": {
+      "type": "boolean"
+    },
+    "preference_context": {
+      "type": "object"
+    },
+    "ambiguity": {
+      "enum": [
+        "none",
+        "bounded",
+        "material"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "source"
+      ],
+      "properties": {
+        "category": {
+          "enum": [
+            "synthetic",
+            "repo_fixture",
+            "manual_nonsensitive"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "split": {
+      "enum": [
+        "pilot",
+        "dev",
+        "test"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
