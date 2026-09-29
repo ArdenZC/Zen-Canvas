@@ -34,17 +34,17 @@ npx vitest run research/zen-decision-bench/tests
 
 The smoke adapter is case-ID keyed and exists only to prove the harness. Its score is **not benchmark evidence**.
 
-## Initial corpus draft
+## Initial corpus and pilot expansion
 
-`fixtures/initial-corpus.v1.jsonl` currently contains 120 synthetic cases:
+`fixtures/initial-corpus.v1.jsonl` currently contains 180 synthetic cases:
 
-- 20 cases for each of the six required task families;
-- split counts: 60 pilot / 30 dev / 30 test;
+- 30 cases for each of the six required task families;
+- pilot minimum satisfied structurally: 20 pilot cases per task family;
+- split counts: 120 pilot / 30 dev / 30 test;
 - production canonical Purpose/Lifecycle/Risk/SuggestedAction choices;
 - abstention allowed only on cases whose gold label is `abstain`.
 
-This corpus is **DRAFT_NOT_ADJUDICATED**. It is not frozen evidence yet. See
-`fixtures/initial-corpus.v1.manifest.json`.
+The original 120-case labels are owner-accepted. The additional 60 pilot cases have completed a first-pass semantic review but remain **OWNER_ADJUDICATION_PENDING**, so the full corpus is not frozen yet. The 30-case test split is already locked by hash and must not be used for tuning. See `fixtures/initial-corpus.v1.manifest.json` and `fixtures/initial-corpus.v1.review.md`.
 
 The live Generative adapter `adapters/managed-ai-deepseek.mjs` mirrors the current production
 Managed AI metadata-only SemanticAssessmentV1 request contract:
@@ -77,8 +77,7 @@ node research/zen-decision-bench/cli/evaluate-predictions.mjs \
   --split pilot
 ```
 
-Do not use the test split for prompt, threshold, mapping, or preference tuning. Until adjudication
-and freeze are complete, even pilot results are exploratory rather than accepted benchmark evidence.
+Do not use the locked test split for prompt, threshold, mapping, calibration, or preference tuning. Until the 60-case pilot expansion is owner-adjudicated and the full 180-case corpus is frozen, even pilot results remain exploratory rather than accepted benchmark evidence.
 
 ## Evidence threshold
 

@@ -65,7 +65,7 @@ describe("ZenDecisionBench research contract", () => {
     }
   });
 
-  it("validates the 120-case initial corpus draft without upgrading it to benchmark evidence", () => {
+  it("validates the expanded pilot corpus while keeping the full corpus unfrozen", () => {
     const dataset = "research/zen-decision-bench/fixtures/initial-corpus.v1.jsonl";
     const manifestPath = "research/zen-decision-bench/fixtures/initial-corpus.v1.manifest.json";
     const validation = JSON.parse(runNode([
@@ -75,8 +75,24 @@ describe("ZenDecisionBench research contract", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
     expect(validation.valid).toBe(true);
-    expect(validation.count).toBe(120);
+    expect(validation.count).toBe(180);
     expect(validation.task_counts).toEqual({
+      domain_type: 30,
+      purpose: 30,
+      lifecycle: 30,
+      risk_level: 30,
+      suggested_action: 30,
+      existing_folder_choice: 30
+    });
+    expect(validation.split_counts).toEqual({ pilot: 120, dev: 30, test: 30 });
+    expect(manifest.status).toBe("PILOT_EXPANDED_OWNER_ADJUDICATION_PENDING");
+    expect(manifest.frozen).toBe(false);
+    expect(manifest.test_split_locked).toBe(true);
+    expect(manifest.dataset_hash).toBeNull();
+    expect(manifest.draft_dataset_hash).toBe(validation.dataset_hash);
+    expect(manifest.test_split_hash).toBe(validation.split_hashes.test);
+    expect(manifest.test_split_hash).toBe("4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12");
+    expect(manifest.pilot_task_counts).toEqual({
       domain_type: 20,
       purpose: 20,
       lifecycle: 20,
@@ -84,11 +100,8 @@ describe("ZenDecisionBench research contract", () => {
       suggested_action: 20,
       existing_folder_choice: 20
     });
-    expect(validation.split_counts).toEqual({ pilot: 60, dev: 30, test: 30 });
-    expect(manifest.status).toBe("DRAFT_NOT_ADJUDICATED");
-    expect(manifest.frozen).toBe(false);
-    expect(manifest.test_split_locked).toBe(false);
-    expect(manifest.dataset_hash).toBeNull();
+    expect(manifest.owner_adjudication.previously_reviewed_120).toBe("ACCEPTED_2026-09-29");
+    expect(manifest.owner_adjudication.pilot_expansion_60).toBe("PENDING_OWNER_REVIEW");
     expect(manifest.live_baseline.status).toBe("NOT_RUN");
     expect(manifest.live_baseline.first_allowed_split).toBe("pilot");
     expect(manifest.live_baseline.test_split_allowed_for_tuning).toBe(false);

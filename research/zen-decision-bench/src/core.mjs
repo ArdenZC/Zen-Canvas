@@ -155,6 +155,9 @@ export function validateDataset(records) {
     valid: issues.length === 0,
     count: records.length,
     dataset_hash: sha256(records),
+    split_hashes: Object.fromEntries(
+      SPLITS.map((split) => [split, sha256(records.filter((record) => record.split === split))])
+    ),
     task_counts: taskCounts,
     split_counts: splitCounts,
     issues
