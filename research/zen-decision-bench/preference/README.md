@@ -1,8 +1,8 @@
 # ZDB Preference Memory Research
 
-Status: **ZDB-03 OFFLINE RESEARCH CONTRACT ONLY**
+Status: **ZDB-03A OFFLINE PROTOTYPE CANDIDATE — OWNER REVIEW PENDING**
 
-This directory is reserved for future ZDB-03 offline preference fixtures and prototype code after the ZDB-03 activation receives Owner Review.
+This directory contains a deterministic offline prototype of the Owner-frozen ZDB-03 hypothesis. It is not product code or an accepted effectiveness result.
 
 Core invariant:
 
@@ -43,3 +43,16 @@ Do not add here:
 - frozen-test-derived preference rules.
 
 See \`docs/project/tasks/ZDB-03-PREFERENCE-MEMORY-OFFLINE-HYPOTHESIS-ACTIVATION.md\` for the authoritative contract.
+
+## Stage-A conformance
+
+The synthetic 60-case candidate is in `../fixtures/preference-stage-a.v1.jsonl`; its manifest and SHA-256 are next to it. The source generator is `build-stage-a.mjs`. The candidate was committed and hashed before its first full resolver run. Do not regenerate or relabel it to improve scores. See `../results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md` for the bounded result.
+
+Validate the candidate and run an offline arm from the repository root:
+
+```text
+node research/zen-decision-bench/cli/validate-preference-stage-a.mjs research/zen-decision-bench/fixtures/preference-stage-a.v1.jsonl research/zen-decision-bench/fixtures/preference-stage-a.v1.manifest.json
+node research/zen-decision-bench/cli/run-preference-hypothesis.mjs research/zen-decision-bench/fixtures/preference-stage-a.v1.jsonl --arm B --out .tmp-zdb/predictions.jsonl --summary .tmp-zdb/summary.json
+```
+
+Arms C and D accept `--baseline` with a complete, same-case `zdb.prediction.v1` JSONL file. A matching hash-bound `--baseline-run` is required before baseline-dependent metrics are treated as external run evidence. Without one, those metrics remain `NOT_EVALUATED_NO_REAL_BASELINE`. No provider call or API key is part of this runner.

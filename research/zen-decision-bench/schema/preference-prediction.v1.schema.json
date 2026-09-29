@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/preference-prediction.v1.schema.json",
+  "title": "ZenDecisionBench Preference Prediction v1 (offline research only)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "case_id", "arm", "baseline_decision", "baseline_error",
+    "preference_recommendation", "final_decision", "decision_source", "preference_applied",
+    "support_level", "support_basis", "evidence_ids_considered", "evidence_ids_used", "evidence_ids_superseded",
+    "matched_specificity", "matched_scope_dimensions", "latest_correction_at", "conflict_state",
+    "abstention_reason", "failure_code"
+  ],
+  "properties": {
+    "schema_version": { "const": "zdb.preference_prediction.v1" },
+    "case_id": { "type": "string", "minLength": 1 },
+    "arm": { "enum": ["B", "C", "D"] },
+    "baseline_decision": { "type": ["string", "null"] },
+    "baseline_error": { "type": ["string", "null"] },
+    "preference_recommendation": { "type": ["string", "null"] },
+    "final_decision": { "type": "string", "minLength": 1 },
+    "decision_source": { "enum": [
+      "safety_rule", "explicit_user_truth", "user_rule", "preference", "generative_baseline",
+      "generative_preference_agreement", "preference_without_generative", "cold_start_baseline",
+      "abstain_weak_preference", "abstain_conflict", "abstain_generative_preference_disagreement", "research_error"
+    ] },
+    "preference_applied": { "type": "boolean" },
+    "support_level": { "enum": ["none", "weak", "supported", "correction_backed"] },
+    "support_basis": { "enum": ["none", "insufficient", "conflict", "explicit_correction", "consistent_explicit_selection", "consistent_passive_acceptance"] },
+    "evidence_ids_considered": { "$ref": "#/$defs/ids" },
+    "evidence_ids_used": { "$ref": "#/$defs/ids" },
+    "evidence_ids_superseded": { "$ref": "#/$defs/ids" },
+    "matched_specificity": { "type": ["integer", "null"], "minimum": 0 },
+    "matched_scope_dimensions": { "type": "array", "uniqueItems": true, "items": { "enum": ["workspace", "managed_folder", "parent_family", "task_family", "domain_type", "purpose", "lifecycle"] } },
+    "latest_correction_at": { "type": ["string", "null"], "format": "date-time" },
+    "conflict_state": { "enum": ["none", "weak", "conflicting", "superseded", "unresolved"] },
+    "abstention_reason": { "type": ["string", "null"] },
+    "failure_code": { "enum": [
+      null, "no_preference_evidence", "weak_preference_evidence", "conflicting_preference_evidence",
+      "stale_preference", "scope_mismatch", "preference_overrode_explicit_truth",
+      "preference_overrode_safety", "preference_induced_wrong_decision", "unjustified_preference_guess",
+      "correct_preference_correction", "correct_preference_abstention",
+      "generative_preference_disagreement", "unclassified_research_error"
+    ] }
+  },
+  "$defs": {
+    "ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+  }
+}
