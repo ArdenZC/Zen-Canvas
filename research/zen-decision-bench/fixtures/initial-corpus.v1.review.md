@@ -1,9 +1,9 @@
 # ZDB Initial Corpus V1 — First-Pass Semantic Review
 
-Status: **FIRST_PASS_COMPLETE — OWNER_ADJUDICATION_PENDING**
+Status: **ORIGINAL 120 OWNER-ACCEPTED — PILOT EXPANSION FIRST-PASS COMPLETE — OWNER ADJUDICATION PENDING**
 
-This document records a manual semantic review of the 120-case construction draft.
-It does **not** freeze the corpus and does **not** upgrade it to accepted benchmark evidence.
+This document records the accepted review of the original 120-case draft plus a first-pass review of the 60-case pilot expansion.
+The 30-case test split is now locked, but the full 180-case corpus remains **unfrozen** until the expanded pilot labels receive owner adjudication.
 
 ## Review rules
 
@@ -66,3 +66,42 @@ Before setting `frozen=true` or locking the test split:
 4. no prompt, mapping, threshold, or preference tuning uses the locked test split;
 5. the first real Generative run is executed on pilot only;
 6. ZDB-01/02 evidence is reviewed before ZDB-03 activation.
+
+
+## Pilot minimum reconciliation
+
+The Phase 1 activation requires the **pilot corpus itself** to contain at least 120 adjudicated finite-choice cases and at least 20 cases per required task family.
+
+The original corpus had 120 total cases but only 60 pilot cases. The pilot was therefore expanded by 60 synthetic cases:
+
+- 120 pilot / 30 dev / 30 test;
+- 20 pilot cases per each of the six required task families;
+- 180 total cases;
+- zero exact duplicate or cross-split leakage under the ZDB content fingerprint.
+
+First-pass expansion corrections:
+
+- `domain-30 disk-image.iso`: `ArchivePackage` is an acceptable alternate to `Other`;
+- `folder-29 voice-recording.m4a`: changed Personal/Audio -> `abstain` because Work/Meetings vs Personal/Audio is not justified by metadata alone;
+- `folder-28` and `folder-30` remain gold-abstain material-ambiguity cases.
+
+## Test split lock
+
+The owner-accepted 30-case test split was not modified by the pilot expansion.
+
+- test case count: **30**
+- locked test split hash: `4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12`
+- lock source: `master@c80bdc7ba0c67a541abde79505dc5af0d3dc1e98`
+
+The test split must not be used for prompt tuning, threshold fitting, mapping changes, calibration fitting, preference construction, or case-specific repair.
+
+## Current owner gate
+
+Before the full corpus may be marked frozen:
+
+1. owner accepts or edits the **new 60 pilot cases**;
+2. validator confirms 180 cases, 120 pilot, and 20 pilot cases per task family;
+3. final full-corpus dataset hash is written to the manifest;
+4. `frozen=true` is set without changing the locked test split;
+5. the first real Generative run is executed on pilot only;
+6. ZDB-01/ZDB-02 evidence is reviewed before ZDB-03 activation.
