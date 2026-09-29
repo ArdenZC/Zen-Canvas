@@ -6,7 +6,7 @@ Status: **CANDIDATE — OWNER REVIEW REQUIRED**. These are research instruments 
 
 - Starting clean master: `f4cd11d03ff95cf33590b712913018d71396b424` (PR #301 squash merge; tree `a0ae8fc9838b00ae4971d177eb4ea105ba2c3f82`).
 - Branch: `research/zdb-03b1-profile-target-construction`.
-- Changed files: `docs/project/STATUS.md`; `research/zen-decision-bench/preference/README.md`; `research/zen-decision-bench/preference/signal/{vocabulary.mjs,build-profiles.mjs,build-targets.mjs,validate-packs.mjs,profiles.v1.jsonl,profiles.v1.manifest.json,targets.v1.jsonl,targets.v1.manifest.json}`; `research/zen-decision-bench/schema/{preference-signal-profile.v1.schema.json,preference-signal-target.v1.schema.json}`; `research/zen-decision-bench/tests/preference-signal-b1.test.mjs`; this result.
+- Changed files: `docs/project/STATUS.md`; `research/zen-decision-bench/preference/README.md`; `research/zen-decision-bench/preference/signal/{.gitattributes,vocabulary.mjs,build-profiles.mjs,build-targets.mjs,validate-packs.mjs,profiles.v1.jsonl,profiles.v1.manifest.json,targets.v1.jsonl,targets.v1.manifest.json}`; `research/zen-decision-bench/schema/{preference-signal-profile.v1.schema.json,preference-signal-target.v1.schema.json}`; `research/zen-decision-bench/tests/preference-signal-b1.test.mjs`; this result.
 - No production code, schema, runtime, UI, dependency, resolver, or support-threshold change.
 
 ## Candidate pack identities
@@ -17,6 +17,8 @@ Status: **CANDIDATE — OWNER REVIEW REQUIRED**. These are research instruments 
 | Target | `preference/signal/targets.v1.jsonl` | `zdb.preference_signal_target.v1` | 120 | `9cefaa0ca0841caef41966bae86ebf3da1e4f89b7d99a5d45c87400e2203b278` | `23067f3d1a350af790fc2ca7bc8658fbe2515005bfc2d3a80128cfe224ca0fed` |
 
 The Profile Pack has IDs `profile-01`–`profile-12`, 12 distinct primary workspace IDs, and 12 distinct tendency sets. Every profile has four folder-choice tendencies, three suggested-action tendencies, and at least one explicit exception. Total tendencies: 48 folder + 36 action = 84. They are qualified soft habits with no numeric weights, probabilities, confidence, case references, or deterministic Rule authority.
+
+The B1-local `.gitattributes` keeps the two JSONL packs at LF on Windows and macOS/Linux checkouts, so their recorded file hashes identify the same bytes across platforms. It does not touch the frozen legacy corpora.
 
 The Target Pack has contiguous IDs `zdb03b-target-001`–`zdb03b-target-120`. The exact task distribution is 72 `existing_folder_choice`, 36 `suggested_action`, 6 `purpose`, 6 `lifecycle`, 0 `domain_type`, and 0 `risk_level`. The 108 folder/action cases comprise 84 ordinary preference-signal candidates, 12 mutually exclusive cold-start candidates, 6 current Explicit User Truth controls, and 6 deterministic safety controls. The 12 purpose/lifecycle cases are `non_intervention_control`.
 
