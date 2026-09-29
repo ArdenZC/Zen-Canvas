@@ -196,21 +196,47 @@ describe("Managed AI DeepSeek baseline adapter", () => {
     ).decision).toBe("abstain");
   });
 
-  it("accepts cleaned JSON content but fails closed on extra authority-like fields", async () => {
+  it("parses raw final JSON exactly like Managed AI and rejects fenced output", async () => {
     const cases = await byId();
     const testCase = cases.get("purpose-01");
     const clean = assessment(testCase, { purpose: "Teaching" });
 
-    const response = {
+    const rawJsonResponse = {
+      choices: [{ message: { content: JSON.stringify(clean) } }]
+    };
+    expect(parseProviderResponse(testCase, rawJsonResponse).decision).toBe("teaching");
+
+    const fencedResponse = {
       choices: [{
         message: {
           content: `\`\`\`json\n${JSON.stringify(clean)}\n\`\`\``
         }
       }]
     };
-    expect(parseProviderResponse(testCase, response).decision).toBe("teaching");
+    expect(() => parseProviderResponse(testCase, fencedResponse)).toThrow();
 
     const extra = { ...clean, operationId: "op-1" };
     expect(() => assessmentToDecision(testCase, extra)).toThrow(/managed_ai_unknown_field/u);
+  });
+
+  it("accepts only the exact legacy V0 envelope that production still migrates", async () => {
+    const cases = await byId();
+    const testCase = cases.get("purpose-05");
+    const v0 = {
+      refId: buildManagedMetadata(testCase).refId,
+      fileType: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      riskLevel: "Normal",
+      suggestedAction: "Keep",
+      confidence: 0.9,
+      reason: "legacy compatible result"
+    };
+    expect(assessmentToDecision(testCase, v0).decision).toBe("work");
+
+    expect(() => assessmentToDecision(testCase, {
+      ...v0,
+      context: "V1-only field on V0"
+    })).toThrow(/managed_ai_unknown_field/u);
   });
 });
