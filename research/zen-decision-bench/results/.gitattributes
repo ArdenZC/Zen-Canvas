@@ -3,3 +3,8 @@
 /evidence/zdb-02-deepseek-pilot-baseline/run.json text eol=lf
 /evidence/zdb-02-deepseek-pilot-baseline/summary.json text eol=lf
 /evidence/zdb-02-deepseek-pilot-baseline/SHA256SUMS.txt text eol=lf
+/ZDB-02-CANONICAL-ENUM-REMEDIATION-RESULT.md text eol=lf
+/evidence/zdb-02-canonical-enum-remediation/predictions.jsonl text eol=lf
+/evidence/zdb-02-canonical-enum-remediation/run.json text eol=lf
+/evidence/zdb-02-canonical-enum-remediation/summary.json text eol=lf
+/evidence/zdb-02-canonical-enum-remediation/SHA256SUMS.txt text eol=lf
