@@ -122,7 +122,7 @@ if (isLiveProvider) {
 
 const gitHeadCommit = gitValue(["rev-parse", "HEAD"]);
 const requestedRunnerCommit = process.env.ZDB_RUNNER_COMMIT?.trim() || null;
-if (gitHeadCommit && requestedRunnerCommit && requestedRunnerCommit !== gitHeadCommit) {
+if (isLiveProvider && gitHeadCommit && requestedRunnerCommit && requestedRunnerCommit !== gitHeadCommit) {
   throw new Error("live_zdb_baseline_runner_commit_mismatch");
 }
 const runnerCommit = gitHeadCommit || requestedRunnerCommit;
