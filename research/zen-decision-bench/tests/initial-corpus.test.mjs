@@ -34,34 +34,38 @@ function assessment(testCase, overrides = {}) {
 }
 
 describe("ZenDecisionBench initial corpus", () => {
-  it("is a valid 120-case six-task draft with balanced task families and fixed split counts", async () => {
+  it("is a valid 180-case six-task draft with the Phase 1 pilot minimum", async () => {
     const records = await readJsonl(corpusPath);
     const validation = validateDataset(records);
     expect(validation.valid).toBe(true);
-    expect(validation.count).toBe(120);
+    expect(validation.count).toBe(180);
     expect(validation.task_counts).toEqual({
-      domain_type: 20,
-      purpose: 20,
-      lifecycle: 20,
-      risk_level: 20,
-      suggested_action: 20,
-      existing_folder_choice: 20
+      domain_type: 30,
+      purpose: 30,
+      lifecycle: 30,
+      risk_level: 30,
+      suggested_action: 30,
+      existing_folder_choice: 30
     });
-    expect(validation.split_counts).toEqual({ pilot: 60, dev: 30, test: 30 });
+    expect(validation.split_counts).toEqual({ pilot: 120, dev: 30, test: 30 });
     expect(validation.dataset_hash).toMatch(/^[a-f0-9]{64}$/u);
   });
 
   it("contains only synthetic provenance and does not treat non-gold abstention as correct by construction", async () => {
     const records = await readJsonl(corpusPath);
+    const allowedSources = new Set([
+      "zdb-initial-corpus-v1",
+      "zdb-initial-corpus-v1-pilot-expansion"
+    ]);
     expect(records.every((record) =>
       record.provenance.category === "synthetic"
-      && record.provenance.source === "zdb-initial-corpus-v1"
+      && allowedSources.has(record.provenance.source)
     )).toBe(true);
 
     const abstainAllowed = records
       .filter((record) => record.abstain_allowed)
       .map((record) => record.case_id);
-    expect(abstainAllowed).toEqual(["folder-02", "folder-15", "folder-19", "folder-20"]);
+    expect(abstainAllowed).toEqual(["folder-02", "folder-15", "folder-19", "folder-20", "folder-28", "folder-29", "folder-30"]);
     expect(records.filter((record) => record.abstain_allowed).every((record) => record.gold === "abstain")).toBe(true);
   });
 
