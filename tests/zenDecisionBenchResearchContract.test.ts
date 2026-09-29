@@ -164,5 +164,9 @@ describe("ZenDecisionBench research contract", () => {
     expect(manifest.live_baseline.status).toBe("NOT_RUN");
     expect(manifest.live_baseline.first_allowed_split).toBe("pilot");
     expect(manifest.live_baseline.test_split_allowed_for_tuning).toBe(false);
+    expect(manifest.live_baseline.required_run_schema).toBe("zdb.run.v2");
+    expect(manifest.live_baseline.requires_frozen_manifest).toBe(true);
+    expect(manifest.live_baseline.requires_clean_tracked_worktree).toBe(true);
+    expect(manifest.live_baseline.retry_policy).toBe("none");
   });
 });
