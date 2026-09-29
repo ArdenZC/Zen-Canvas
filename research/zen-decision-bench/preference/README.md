@@ -62,7 +62,7 @@ Arms C and D accept `--baseline` with a complete, same-case `zdb.prediction.v1` 
 
 ## ZDB-03B signal screen
 
-**Owner Review passed for the definition. On merge, only ZDB-03B1 Profile + Target construction is active.**
+**Owner Review passed for the definition. ZDB-03B1 Profile + Target packs are now Owner-frozen; merge of PR #302 activates only ZDB-03B2 assignment + History + separate Owner Adjudication construction.**
 
 The Owner-defined research slice is documented in:
 
@@ -80,3 +80,16 @@ A deterministic hash-based assignment joins profiles to targets. Historical evid
 The initial ZDB-03B screen contains 120 synthetic targets and is descriptive only. It does not satisfy the >=300 adjudicated comparative-corpus gate required before provider/hybrid superiority claims.
 
 ZDB-03B1 may create only the Profile Pack and Target Pack. History, gold/adjudication, assembled signal corpus, and provider execution remain gated behind later Owner review.
+
+### ZDB-03B1 frozen packs
+
+Status: **OWNER REVIEW PASSED — FROZEN FOR ZDB-03B2 INPUT**. The [B1 result](../results/ZDB-03B1-PROFILE-TARGET-CONSTRUCTION-RESULT.md) records the two independent synthetic packs and their hashes. `signal/profiles.v1.jsonl` contains 12 soft tendency profiles; `signal/targets.v1.jsonl` contains 120 current-file situations without adjudicated answers. Their schemas and separate manifests are under `schema/` and `signal/`.
+
+The profile and target builders are independent. Both use a shared, bounded `parent_family` vocabulary for exact resolver-compatible scope identity: each Profile tendency carries `scope_parent_family`, and each Target carries its authored scenario family in `scope_template.parent_family`. Human `context_tags` do not authorize matching. Purpose/lifecycle controls use dedicated non-matching families. Target file times are independently authored as ages relative to each target decision time. The Target Pack uses symbolic workspace modes; there is no profile-to-target assignment. Neither pack contains a History Pool or target Preference Context. The target controls carry current Explicit User Truth or deterministic safety Rules as separate authorities, not benchmark gold. Owner re-review passed at `020b2270464a2c6b7cf98c886d3f5293e2e41b65`. Both pack hashes are frozen; merge of PR #302 activates B2 assignment + History + separate Owner Adjudication construction only. Provider execution remains gated.
+
+From the repository root, validate the committed candidate packs with:
+
+```text
+node research/zen-decision-bench/preference/signal/validate-packs.mjs
+npm test -- research/zen-decision-bench/tests
+```

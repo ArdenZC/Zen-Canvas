@@ -1,0 +1,27 @@
+{
+  "schema_version": "zdb.preference_signal_target_manifest.v1",
+  "schema_identity": "zdb.preference_signal_target.v1",
+  "artifact_file": "targets.v1.jsonl",
+  "count": 120,
+  "canonical_sha256": "96f975ef10148a49f47068c578dd76ccd69ab3cf3f81167de2e227de32b735c4",
+  "file_sha256": "b414f7510345c95e0629f34780dce1125b0f71c12a84cdf5c555d01d1c5217aa",
+  "task_counts": {
+    "existing_folder_choice": 72,
+    "lifecycle": 6,
+    "purpose": 6,
+    "suggested_action": 36
+  },
+  "control_counts": {
+    "cold_start_candidate": 12,
+    "explicit_truth_control": 6,
+    "non_intervention_control": 12,
+    "ordinary_preference_signal": 84,
+    "safety_control": 6
+  },
+  "creation_commit": null,
+  "provenance": "synthetic_independent_target_authoring",
+  "research_only": true,
+  "status": "FROZEN — OWNER REVIEW PASSED",
+  "owner_state": "OWNER REVIEW PASSED — ACCEPTED FOR ZDB-03B2 INPUT",
+  "next_gate": "Merge of PR #302 activates ZDB-03B2 assignment + History + Owner adjudication; provider execution remains unauthorized"
+}

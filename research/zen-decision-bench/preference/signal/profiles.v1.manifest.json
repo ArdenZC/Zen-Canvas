@@ -1,0 +1,14 @@
+{
+  "schema_version": "zdb.preference_signal_profile_manifest.v1",
+  "schema_identity": "zdb.preference_signal_profile.v1",
+  "artifact_file": "profiles.v1.jsonl",
+  "count": 12,
+  "canonical_sha256": "371519fe7c9f28d3c686e0299c223d64a57b00571777cab498668667498137b1",
+  "file_sha256": "211a879964dfa6bccbadd78e4ad739f4d8324a71dbd974f9fc7a81d0f27ed5fe",
+  "creation_commit": null,
+  "provenance": "synthetic_independent_profile_authoring",
+  "research_only": true,
+  "status": "FROZEN — OWNER REVIEW PASSED",
+  "owner_state": "OWNER REVIEW PASSED — ACCEPTED FOR ZDB-03B2 INPUT",
+  "next_gate": "Merge of PR #302 activates ZDB-03B2 assignment + History + Owner adjudication; provider execution remains unauthorized"
+}

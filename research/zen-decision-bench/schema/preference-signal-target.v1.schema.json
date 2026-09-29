@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/preference-signal-target.v1.schema.json",
+  "title": "ZDB-03B1 synthetic current target candidate without adjudication",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "case_id", "task", "input", "target_at", "choices", "ambiguity", "authoring_tags", "scope_template", "control_class", "provenance"],
+  "properties": {
+    "schema_version": { "const": "zdb.preference_signal_target.v1" },
+    "case_id": { "type": "string", "pattern": "^zdb03b-target-(0[0-9][1-9]|0[1-9][0-9]|1[01][0-9]|120)$" },
+    "task": { "enum": ["existing_folder_choice", "suggested_action", "purpose", "lifecycle"] },
+    "input": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "extension", "size", "modified_at_fs", "parent", "is_directory"],
+      "properties": {
+        "name": { "type": "string", "minLength": 3 },
+        "extension": { "type": "string", "minLength": 1 },
+        "size": { "type": "integer", "minimum": 0 },
+        "modified_at_fs": { "type": "integer", "minimum": 0 },
+        "parent": { "enum": ["C:/ZDB03B/Inbox", "C:/ZDB03B/Downloads"] },
+        "is_directory": { "const": false }
+      }
+    },
+    "target_at": { "type": "string", "format": "date-time" },
+    "choices": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/choice" } },
+    "ambiguity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["level", "axes"],
+      "properties": {
+        "level": { "enum": ["bounded", "material"] },
+        "axes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 3 } }
+      }
+    },
+    "authoring_tags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 3 } },
+    "scope_template": { "$ref": "#/$defs/scope_template" },
+    "control_class": { "enum": ["ordinary_preference_signal", "cold_start_candidate", "explicit_truth_control", "safety_control", "non_intervention_control"] },
+    "explicit_user_truth": { "$ref": "#/$defs/truth" },
+    "deterministic_rule": { "$ref": "#/$defs/rule" },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "choice": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label"],
+      "properties": { "id": { "type": "string", "minLength": 1 }, "label": { "type": "string", "minLength": 1 } }
+    },
+    "scope_template": {
+      "type": "object", "additionalProperties": false,
+      "required": ["workspace_mode", "task_family", "parent_family"],
+      "properties": {
+        "workspace_mode": { "enum": ["assigned_profile_primary", "assigned_profile_novel"] },
+        "task_family": { "enum": ["existing_folder_choice", "suggested_action", "purpose", "lifecycle"] },
+        "parent_family": { "enum": ["authored_learning", "received_learning", "active_work", "completed_work", "reusable_reference", "personal_admin", "financial_documents", "media_assets", "ambiguous_inbox", "project_reference", "teaching_study_crossover", "stale_material", "purpose_control", "lifecycle_control"] }
+      }
+    },
+    "truth": {
+      "type": "object", "additionalProperties": false,
+      "required": ["truth_id", "task", "decision", "statement", "scope_template", "asserted_at"],
+      "properties": {
+        "truth_id": { "type": "string", "minLength": 1 },
+        "task": { "enum": ["existing_folder_choice", "suggested_action"] },
+        "decision": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 20 },
+        "scope_template": { "$ref": "#/$defs/scope_template" },
+        "asserted_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "rule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["rule_id", "authority", "task", "decision", "statement", "scope_template", "asserted_at"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "authority": { "const": "safety_rule" },
+        "task": { "const": "suggested_action" },
+        "decision": { "const": "review" },
+        "statement": { "type": "string", "minLength": 20 },
+        "scope_template": { "$ref": "#/$defs/scope_template" },
+        "asserted_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false, "required": ["category", "source"],
+      "properties": { "category": { "const": "synthetic" }, "source": { "type": "string", "minLength": 1 } }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "control_class": { "const": "cold_start_candidate" } } }, "then": { "properties": { "scope_template": { "properties": { "workspace_mode": { "const": "assigned_profile_novel" } } } }, "not": { "anyOf": [{ "required": ["explicit_user_truth"] }, { "required": ["deterministic_rule"] }] } } },
+    { "if": { "properties": { "control_class": { "const": "explicit_truth_control" } } }, "then": { "required": ["explicit_user_truth"], "not": { "required": ["deterministic_rule"] } } },
+    { "if": { "properties": { "control_class": { "const": "safety_control" } } }, "then": { "required": ["deterministic_rule"], "not": { "required": ["explicit_user_truth"] } } },
+    { "if": { "properties": { "control_class": { "enum": ["ordinary_preference_signal", "non_intervention_control"] } } }, "then": { "not": { "anyOf": [{ "required": ["explicit_user_truth"] }, { "required": ["deterministic_rule"] }] } } }
+  ]
+}
