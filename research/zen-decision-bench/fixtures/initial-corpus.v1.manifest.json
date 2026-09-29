@@ -31,7 +31,11 @@
     "requires_frozen_manifest": true,
     "requires_clean_tracked_worktree": true,
     "retry_policy": "none",
-    "cost_accounting": "MEASURE_PROVIDER_USAGE_TOKENS_MONETARY_COST_UNAVAILABLE_WITHOUT_FROZEN_PRICE_SOURCE"
+    "cost_accounting": "MEASURE_PROVIDER_USAGE_TOKENS_MONETARY_COST_UNAVAILABLE_WITHOUT_FROZEN_PRICE_SOURCE",
+    "requires_test_split_hash_match": true,
+    "requires_runner_commit_match": true,
+    "evaluation_requires_run_manifest": true,
+    "endpoint_evidence": "SANITIZED_EXACT_URL"
   },
   "evidence_note": "Owner-adjudicated 180-case finite-choice corpus frozen for ZDB-02 baseline work. The 30-case test split remains independently hash-locked and forbidden for prompt, mapping, threshold, calibration, preference, or case-specific tuning. No provider-quality, superiority, or production architecture claim is authorized before provider-run evidence and the later comparative-corpus gate.",
   "test_split_hash": "4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12",
