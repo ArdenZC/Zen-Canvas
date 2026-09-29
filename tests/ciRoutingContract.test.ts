@@ -61,6 +61,20 @@ describe("CI change routing", () => {
     expect(scope.macos_sensitive).toBe(true);
   });
 
+  it("does not confuse research-only paths with product Search changes", () => {
+    for (const changedPath of [
+      "research/zen-decision-bench/src/core.mjs",
+      "research/zen-decision-bench/fixtures/pilot.v1.jsonl",
+      "tests/zenDecisionBenchResearchContract.test.ts",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.perf_search, changedPath).toBe(false);
+    }
+
+    expect(route(["src/api/globalSearchApi.ts"]).perf_search).toBe(true);
+    expect(route(["src/search.css"]).perf_search).toBe(true);
+  });
+
   it("routes scanner changes to Scan/Schema 100k only", () => {
     const scope = route(["src-tauri/src/scanner/reconcile.rs"]);
     expect(performanceFlags(scope)).toEqual([false, true, false, false, false, false]);
