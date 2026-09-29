@@ -247,9 +247,11 @@ ZDB-05 remains the calibration/robustness phase.
 
 ## 9. Conflict state
 
-Preference evidence must represent disagreement rather than averaging it away.
+Conflict is a **derived aggregate state over a Preference Context**, not a field authored independently on each historical evidence record. This prevents the input observation from carrying the answer to the conflict-resolution problem.
 
-Allowed research conflict states:
+The later offline hypothesis must derive disagreement rather than averaging it away.
+
+Allowed derived research conflict states:
 
 - \`none\`
 - \`weak\`
