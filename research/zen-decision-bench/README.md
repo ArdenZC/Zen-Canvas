@@ -69,15 +69,37 @@ DEEPSEEK_API_KEY=... node research/zen-decision-bench/cli/run-baseline.mjs \
   research/zen-decision-bench/fixtures/initial-corpus.v1.jsonl \
   research/zen-decision-bench/adapters/managed-ai-deepseek.mjs \
   .tmp-zdb/managed-ai-pilot.jsonl \
-  --split pilot
+  --split pilot \
+  --manifest research/zen-decision-bench/fixtures/initial-corpus.v1.manifest.json \
+  --run-manifest .tmp-zdb/managed-ai-pilot.run.json
 
 node research/zen-decision-bench/cli/evaluate-predictions.mjs \
   research/zen-decision-bench/fixtures/initial-corpus.v1.jsonl \
   .tmp-zdb/managed-ai-pilot.jsonl \
-  --split pilot
+  --split pilot \
+  --out .tmp-zdb/managed-ai-pilot.summary.json
 ```
 
 Do not use the locked test split for prompt, threshold, mapping, calibration, preference, or case-specific tuning. Provider runs must remain separately attributable and pilot-only until the ZDB-02 baseline review explicitly advances the research.
+
+A live provider run fails closed unless the corpus manifest is frozen, its dataset hash matches the validator, the test split is locked, the selected split is `pilot`, the tracked worktree is clean, a runner commit is available, and `DEEPSEEK_API_KEY` is present.
+
+Each run emits a `zdb.run.v2` sidecar containing:
+
+- frozen corpus/test hashes;
+- runner commit and tracked-worktree cleanliness;
+- Node version, platform, and architecture;
+- actual model/endpoint/settings after environment overrides;
+- prompt-template SHA-256;
+- start/end timestamps;
+- explicit no-retry policy;
+- request success/failure counts and stable failure taxonomy;
+- measured provider token usage when returned;
+- monetary cost status (reported as unavailable rather than inferred from a mutable external price table);
+- provider response model identifiers;
+- predictions SHA-256.
+
+The credential value and provider response bodies are never written to benchmark evidence.
 
 ## Evidence threshold
 
