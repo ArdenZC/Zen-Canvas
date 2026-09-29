@@ -4,8 +4,10 @@ import {
   assessmentToDecision,
   buildDeepSeekRequest,
   buildManagedMetadata,
+  describeRun,
   metadata,
-  parseProviderResponse
+  parseProviderResponse,
+  predict
 } from "../adapters/managed-ai-deepseek.mjs";
 
 const corpusPath = new URL("../fixtures/initial-corpus.v1.jsonl", import.meta.url);
@@ -34,7 +36,7 @@ function assessment(testCase, overrides = {}) {
 }
 
 describe("ZenDecisionBench initial corpus", () => {
-  it("is a valid 180-case six-task draft with the Phase 1 pilot minimum", async () => {
+  it("is the frozen 180-case six-task corpus with the Phase 1 pilot minimum", async () => {
     const records = await readJsonl(corpusPath);
     const validation = validateDataset(records);
     expect(validation.valid).toBe(true);
@@ -48,7 +50,7 @@ describe("ZenDecisionBench initial corpus", () => {
       existing_folder_choice: 30
     });
     expect(validation.split_counts).toEqual({ pilot: 120, dev: 30, test: 30 });
-    expect(validation.dataset_hash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(validation.dataset_hash).toBe("d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68");
   });
 
   it("contains only synthetic provenance and does not treat non-gold abstention as correct by construction", async () => {
@@ -242,5 +244,98 @@ describe("Managed AI DeepSeek baseline adapter", () => {
       ...v0,
       context: "V1-only field on V0"
     })).toThrow(/managed_ai_unknown_field/u);
+  });
+
+  it("reports the actual environment-overridden live configuration without exposing credentials", () => {
+    const previousModel = process.env.ZDB_DEEPSEEK_MODEL;
+    const previousBase = process.env.ZDB_DEEPSEEK_BASE_URL;
+    const previousPath = process.env.ZDB_DEEPSEEK_CHAT_PATH;
+    const previousTimeout = process.env.ZDB_PROVIDER_TIMEOUT_MS;
+    try {
+      process.env.ZDB_DEEPSEEK_MODEL = "deepseek-test-model";
+      process.env.ZDB_DEEPSEEK_BASE_URL = "https://example.com/v1";
+      process.env.ZDB_DEEPSEEK_CHAT_PATH = "/custom/chat";
+      process.env.ZDB_PROVIDER_TIMEOUT_MS = "54321";
+
+      const run = describeRun();
+      expect(run.model).toBe("deepseek-test-model");
+      expect(run.endpoint_origin).toBe("https://example.com");
+      expect(run.chat_path).toBe("/custom/chat");
+      expect(run.timeout_ms).toBe(54321);
+      expect(run.prompt_template_sha256).toMatch(/^[a-f0-9]{64}$/u);
+      expect(run.credential_env).toBe("DEEPSEEK_API_KEY");
+      expect(JSON.stringify(run)).not.toContain(process.env.DEEPSEEK_API_KEY ?? "__missing__");
+    } finally {
+      if (previousModel === undefined) delete process.env.ZDB_DEEPSEEK_MODEL;
+      else process.env.ZDB_DEEPSEEK_MODEL = previousModel;
+      if (previousBase === undefined) delete process.env.ZDB_DEEPSEEK_BASE_URL;
+      else process.env.ZDB_DEEPSEEK_BASE_URL = previousBase;
+      if (previousPath === undefined) delete process.env.ZDB_DEEPSEEK_CHAT_PATH;
+      else process.env.ZDB_DEEPSEEK_CHAT_PATH = previousPath;
+      if (previousTimeout === undefined) delete process.env.ZDB_PROVIDER_TIMEOUT_MS;
+      else process.env.ZDB_PROVIDER_TIMEOUT_MS = previousTimeout;
+    }
+  });
+
+  it("captures measured provider token usage and response model without persisting response bodies", async () => {
+    const cases = await byId();
+    const testCase = cases.get("purpose-01");
+    const previousKey = process.env.DEEPSEEK_API_KEY;
+    const previousFetch = globalThis.fetch;
+    process.env.DEEPSEEK_API_KEY = "zdb-test-key";
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        model: "deepseek-v4-flash",
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 7,
+          total_tokens: 18,
+          prompt_cache_hit_tokens: 2
+        },
+        choices: [{ message: { content: JSON.stringify(assessment(testCase, { purpose: "Teaching" })) } }]
+      })
+    });
+
+    try {
+      const result = await predict(testCase);
+      expect(result.decision).toBe("teaching");
+      expect(result.telemetry).toEqual({
+        provider_usage: {
+          status: "MEASURED_PROVIDER_RESPONSE",
+          prompt_tokens: 11,
+          completion_tokens: 7,
+          total_tokens: 18,
+          prompt_cache_hit_tokens: 2
+        },
+        response_model: "deepseek-v4-flash"
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+      else process.env.DEEPSEEK_API_KEY = previousKey;
+    }
+  });
+
+  it("uses stable provider failure codes instead of embedding response bodies", async () => {
+    const cases = await byId();
+    const testCase = cases.get("purpose-01");
+    const previousKey = process.env.DEEPSEEK_API_KEY;
+    const previousFetch = globalThis.fetch;
+    process.env.DEEPSEEK_API_KEY = "zdb-test-key";
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 429,
+      text: async () => "provider detail that must not become benchmark evidence"
+    });
+
+    try {
+      await expect(predict(testCase)).rejects.toThrow(/^provider_http_429$/u);
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+      else process.env.DEEPSEEK_API_KEY = previousKey;
+    }
   });
 });
