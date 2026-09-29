@@ -61,7 +61,7 @@ describe("ZenDecisionBench initial corpus", () => {
     const abstainAllowed = records
       .filter((record) => record.abstain_allowed)
       .map((record) => record.case_id);
-    expect(abstainAllowed).toEqual(["folder-19", "folder-20"]);
+    expect(abstainAllowed).toEqual(["folder-02", "folder-15", "folder-19", "folder-20"]);
     expect(records.filter((record) => record.abstain_allowed).every((record) => record.gold === "abstain")).toBe(true);
   });
 
