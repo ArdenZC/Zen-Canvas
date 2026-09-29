@@ -58,3 +58,21 @@ node research/zen-decision-bench/cli/run-preference-hypothesis.mjs research/zen-
 ```
 
 Arms C and D accept `--baseline` with a complete, same-case `zdb.prediction.v1` JSONL file. A matching hash-bound `--baseline-run` is required before baseline-dependent metrics are treated as external run evidence. Without one, those metrics remain `NOT_EVALUATED_NO_REAL_BASELINE`. No provider call or API key is part of this runner.
+
+
+## ZDB-03B signal screen
+
+The next Owner-defined research slice is documented in:
+
+`docs/project/tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md`
+
+ZDB-03B is deliberately separate from the Stage-A conformance fixture. Its anti-leakage design separates:
+
+1. synthetic Profile Pack;
+2. current Target Pack;
+3. historical Preference Evidence pool;
+4. Owner Adjudication.
+
+A deterministic hash-based assignment joins profiles to targets. Historical evidence is assembled mechanically without target gold or provider output. A live same-case canonical Generative baseline is permitted only after all pre-run artifacts are frozen and Owner-reviewed.
+
+The initial ZDB-03B screen contains 120 synthetic targets and is descriptive only. It does not satisfy the >=300 adjudicated comparative-corpus gate required before provider/hybrid superiority claims.
