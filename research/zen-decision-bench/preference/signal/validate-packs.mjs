@@ -3,12 +3,12 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { readJsonl, sha256, caseContentFingerprint } from "../../src/core.mjs";
-import { FOLDERS, ACTIONS, PURPOSES, LIFECYCLES } from "./vocabulary.mjs";
+import { FOLDERS, ACTIONS, PURPOSES, LIFECYCLES, SIGNAL_SCOPE_FAMILIES, NON_INTERVENTION_SCOPE_FAMILIES } from "./vocabulary.mjs";
 
 const folderIds = new Set(Object.keys(FOLDERS));
 const actionIds = new Set(ACTIONS.map(({ id }) => id));
 const allowedProfile = ["schema_version", "profile_id", "primary_workspace_id", "brief", "tendencies", "exceptions", "provenance"];
-const allowedTendency = ["tendency_id", "task", "statement", "context_tags", "preferred_value", "contrasted_values", "qualifier"];
+const allowedTendency = ["tendency_id", "task", "statement", "context_tags", "scope_parent_family", "preferred_value", "contrasted_values", "qualifier"];
 const allowedTarget = ["schema_version", "case_id", "task", "input", "target_at", "choices", "ambiguity", "authoring_tags", "scope_template", "control_class", "explicit_user_truth", "deterministic_rule", "provenance"];
 const allowedInput = ["name", "extension", "size", "modified_at_fs", "parent", "is_directory"];
 const allowedScope = ["workspace_mode", "task_family", "parent_family"];
@@ -62,6 +62,8 @@ export function analyzeProfiles(records) {
     if (!Array.isArray(profile.tendencies)) { issue(`${where}:tendencies`); continue; }
     const taskCount = { existing_folder_choice: 0, suggested_action: 0 };
     const ids = new Set();
+    const familyPreferences = new Map();
+    const familiesByTask = { existing_folder_choice: new Set(), suggested_action: new Set() };
     for (const [j, tendency] of profile.tendencies.entries()) {
       const tw = `${where}:tendency:${j + 1}`;
       if (!keysExactly(tendency, allowedTendency, allowedTendency, issue, tw)) continue;
@@ -69,14 +71,23 @@ export function analyzeProfiles(records) {
       ids.add(tendency.tendency_id);
       if (!Object.hasOwn(taskCount, tendency.task)) { issue(`${tw}:task`); continue; }
       taskCount[tendency.task]++;
+      if (!SIGNAL_SCOPE_FAMILIES.includes(tendency.scope_parent_family)) issue(`${tw}:scope_family`);
+      const familyKey = `${tendency.task}:${tendency.scope_parent_family}`;
+      if (familyPreferences.has(familyKey)) {
+        if (familyPreferences.get(familyKey) !== tendency.preferred_value) issue(`${tw}:family_preference_conflict`);
+        issue(`${tw}:family_not_distinct`);
+      }
+      familyPreferences.set(familyKey, tendency.preferred_value);
+      familiesByTask[tendency.task].add(tendency.scope_parent_family);
       const choices = tendency.task === "existing_folder_choice" ? folderIds : actionIds;
       if (!choices.has(tendency.preferred_value) || !Array.isArray(tendency.contrasted_values) || tendency.contrasted_values.length < 1 || tendency.contrasted_values.some((v) => !choices.has(v) || v === tendency.preferred_value)) issue(`${tw}:vocabulary`);
       if (!["usually", "often", "tends_to"].includes(tendency.qualifier) || !validText(tendency.statement) || !/\b(usually|often|tends to)\b/iu.test(tendency.statement)) issue(`${tw}:soft_semantics`);
       if (!Array.isArray(tendency.context_tags) || !tendency.context_tags.length || tendency.context_tags.some((tag) => !validText(tag))) issue(`${tw}:context_tags`);
     }
     if (taskCount.existing_folder_choice < 4 || taskCount.suggested_action < 3) issue(`${where}:tendency_minimum`);
+    if (familiesByTask.existing_folder_choice.size !== 4 || familiesByTask.suggested_action.size !== 3) issue(`${where}:family_coverage`);
     tendencyCounts[profile.profile_id] = taskCount;
-    const signature = sha256(profile.tendencies.map(({ task, context_tags, preferred_value, contrasted_values }) => ({ task, context_tags, preferred_value, contrasted_values })));
+    const signature = sha256(profile.tendencies.map(({ task, context_tags, scope_parent_family, preferred_value, contrasted_values }) => ({ task, context_tags, scope_parent_family, preferred_value, contrasted_values })));
     if (signatures.has(signature)) issue(`${where}:duplicate_tendency_set`);
     signatures.add(signature);
     if (/zdb03b-target-|prefa-|\bgold\b|\bcase[-_ ]id\b/iu.test(JSON.stringify(profile))) issue(`${where}:case_reference`);
@@ -89,7 +100,8 @@ export function analyzeProfiles(records) {
 
 function validScope(value, task, issue, where) {
   if (!keysExactly(value, allowedScope, allowedScope, issue, where)) return;
-  if (!["assigned_profile_primary", "assigned_profile_novel"].includes(value.workspace_mode) || value.task_family !== task || value.parent_family !== "neutral_inbox") issue(`${where}:invalid`);
+  const families = ["purpose", "lifecycle"].includes(task) ? NON_INTERVENTION_SCOPE_FAMILIES : SIGNAL_SCOPE_FAMILIES;
+  if (!["assigned_profile_primary", "assigned_profile_novel"].includes(value.workspace_mode) || value.task_family !== task || !families.includes(value.parent_family)) issue(`${where}:invalid`);
 }
 function validChoices(record, issue, where) {
   if (!Array.isArray(record.choices)) { issue(`${where}:choices`); return []; }
@@ -120,6 +132,8 @@ export function analyzeTargets(records, legacyRecords = []) {
   const legacyFingerprints = new Set(legacyRecords.map(caseContentFingerprint));
   const identityCounts = Object.fromEntries(Object.keys(FOLDERS).sort().map((id) => [id, 0]));
   const choiceSets = {};
+  const ageBandCounts = { recent_0_to_30_days: 0, intermediate_31_to_180_days: 0, old_over_180_days: 0 };
+  const ages = [];
   for (const [index, record] of (Array.isArray(records) ? records : []).entries()) {
     const where = `target:${index + 1}`;
     if (!keysExactly(record, allowedTarget, allowedTarget.filter((key) => !["explicit_user_truth", "deterministic_rule"].includes(key)), issue, where)) continue;
@@ -128,9 +142,19 @@ export function analyzeTargets(records, legacyRecords = []) {
     if (!keysExactly(record.input, allowedInput, allowedInput, issue, `${where}:input`)) continue;
     if (!validText(record.input.name) || !validText(record.input.extension) || !record.input.name.endsWith(`.${record.input.extension}`) || !Number.isInteger(record.input.size) || record.input.size < 0 || !Number.isInteger(record.input.modified_at_fs) || record.input.is_directory !== false || !["C:/ZDB03B/Inbox", "C:/ZDB03B/Downloads"].includes(record.input.parent)) issue(`${where}:input_values`);
     if (!validText(record.target_at) || Number.isNaN(Date.parse(record.target_at))) issue(`${where}:target_at`);
+    const ageDays = (Date.parse(record.target_at) / 1000 - record.input.modified_at_fs) / 86400;
+    if (!Number.isInteger(ageDays) || ageDays <= 0 || ageDays > 730) issue(`${where}:age_days`);
+    else {
+      ages.push(ageDays);
+      ageBandCounts[ageDays <= 30 ? "recent_0_to_30_days" : ageDays <= 180 ? "intermediate_31_to_180_days" : "old_over_180_days"]++;
+      if (/(^|[-_])(new|open|working|active|live|current|in-progress)([-_.]|$)/iu.test(record.input.name) && ageDays > 30) issue(`${where}:recent_name_age`);
+      if (/(^|[-_])(old|older|stale|retired|previous-year|expired|superseded)([-_.]|$)/iu.test(record.input.name) && ageDays <= 180) issue(`${where}:old_name_age`);
+    }
     if (!isObject(record.ambiguity) || !["bounded", "material"].includes(record.ambiguity.level) || !Array.isArray(record.ambiguity.axes) || !record.ambiguity.axes.length || Object.keys(record.ambiguity).some((key) => !["level", "axes"].includes(key))) issue(`${where}:ambiguity`);
     if (!Array.isArray(record.authoring_tags) || record.authoring_tags.length < 1 || record.authoring_tags.some((tag) => !validText(tag) || /\b(gold|correct|preferred|answer)\b/iu.test(tag))) issue(`${where}:tags`);
     validScope(record.scope_template, record.task, issue, `${where}:scope`);
+    const expectedFamily = ["purpose", "lifecycle"].includes(record.task) ? `${record.task}_control` : record.authoring_tags?.[0];
+    if (record.scope_template?.parent_family !== expectedFamily) issue(`${where}:scope_family_mismatch`);
     validProvenance(record.provenance, issue, `${where}:provenance`);
     const ids = validChoices(record, issue, where);
     if (record.task === "existing_folder_choice") {
@@ -148,12 +172,14 @@ export function analyzeTargets(records, legacyRecords = []) {
       if (!keysExactly(truth, allowedTruth, allowedTruth, issue, `${where}:truth`)) continue;
       if (truth.task !== record.task || !ids.includes(truth.decision) || !validText(truth.statement) || Date.parse(truth.asserted_at) >= Date.parse(record.target_at) || record.deterministic_rule) issue(`${where}:truth_invalid`);
       validScope(truth.scope_template, record.task, issue, `${where}:truth_scope`);
+      if (JSON.stringify(truth.scope_template) !== JSON.stringify(record.scope_template)) issue(`${where}:truth_scope_mismatch`);
     } else if (record.explicit_user_truth) issue(`${where}:unexpected_truth`);
     if (record.control_class === "safety_control") {
       const rule = record.deterministic_rule;
       if (!keysExactly(rule, allowedRule, allowedRule, issue, `${where}:rule`)) continue;
       if (record.task !== "suggested_action" || rule.authority !== "safety_rule" || rule.task !== record.task || rule.decision !== "review" || !ids.includes(rule.decision) || Date.parse(rule.asserted_at) >= Date.parse(record.target_at) || record.explicit_user_truth) issue(`${where}:rule_invalid`);
       validScope(rule.scope_template, record.task, issue, `${where}:rule_scope`);
+      if (JSON.stringify(rule.scope_template) !== JSON.stringify(record.scope_template)) issue(`${where}:rule_scope_mismatch`);
     } else if (record.deterministic_rule) issue(`${where}:unexpected_rule`);
     if (["purpose", "lifecycle"].includes(record.task) !== (record.control_class === "non_intervention_control")) issue(`${where}:non_intervention`);
     forbiddenDeep({ ...record, explicit_user_truth: undefined, deterministic_rule: undefined }, issue, where);
@@ -165,7 +191,11 @@ export function analyzeTargets(records, legacyRecords = []) {
   for (const [control, count] of Object.entries(controlCounts)) if (actualControl[control] !== count) issue(`targets:control_count:${control}`);
   if (Object.values(identityCounts).some((count) => count === 0 || count > 54)) issue("targets:folder_identity_coverage");
   if (Math.max(...Object.values(choiceSets)) > 12) issue("targets:choice_set_concentration");
-  return { valid: issues.length === 0, issues, count: records?.length ?? 0, task_counts: actualTask, control_counts: actualControl, folder_identity_frequency: identityCounts, folder_choice_set_frequency: choiceSets, repeated_choice_set_max: Math.max(...Object.values(choiceSets)) };
+  if (Object.values(ageBandCounts).some((count) => count < 12)) issue("targets:age_distribution");
+  const familyCounts = countBy(records.map((record) => ({ family: record.scope_template?.parent_family })), "family");
+  for (const family of SIGNAL_SCOPE_FAMILIES) if (familyCounts[family] !== 9) issue(`targets:family_count:${family}`);
+  for (const family of NON_INTERVENTION_SCOPE_FAMILIES) if (familyCounts[family] !== 6) issue(`targets:family_count:${family}`);
+  return { valid: issues.length === 0, issues, count: records?.length ?? 0, task_counts: actualTask, control_counts: actualControl, scope_family_counts: familyCounts, age_band_counts: ageBandCounts, age_days_min: Math.min(...ages), age_days_max: Math.max(...ages), folder_identity_frequency: identityCounts, folder_choice_set_frequency: choiceSets, repeated_choice_set_max: Math.max(...Object.values(choiceSets)) };
 }
 
 export async function validateSavedPacks() {

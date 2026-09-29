@@ -4,6 +4,17 @@ export const FOLDERS = Object.freeze({
   archive: "Archive", personal: "Personal", finance: "Finance", media: "Media"
 });
 
+// Resolver-compatible parent_family identities. Both B1 authors use this
+// vocabulary independently; human context_tags are not matching authority.
+export const SIGNAL_SCOPE_FAMILIES = Object.freeze([
+  "authored_learning", "received_learning", "active_work", "completed_work",
+  "reusable_reference", "personal_admin", "financial_documents", "media_assets",
+  "ambiguous_inbox", "project_reference", "teaching_study_crossover", "stale_material"
+]);
+export const NON_INTERVENTION_SCOPE_FAMILIES = Object.freeze([
+  "purpose_control", "lifecycle_control"
+]);
+
 // Exact order and labels of the accepted ZDB-01 suggested_action choice set.
 export const ACTIONS = Object.freeze([
   { id: "keep", label: "Keep" }, { id: "rename", label: "Rename" },

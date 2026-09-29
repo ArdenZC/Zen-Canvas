@@ -3,8 +3,8 @@
   "schema_identity": "zdb.preference_signal_target.v1",
   "artifact_file": "targets.v1.jsonl",
   "count": 120,
-  "canonical_sha256": "9cefaa0ca0841caef41966bae86ebf3da1e4f89b7d99a5d45c87400e2203b278",
-  "file_sha256": "23067f3d1a350af790fc2ca7bc8658fbe2515005bfc2d3a80128cfe224ca0fed",
+  "canonical_sha256": "96f975ef10148a49f47068c578dd76ccd69ab3cf3f81167de2e227de32b735c4",
+  "file_sha256": "b414f7510345c95e0629f34780dce1125b0f71c12a84cdf5c555d01d1c5217aa",
   "task_counts": {
     "existing_folder_choice": 72,
     "lifecycle": 6,

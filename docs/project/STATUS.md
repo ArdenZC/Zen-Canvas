@@ -52,7 +52,7 @@ ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](.
 
 ZDB-03B is defined as a separate [120-case synthetic Preference signal screen](tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md). **OWNER REVIEW PASSED** for the definition. Merge of PR #301 activates only **ZDB-03B1 Profile + Target construction**. History Pool construction, Owner Adjudication, assembled signal-corpus freeze, provider execution, and offline comparison remain separately gated and NOT AUTHORIZED. The >=300 comparative-corpus superiority gate remains separate and inactive. ZDB-04+ remain NOT ACTIVE.
 
-ZDB-03B1 has a [12-profile candidate pack and 120-target candidate pack](../../research/zen-decision-bench/results/ZDB-03B1-PROFILE-TARGET-CONSTRUCTION-RESULT.md). Status: **CANDIDATE — OWNER REVIEW REQUIRED**. Neither pack is frozen or accepted. Profile assignment, History Pool, target gold/adjudication, same-case Generative baseline, and Preference Arms B/C/D remain NOT ACTIVE; the next gate is Owner review of both packs.
+ZDB-03B1 has a [12-profile candidate pack and 120-target candidate pack](../../research/zen-decision-bench/results/ZDB-03B1-PROFILE-TARGET-CONSTRUCTION-RESULT.md). Status: **CANDIDATE — OWNER REVIEW REQUIRED**. Owner review of PR #302 required an exact Profile/Target `parent_family` bridge and realistic target-relative file times before freeze; both are remediated for re-review. Neither pack is frozen or accepted. Profile assignment, History Pool, target gold/adjudication, same-case Generative baseline, and Preference Arms B/C/D remain NOT ACTIVE; the next gate is Owner re-review of both packs.
 
 ## Release, schema and platform truth
 

@@ -21,12 +21,13 @@
     "tendency": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["tendency_id", "task", "statement", "context_tags", "preferred_value", "contrasted_values", "qualifier"],
+      "required": ["tendency_id", "task", "statement", "context_tags", "scope_parent_family", "preferred_value", "contrasted_values", "qualifier"],
       "properties": {
         "tendency_id": { "type": "string", "pattern": "^profile-(0[1-9]|1[0-2])-(folder|action)-[1-9][0-9]*$" },
         "task": { "enum": ["existing_folder_choice", "suggested_action"] },
         "statement": { "type": "string", "minLength": 25 },
         "context_tags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 3 } },
+        "scope_parent_family": { "enum": ["authored_learning", "received_learning", "active_work", "completed_work", "reusable_reference", "personal_admin", "financial_documents", "media_assets", "ambiguous_inbox", "project_reference", "teaching_study_crossover", "stale_material"] },
         "preferred_value": { "type": "string" },
         "contrasted_values": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
         "qualifier": { "enum": ["usually", "often", "tends_to"] }

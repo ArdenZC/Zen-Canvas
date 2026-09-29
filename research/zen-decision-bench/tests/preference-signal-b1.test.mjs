@@ -4,7 +4,7 @@ import { readJsonl, sha256, validateDataset, caseContentFingerprint } from "../s
 import { buildProfiles } from "../preference/signal/build-profiles.mjs";
 import { buildTargets } from "../preference/signal/build-targets.mjs";
 import { analyzeProfiles, analyzeTargets, validateSavedPacks } from "../preference/signal/validate-packs.mjs";
-import { FOLDERS, ACTIONS, PURPOSES, LIFECYCLES } from "../preference/signal/vocabulary.mjs";
+import { FOLDERS, ACTIONS, PURPOSES, LIFECYCLES, SIGNAL_SCOPE_FAMILIES, NON_INTERVENTION_SCOPE_FAMILIES } from "../preference/signal/vocabulary.mjs";
 
 const profilePath = new URL("../preference/signal/profiles.v1.jsonl", import.meta.url);
 const targetPath = new URL("../preference/signal/targets.v1.jsonl", import.meta.url);
@@ -14,6 +14,14 @@ const legacy = await readJsonl(new URL("../fixtures/preference-stage-a.v1.jsonl"
 const clone = (value) => structuredClone(value);
 
 describe("ZDB-03B1 independent synthetic packs", () => {
+  it("freezes one bounded shared signal vocabulary and separate control families", () => {
+    expect(SIGNAL_SCOPE_FAMILIES).toEqual([
+      "authored_learning", "received_learning", "active_work", "completed_work", "reusable_reference", "personal_admin",
+      "financial_documents", "media_assets", "ambiguous_inbox", "project_reference", "teaching_study_crossover", "stale_material"
+    ]);
+    expect(NON_INTERVENTION_SCOPE_FAMILIES).toEqual(["purpose_control", "lifecycle_control"]);
+    expect(new Set([...SIGNAL_SCOPE_FAMILIES, ...NON_INTERVENTION_SCOPE_FAMILIES]).size).toBe(14);
+  });
   it("binds the committed artifacts to deterministic, separate builders and manifests", async () => {
     const result = await validateSavedPacks();
     expect(result.valid, result.profiles.issues.concat(result.targets.issues).join("\n")).toBe(true);
@@ -38,6 +46,11 @@ describe("ZDB-03B1 independent synthetic packs", () => {
         expect(allowed).toContain(tendency.preferred_value);
         expect(tendency.contrasted_values.every((value) => allowed.includes(value))).toBe(true);
         expect(["usually", "often", "tends_to"]).toContain(tendency.qualifier);
+        expect(SIGNAL_SCOPE_FAMILIES).toContain(tendency.scope_parent_family);
+      }
+      for (const task of ["existing_folder_choice", "suggested_action"]) {
+        const scoped = profile.tendencies.filter((t) => t.task === task);
+        expect(new Set(scoped.map((t) => t.scope_parent_family)).size).toBe(scoped.length);
       }
       expect(JSON.stringify(profile)).not.toMatch(/zdb03b-target-|prefa-|"(?:gold|weight|confidence|probability)"/iu);
     }
@@ -58,6 +71,22 @@ describe("ZDB-03B1 independent synthetic packs", () => {
     expect(analyzeProfiles(data).issues).toContain("profile:1:tendency_minimum");
   });
 
+  it("rejects missing, unknown, and conflicting exact tendency families", () => {
+    const data = clone(profiles);
+    delete data[0].tendencies[0].scope_parent_family;
+    expect(analyzeProfiles(data).issues).toContain("profile:1:tendency:1:missing:scope_parent_family");
+    data[0] = clone(profiles[0]);
+    data[0].tendencies[0].scope_parent_family = "invented_family";
+    expect(analyzeProfiles(data).issues).toContain("profile:1:tendency:1:scope_family");
+    data[0] = clone(profiles[0]);
+    data[0].tendencies[1].scope_parent_family = data[0].tendencies[0].scope_parent_family;
+    expect(analyzeProfiles(data).issues).toContain("profile:1:tendency:2:family_preference_conflict");
+    data[0] = clone(profiles[0]);
+    data[0].tendencies[0].context_tags = ["human_description_only"];
+    expect(analyzeProfiles(data).valid).toBe(true);
+    expect(data[0].tendencies[0].scope_parent_family).toBe(profiles[0].tendencies[0].scope_parent_family);
+  });
+
   it("has exact 120-case IDs, tasks, controls, and neutral symbolic workspaces", () => {
     const result = analyzeTargets(targets, legacy);
     expect(result.valid, result.issues.join("\n")).toBe(true);
@@ -69,6 +98,39 @@ describe("ZDB-03B1 independent synthetic packs", () => {
     expect(targets.filter((t) => t.control_class === "explicit_truth_control")).toHaveLength(6);
     expect(targets.filter((t) => t.control_class === "safety_control").every((t) => t.deterministic_rule.decision === "review" && t.task === "suggested_action")).toBe(true);
     expect(targets.filter((t) => ["purpose", "lifecycle"].includes(t.task)).every((t) => t.control_class === "non_intervention_control")).toBe(true);
+    expect(targets.filter((t) => ["existing_folder_choice", "suggested_action"].includes(t.task)).every((t) => SIGNAL_SCOPE_FAMILIES.includes(t.scope_template.parent_family) && t.scope_template.parent_family === t.authoring_tags[0])).toBe(true);
+    expect(targets.filter((t) => ["purpose", "lifecycle"].includes(t.task)).every((t) => NON_INTERVENTION_SCOPE_FAMILIES.includes(t.scope_template.parent_family) && t.scope_template.parent_family === `${t.task}_control`)).toBe(true);
+    expect(SIGNAL_SCOPE_FAMILIES.every((family) => result.scope_family_counts[family] === 9)).toBe(true);
+  });
+
+  it("uses target-relative mtime ages with recent, intermediate, and old situations", () => {
+    const result = analyzeTargets(targets);
+    expect(result.age_band_counts).toEqual({ recent_0_to_30_days: 48, intermediate_31_to_180_days: 51, old_over_180_days: 21 });
+    expect([result.age_days_min, result.age_days_max]).toEqual([1, 510]);
+    const age = (target) => (Date.parse(target.target_at) / 1000 - target.input.modified_at_fs) / 86400;
+    const named = (name) => targets.find((target) => target.input.name === name);
+    expect(age(named("working-brief.docx"))).toBe(4);
+    expect(age(named("new-reading-packet.pdf"))).toBe(1);
+    expect(age(named("old-onboarding-guide.pdf"))).toBe(400);
+    expect(age(named("superseded-budget.xlsx"))).toBe(275);
+    for (const target of targets) {
+      if (/(^|[-_])(new|open|working|active|live|current|in-progress)([-_.]|$)/iu.test(target.input.name)) expect(age(target)).toBeLessThanOrEqual(30);
+      if (/(^|[-_])(old|older|stale|retired|previous-year|expired|superseded)([-_.]|$)/iu.test(target.input.name)) expect(age(target)).toBeGreaterThan(180);
+    }
+    expect(targets.every((target) => target.input.modified_at_fs < Date.parse(target.target_at) / 1000)).toBe(true);
+    const data = clone(targets);
+    data[0].input.modified_at_fs = Math.floor(Date.parse(data[0].target_at) / 1000) + 86400;
+    expect(analyzeTargets(data).issues).toContain("target:1:age_days");
+    data[0].input.modified_at_fs = Math.floor(Date.parse(data[0].target_at) / 1000);
+    expect(analyzeTargets(data).issues).toContain("target:1:age_days");
+    data[0] = clone(targets[0]);
+    const recentIndex = targets.findIndex((target) => target.input.name === "new-reading-packet.pdf");
+    data[recentIndex].input.modified_at_fs -= 365 * 86400;
+    expect(analyzeTargets(data).issues).toContain(`target:${recentIndex + 1}:recent_name_age`);
+    data[recentIndex] = clone(targets[recentIndex]);
+    const staleIndex = targets.findIndex((target) => target.input.name === "old-onboarding-guide.pdf");
+    data[staleIndex].input.modified_at_fs += 365 * 86400;
+    expect(analyzeTargets(data).issues).toContain(`target:${staleIndex + 1}:old_name_age`);
   });
 
   it("uses transferable folder IDs, canonical action ordering, and diverse choice sets", () => {
@@ -99,6 +161,9 @@ describe("ZDB-03B1 independent synthetic packs", () => {
     data[0] = clone(targets[0]);
     data[5].scope_template.workspace_mode = "assigned_profile_primary";
     expect(analyzeTargets(data).issues).toContain("target:6:cold_start");
+    data[5] = clone(targets[5]);
+    data[0].scope_template.parent_family = "neutral_inbox";
+    expect(analyzeTargets(data).issues).toContain("target:1:scope_family_mismatch");
   });
 
   it("keeps content fingerprints distinct from each other and frozen ZDB-03A cases", () => {
@@ -119,6 +184,9 @@ describe("ZDB-03B1 independent synthetic packs", () => {
       expect(targetSchema.properties).not.toHaveProperty(key);
     }
     expect(new RegExp(targetSchema.properties.case_id.pattern).test("zdb03b-target-120")).toBe(true);
+    expect(profileSchema.$defs.tendency.required).toContain("scope_parent_family");
+    expect(profileSchema.$defs.tendency.properties.scope_parent_family.enum).toEqual(SIGNAL_SCOPE_FAMILIES);
+    expect(targetSchema.$defs.scope_template.properties.parent_family.enum).toEqual([...SIGNAL_SCOPE_FAMILIES, ...NON_INTERVENTION_SCOPE_FAMILIES]);
   });
 
   it("proves builder source separation from counterpart packs and later evidence", async () => {
@@ -128,6 +196,8 @@ describe("ZDB-03B1 independent synthetic packs", () => {
     expect(targetSource).not.toMatch(/build-profiles|profiles\.v1|profile-[0-9][0-9]|readFile|createReadStream|fetch\(|process\.env|prefa-|stage-a|\.gold\b/iu);
     expect(profileSource).not.toMatch(/(?:from\s+["']|new URL\()[^\n]*(?:history|adjudication|provider|prediction)/iu);
     expect(targetSource).not.toMatch(/(?:from\s+["']|new URL\()[^\n]*(?:history|adjudication|provider|prediction)/iu);
+    expect(profileSource).not.toMatch(/context_tags\s*\.|context_tags\s*\[/iu);
+    expect(targetSource).not.toMatch(/context_tags/iu);
   });
 
   it("preserves the locked ZDB-01 and ZDB-03A canonical hashes", async () => {

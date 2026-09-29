@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { sha256 } from "../../src/core.mjs";
-import { FOLDERS, ACTIONS } from "./vocabulary.mjs";
+import { FOLDERS, ACTIONS, SIGNAL_SCOPE_FAMILIES } from "./vocabulary.mjs";
 
 // Each row was authored as an independent latent habit, without case metadata.
 // Tuple: context tag, soft favorite, contrasted valid alternative.
@@ -85,16 +85,47 @@ const profiles = [
 ];
 
 const qualifiers = ["usually", "often", "tends_to"];
+// Exact, resolver-compatible family identity authored per latent context.
+// Human context tags remain descriptive and are never used for fuzzy matching.
+const scopeFamilyByContext = {
+  draft_lessons: "authored_learning", received_reading: "received_learning", reusable_diagrams: "reusable_reference", finished_course: "completed_work",
+  active_draft: "authored_learning", unclear_owner: "ambiguous_inbox",
+  reading_notes: "authored_learning", citation_library: "reusable_reference", client_excerpt: "project_reference", retired_notes: "stale_material",
+  live_notes: "authored_learning", dated_excerpt: "reusable_reference", unclear_citation: "ambiguous_inbox",
+  active_deliverable: "active_work", shared_pattern: "reusable_reference", completed_delivery: "completed_work", private_admin: "personal_admin",
+  active_handoff: "active_work", finished_milestone: "completed_work", unclear_revision: "ambiguous_inbox",
+  household_note: "personal_admin", payment_record: "financial_documents", shared_photo: "media_assets", expired_form: "stale_material",
+  current_form: "personal_admin", closed_statement: "financial_documents", unclear_bill: "ambiguous_inbox",
+  source_photo: "media_assets", client_export: "active_work", style_reference: "reusable_reference", completed_asset: "completed_work",
+  working_asset: "media_assets", new_export: "active_work", unclear_license: "ambiguous_inbox",
+  course_exercise: "authored_learning", general_manual: "received_learning", finished_module: "completed_work", career_portfolio: "active_work",
+  open_exercise: "authored_learning", closed_module: "completed_work", unclear_assignment: "ambiguous_inbox",
+  live_contract: "active_work", method_note: "reusable_reference", invoice_copy: "financial_documents", delivered_packet: "completed_work",
+  live_request: "active_work", signed_delivery: "completed_work", stale_request: "stale_material",
+  current_draft: "active_work", older_edition: "stale_material", quotation_bank: "reusable_reference", personal_journal: "personal_admin",
+  current_edit: "active_work", superseded_edit: "stale_material", unclear_version: "ambiguous_inbox",
+  tax_statement: "financial_documents", family_receipt: "personal_admin", financial_guide: "reusable_reference", closed_budget: "completed_work",
+  open_statement: "financial_documents", unclear_receipt: "ambiguous_inbox",
+  shared_lesson: "authored_learning", own_practice: "teaching_study_crossover", recording: "media_assets", general_explanation: "reusable_reference",
+  class_handout: "authored_learning", retired_session: "stale_material", unclear_recording: "ambiguous_inbox",
+  reusable_checklist: "reusable_reference", active_brief: "active_work", personal_plan: "personal_admin", old_reference: "stale_material",
+  active_inbox: "active_work", stable_resource: "reusable_reference", ambiguous_inbox: "ambiguous_inbox",
+  practice_clip: "teaching_study_crossover", finished_visual: "media_assets", tutorial_reference: "reusable_reference", past_project: "stale_material",
+  in_progress_clip: "teaching_study_crossover", completed_export: "media_assets", unclear_derivative: "ambiguous_inbox"
+};
 function tendency(profileId, task, item, index) {
   const [context, preferred, contrasted] = item;
   const qualifier = qualifiers[index % qualifiers.length];
   const vocabulary = task === "existing_folder_choice" ? FOLDERS : Object.fromEntries(ACTIONS.map(({ id, label }) => [id, label]));
   if (!vocabulary[preferred] || !vocabulary[contrasted] || preferred === contrasted) throw new Error("invalid_tendency_vocabulary");
+  const scopeParentFamily = scopeFamilyByContext[context];
+  if (!SIGNAL_SCOPE_FAMILIES.includes(scopeParentFamily)) throw new Error(`invalid_scope_family:${context}`);
   const lead = { usually: "Usually favors", often: "Often favors", tends_to: "Tends to favor" }[qualifier];
   return {
     tendency_id: `${profileId}-${task === "existing_folder_choice" ? "folder" : "action"}-${index + 1}`,
     task, statement: `${lead} ${vocabulary[preferred]} over ${vocabulary[contrasted]} for ${context.replaceAll("_", " ")}, when context permits.`,
-    context_tags: [context], preferred_value: preferred, contrasted_values: [contrasted], qualifier
+    context_tags: [context], scope_parent_family: scopeParentFamily,
+    preferred_value: preferred, contrasted_values: [contrasted], qualifier
   };
 }
 

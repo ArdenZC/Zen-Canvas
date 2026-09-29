@@ -49,7 +49,7 @@
       "properties": {
         "workspace_mode": { "enum": ["assigned_profile_primary", "assigned_profile_novel"] },
         "task_family": { "enum": ["existing_folder_choice", "suggested_action", "purpose", "lifecycle"] },
-        "parent_family": { "const": "neutral_inbox" }
+        "parent_family": { "enum": ["authored_learning", "received_learning", "active_work", "completed_work", "reusable_reference", "personal_admin", "financial_documents", "media_assets", "ambiguous_inbox", "project_reference", "teaching_study_crossover", "stale_material", "purpose_control", "lifecycle_control"] }
       }
     },
     "truth": {
