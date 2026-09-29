@@ -1,6 +1,6 @@
 # ZenDecisionBench Phase 1 Contract
 
-Status: **FROZEN FOR ZDB-01 / ZDB-02 IMPLEMENTATION**
+Status: **ZDB-01 / ZDB-02 COMPLETE — ZDB-03 OFFLINE RESEARCH ACTIVE**
 
 Baseline: `master@68268edaec6a3c94c5e5098eec7c848a11338598`
 
