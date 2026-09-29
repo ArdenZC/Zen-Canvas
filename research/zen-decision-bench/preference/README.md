@@ -1,8 +1,8 @@
 # ZDB Preference Memory Research
 
-Status: **ZDB-03A OFFLINE PROTOTYPE CANDIDATE — OWNER REVIEW PENDING**
+Status: **ZDB-03A DETERMINISTIC OFFLINE RESOLVER + CONFORMANCE FIXTURE — OWNER RE-REVIEW PENDING**
 
-This directory contains a deterministic offline prototype of the Owner-frozen ZDB-03 hypothesis. It is not product code or an accepted effectiveness result.
+This directory contains a deterministic offline prototype of the Owner-frozen ZDB-03 hypothesis. It is not product code or an effectiveness experiment. The 60-case fixture is **CONFORMANCE-ONLY — NOT ELIGIBLE FOR ZDB-03B SIGNAL/EFFECTIVENESS EVIDENCE**.
 
 Core invariant:
 
@@ -46,7 +46,9 @@ See \`docs/project/tasks/ZDB-03-PREFERENCE-MEMORY-OFFLINE-HYPOTHESIS-ACTIVATION.
 
 ## Stage-A conformance
 
-The synthetic 60-case candidate is in `../fixtures/preference-stage-a.v1.jsonl`; its manifest and SHA-256 are next to it. The source generator is `build-stage-a.mjs`. The candidate was committed and hashed before its first full resolver run. Do not regenerate or relabel it to improve scores. See `../results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md` for the bounded result.
+The synthetic 60-case conformance fixture is in `../fixtures/preference-stage-a.v1.jsonl`; its manifest and SHA-256 are next to it. The source generator is `build-stage-a.mjs`. The JSONL was committed and hashed before its first full resolver run and remained byte-for-byte unchanged through Owner Review remediation. Do not regenerate, shuffle, or relabel it. See `../results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md` for the bounded result.
+
+The fixture may check schema, chronology, cold start, scope, correction, rejection, authority, conflict, attribution, evaluator accounting, and gold isolation. Its history and expected-choice construction share a positional template, so it cannot establish Preference accuracy, DeepSeek improvement, Net Benefit, Generative + Preference superiority, System One value, or production readiness. It must not become the ZDB-03B signal corpus. Owner re-review may accept it for conformance only; ZDB-03B remains a separate Owner-defined experiment.
 
 Validate the candidate and run an offline arm from the repository root:
 

@@ -1,4 +1,4 @@
-import { scopeMatches, specificity, validatePreferenceCase } from "./validate-context.mjs";
+import { scopeMatches, scopeRefinesOrEquals, specificity, validatePreferenceCase } from "./validate-context.mjs";
 
 const sortedIds = (records, key = "evidence_id") => records.map((record) => record[key]).sort();
 const unique = (values) => [...new Set(values)].sort();
@@ -68,7 +68,7 @@ export function aggregatePreference(input) {
   for (const correction of relevant.filter((record) => record.kind === "explicit_correction")) {
     for (const id of correction.correction_of) {
       const prior = byId.get(id);
-      if (prior && relevant.includes(prior) && specificity(correction.scope) >= specificity(prior.scope)) superseded.add(id);
+      if (prior && relevant.includes(prior) && scopeRefinesOrEquals(correction.scope, prior.scope)) superseded.add(id);
     }
   }
   const active = relevant.filter((record) => !superseded.has(record.evidence_id));

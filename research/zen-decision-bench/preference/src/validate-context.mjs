@@ -81,6 +81,12 @@ export function scopeMatches(scope, targetScope) {
   return Object.entries(scope).every(([key, value]) => key === "global_user" ? value === true : targetScope?.[key] === value);
 }
 
+// Refinement is constraint inclusion, not equal or greater dimension count.
+// global_user is the broad root, so any valid scoped record can refine it.
+export function scopeRefinesOrEquals(correctionScope, priorScope) {
+  return Object.entries(priorScope).every(([key, value]) => key === "global_user" || correctionScope[key] === value);
+}
+
 export function specificity(scope) {
   return Object.keys(scope).filter((key) => key !== "global_user").length;
 }
