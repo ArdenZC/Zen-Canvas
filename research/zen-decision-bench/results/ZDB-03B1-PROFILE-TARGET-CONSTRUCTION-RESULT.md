@@ -1,6 +1,6 @@
 # ZDB-03B1 — Synthetic Profile and Target Pack Construction
 
-Status: **CANDIDATE — OWNER REVIEW REQUIRED**; **OWNER REVIEW PENDING** after remediation. Owner review of `8fca3508a63400c3169255ab42299ac55678c282` required changes before B1 freeze: an exact resolver-compatible scope bridge and realistic target-relative file times. These are research instruments for issue #283, not an assembled signal corpus or effectiveness result. Neither pack is frozen or Owner-accepted.
+Status: **OWNER REVIEW PASSED — PROFILE + TARGET PACKS FROZEN FOR ZDB-03B2 INPUT**. Owner re-review passed at `020b2270464a2c6b7cf98c886d3f5293e2e41b65` after closing the exact resolver-compatible scope bridge and target-relative file-time blockers. These are frozen research inputs for issue #283, not an assembled signal corpus or effectiveness result.
 
 ## Identity and scope
 
@@ -124,4 +124,4 @@ No profile-to-target assignment, assignment seed/map, History Pool, target Prefe
 
 ## Next gate
 
-**Owner review of both candidate packs is required before freezing their hashes or beginning B2.** ZDB-03B remains authorized only through B1 pending Owner review. ZDB-03B2/B3/B4, the >=300-case comparative corpus, ZDB-04+, and PM-02 remain **NOT ACTIVE**.
+**Owner re-review passed and both B1 pack hashes are frozen.** Merge of PR #302 activates **ZDB-03B2 — deterministic profile assignment + History Pool + separate Owner Adjudication construction** only. ZDB-03B3 live same-case provider baseline, ZDB-03B4 Preference comparison, the >=300-case comparative corpus, ZDB-04+, and PM-02 remain **NOT ACTIVE**. B2 must not mutate either frozen JSONL pack.
