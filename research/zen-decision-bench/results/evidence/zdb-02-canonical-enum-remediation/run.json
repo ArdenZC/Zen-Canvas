@@ -1,0 +1,84 @@
+{
+  "schema_version": "zdb.run.v2",
+  "evidence_status": "LIVE_PROVIDER_RUN",
+  "started_at": "2026-09-29T09:17:11.893Z",
+  "finished_at": "2026-09-29T09:19:16.218Z",
+  "source_dataset_hash": "d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68",
+  "dataset_hash": "aad722f2f7701983642d68cf4612b0a306cc3eababefc522f747dde86fdc6098",
+  "split": "pilot",
+  "source_case_count": 180,
+  "case_count": 120,
+  "frozen_corpus": {
+    "manifest_path": "research/zen-decision-bench/fixtures/initial-corpus.v1.manifest.json",
+    "frozen": true,
+    "dataset_hash": "d3f45f4922d19713d7c9d187cd66c33469322dc012599d2fde790239c27a1b68",
+    "test_split_locked": true,
+    "test_split_hash": "4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12",
+    "validated_test_split_hash": "4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12"
+  },
+  "runner": {
+    "commit": "fdb7917f1f687e5bb31b3d25804b6ad580472b3d",
+    "tracked_worktree_clean": true,
+    "node": "v24.15.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "adapter": {
+    "adapter_id": "managed-ai-deepseek-canonical-enum-v1",
+    "evidence_status": "LIVE_PROVIDER_REQUIRED",
+    "production_contract": "ManagedAiWorker SemanticAssessmentV1 metadata-only request",
+    "provider": "deepseek_openai_compatible",
+    "model": "deepseek-v4-flash",
+    "endpoint_url": "https://api.deepseek.com/chat/completions",
+    "chat_path": "/chat/completions",
+    "temperature": 0,
+    "max_tokens": 4096,
+    "thinking": "disabled",
+    "response_format": "json_object",
+    "timeout_ms": 120000,
+    "prompt_template_id": "managed-ai-semantic-assessment-canonical-enums-v1",
+    "prompt_template_sha256": "c4fd929f7fce4f581cac8328a198cecae164d3db16eeab03c1b74835b233b68b",
+    "credential_env": "DEEPSEEK_API_KEY",
+    "experiment_id": "zdb-02-canonical-enum-remediation-v1",
+    "base_adapter_id": "managed-ai-deepseek-v1",
+    "base_prompt_template_sha256": "5dffff3b88f7fe68e7fa0df6076e136c662fa7fafe8d177358bda5d141a0735a",
+    "contract_source_commit": "4f53d61fe1a47f62630a56278a39b27a49f52d4e"
+  },
+  "retry_policy": {
+    "policy": "none",
+    "max_attempts_per_case": 1,
+    "retries_performed": 0
+  },
+  "request_summary": {
+    "attempted": 120,
+    "succeeded": 117,
+    "failed": 3,
+    "failure_taxonomy": {
+      "unclassified_error": 3
+    }
+  },
+  "provider_usage": {
+    "status": "MEASURED_PROVIDER_RESPONSE",
+    "measured_case_count": 117,
+    "prompt_tokens": 40050,
+    "completion_tokens": 16039,
+    "total_tokens": 56089,
+    "prompt_cache_hit_tokens": 14848,
+    "prompt_cache_miss_tokens": 25202
+  },
+  "provider_response_models": [
+    "deepseek-flash"
+  ],
+  "monetary_cost": {
+    "status": "UNAVAILABLE_NO_FROZEN_PRICE_SOURCE",
+    "amount": null,
+    "currency": null,
+    "method": "token usage is measured when returned by the provider; no mutable external price table is embedded in benchmark evidence"
+  },
+  "random_seed": null,
+  "predictions": {
+    "path": ".tmp-tests/zdb-02-canonical-enum-remediation/predictions.jsonl",
+    "sha256": "bf64f5394b86fd3529812e361e023153d5df3441068ba00a492217c8aed522eb"
+  },
+  "run_manifest_path": ".tmp-tests/zdb-02-canonical-enum-remediation/run.json"
+}
