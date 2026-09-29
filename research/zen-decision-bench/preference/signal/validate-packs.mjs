@@ -213,7 +213,7 @@ export async function validateSavedPacks() {
     [profileManifest, profiles, profileBytes, profileResult, "zdb.preference_signal_profile.v1"],
     [targetManifest, targets, targetBytes, targetResult, "zdb.preference_signal_target.v1"]
   ]) {
-    if (manifest.schema_identity !== identity || manifest.count !== records.length || manifest.canonical_sha256 !== sha256(records) || manifest.file_sha256 !== hashFile(bytes) || manifest.status !== "CANDIDATE — OWNER REVIEW REQUIRED" || manifest.owner_state !== "OWNER REVIEW PENDING" || manifest.research_only !== true || manifest.creation_commit !== null) result.issues.push("manifest_mismatch");
+    if (manifest.schema_identity !== identity || manifest.count !== records.length || manifest.canonical_sha256 !== sha256(records) || manifest.file_sha256 !== hashFile(bytes) || manifest.status !== "FROZEN — OWNER REVIEW PASSED" || manifest.owner_state !== "OWNER REVIEW PASSED — ACCEPTED FOR ZDB-03B2 INPUT" || manifest.research_only !== true || manifest.creation_commit !== null) result.issues.push("manifest_mismatch");
     result.valid = result.issues.length === 0;
     result.canonical_sha256 = sha256(records);
     result.file_sha256 = hashFile(bytes);
