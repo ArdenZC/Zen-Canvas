@@ -259,7 +259,7 @@ describe("Managed AI DeepSeek baseline adapter", () => {
 
       const run = describeRun();
       expect(run.model).toBe("deepseek-test-model");
-      expect(run.endpoint_origin).toBe("https://example.com");
+      expect(run.endpoint_url).toBe("https://example.com/v1/custom/chat");
       expect(run.chat_path).toBe("/custom/chat");
       expect(run.timeout_ms).toBe(54321);
       expect(run.prompt_template_sha256).toMatch(/^[a-f0-9]{64}$/u);
@@ -275,6 +275,17 @@ describe("Managed AI DeepSeek baseline adapter", () => {
       else process.env.ZDB_DEEPSEEK_CHAT_PATH = previousPath;
       if (previousTimeout === undefined) delete process.env.ZDB_PROVIDER_TIMEOUT_MS;
       else process.env.ZDB_PROVIDER_TIMEOUT_MS = previousTimeout;
+    }
+  });
+
+  it("rejects hidden endpoint query/fragment configuration from live evidence", () => {
+    const previousBase = process.env.ZDB_DEEPSEEK_BASE_URL;
+    try {
+      process.env.ZDB_DEEPSEEK_BASE_URL = "https://example.com/v1?token=hidden";
+      expect(() => describeRun()).toThrow(/provider_base_url_must_not_include_query_or_fragment/u);
+    } finally {
+      if (previousBase === undefined) delete process.env.ZDB_DEEPSEEK_BASE_URL;
+      else process.env.ZDB_DEEPSEEK_BASE_URL = previousBase;
     }
   });
 
