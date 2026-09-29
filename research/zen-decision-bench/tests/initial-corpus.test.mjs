@@ -1,0 +1,216 @@
+import { describe, expect, it } from "vitest";
+import { readJsonl, validateDataset } from "../src/core.mjs";
+import {
+  assessmentToDecision,
+  buildDeepSeekRequest,
+  buildManagedMetadata,
+  metadata,
+  parseProviderResponse
+} from "../adapters/managed-ai-deepseek.mjs";
+
+const corpusPath = new URL("../fixtures/initial-corpus.v1.jsonl", import.meta.url);
+
+async function byId() {
+  const records = await readJsonl(corpusPath);
+  return new Map(records.map((record) => [record.case_id, record]));
+}
+
+function assessment(testCase, overrides = {}) {
+  return {
+    version: 1,
+    refId: buildManagedMetadata(testCase).refId,
+    fileType: "Document",
+    purpose: "Work",
+    lifecycle: "Active",
+    context: "synthetic benchmark context",
+    riskLevel: "Normal",
+    suggestedAction: "Keep",
+    confidence: 0.91,
+    reason: "synthetic benchmark reason",
+    keywords: ["synthetic"],
+    requiresConfirmation: false,
+    ...overrides
+  };
+}
+
+describe("ZenDecisionBench initial corpus", () => {
+  it("is a valid 120-case six-task draft with balanced task families and fixed split counts", async () => {
+    const records = await readJsonl(corpusPath);
+    const validation = validateDataset(records);
+    expect(validation.valid).toBe(true);
+    expect(validation.count).toBe(120);
+    expect(validation.task_counts).toEqual({
+      domain_type: 20,
+      purpose: 20,
+      lifecycle: 20,
+      risk_level: 20,
+      suggested_action: 20,
+      existing_folder_choice: 20
+    });
+    expect(validation.split_counts).toEqual({ pilot: 60, dev: 30, test: 30 });
+    expect(validation.dataset_hash).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it("contains only synthetic provenance and does not treat non-gold abstention as correct by construction", async () => {
+    const records = await readJsonl(corpusPath);
+    expect(records.every((record) =>
+      record.provenance.category === "synthetic"
+      && record.provenance.source === "zdb-initial-corpus-v1"
+    )).toBe(true);
+
+    const abstainAllowed = records
+      .filter((record) => record.abstain_allowed)
+      .map((record) => record.case_id);
+    expect(abstainAllowed).toEqual(["folder-19", "folder-20"]);
+    expect(records.filter((record) => record.abstain_allowed).every((record) => record.gold === "abstain")).toBe(true);
+  });
+
+  it("covers production canonical semantic choices rather than a benchmark-only subset", async () => {
+    const records = await readJsonl(corpusPath);
+    const choiceIds = (task) => records.find((record) => record.task === task).choices.map((choice) => choice.id);
+
+    expect(choiceIds("purpose")).toEqual([
+      "project", "teaching", "study", "work", "personal", "career", "finance", "identity",
+      "media", "installer", "temporary", "archive", "document", "duplicate_review", "unknown"
+    ]);
+    expect(choiceIds("lifecycle")).toEqual([
+      "inbox", "active", "reference", "archive", "disposable", "duplicate", "sensitive", "trash_review", "unknown"
+    ]);
+    expect(choiceIds("risk_level")).toEqual(["normal", "sensitive", "system", "caution", "unknown"]);
+    expect(choiceIds("suggested_action")).toEqual([
+      "keep", "rename", "move", "move_and_rename", "archive", "review", "delete_candidate", "unknown"
+    ]);
+  });
+});
+
+describe("Managed AI DeepSeek baseline adapter", () => {
+  it("mirrors the production metadata-only request and never sends benchmark choices", async () => {
+    const cases = await byId();
+    const testCase = cases.get("domain-01");
+    const request = buildDeepSeekRequest(testCase);
+    const userPayload = JSON.parse(request.body.messages[1].content);
+
+    expect(metadata.default_model).toBe("deepseek-v4-flash");
+    expect(request.body.model).toBe("deepseek-v4-flash");
+    expect(request.body.temperature).toBe(0);
+    expect(request.body.max_tokens).toBe(4096);
+    expect(request.body.response_format).toEqual({ type: "json_object" });
+    expect(request.body.thinking).toEqual({ type: "disabled" });
+    expect(request.body.messages[0].content).toContain("SemanticAssessmentV1");
+    expect(userPayload).toEqual({
+      refId: "managed:zdb-domain-01",
+      name: "lecture-notes.pdf",
+      extension: "pdf",
+      size: 100000,
+      modifiedAt: 1758364800,
+      isDirectory: false,
+      parent: "C:/ZDB/Study/Database"
+    });
+    expect(request.body.messages[1].content).not.toContain("choices");
+    expect(request.body.messages[1].content).not.toContain("gold");
+    expect(request.body.messages[1].content).not.toContain("candidate_folders");
+  });
+
+  it("omits parent path for protected system locations exactly like Managed AI", async () => {
+    const cases = await byId();
+    const metadataInput = buildManagedMetadata(cases.get("risk-09"));
+    expect(metadataInput.name).toBe("kernel32.dll");
+    expect(metadataInput).not.toHaveProperty("parent");
+  });
+
+  it("maps canonical SemanticAssessmentV1 fields to each ZDB decision family", async () => {
+    const cases = await byId();
+    expect(assessmentToDecision(
+      cases.get("domain-01"),
+      assessment(cases.get("domain-01"), { fileType: "ArchivePackage" })
+    ).decision).toBe("archive_package");
+    expect(assessmentToDecision(
+      cases.get("purpose-01"),
+      assessment(cases.get("purpose-01"), { purpose: "Teaching" })
+    ).decision).toBe("teaching");
+    expect(assessmentToDecision(
+      cases.get("lifecycle-01"),
+      assessment(cases.get("lifecycle-01"), { lifecycle: "TrashReview" })
+    ).decision).toBe("trash_review");
+    expect(assessmentToDecision(
+      cases.get("risk-01"),
+      assessment(cases.get("risk-01"), { riskLevel: "high" })
+    ).decision).toBe("caution");
+    expect(assessmentToDecision(
+      cases.get("action-01"),
+      assessment(cases.get("action-01"), { suggestedAction: "MoveAndRename", targetTemplate: "Work" })
+    ).decision).toBe("move_and_rename");
+  });
+
+  it("applies production safety downgrade before scoring suggested action", async () => {
+    const cases = await byId();
+    const testCase = cases.get("action-03");
+
+    expect(assessmentToDecision(
+      testCase,
+      assessment(testCase, {
+        riskLevel: "Sensitive",
+        suggestedAction: "Move",
+        targetTemplate: "Work/Reports"
+      })
+    ).decision).toBe("review");
+
+    expect(assessmentToDecision(
+      testCase,
+      assessment(testCase, {
+        suggestedAction: "Move",
+        targetTemplate: "../outside"
+      })
+    ).decision).toBe("review");
+
+    expect(assessmentToDecision(
+      testCase,
+      assessment(testCase, {
+        suggestedAction: "MoveAndRename",
+        targetTemplate: "Work/Reports",
+        suggestedName: "report.exe"
+      })
+    ).decision).toBe("review");
+  });
+
+  it("maps targetTemplate to an existing folder only after the provider response", async () => {
+    const cases = await byId();
+    const testCase = cases.get("folder-01");
+
+    expect(assessmentToDecision(
+      testCase,
+      assessment(testCase, {
+        purpose: "Teaching",
+        suggestedAction: "Move",
+        targetTemplate: "Teaching/Scala"
+      })
+    ).decision).toBe("folder_1");
+
+    expect(assessmentToDecision(
+      testCase,
+      assessment(testCase, {
+        purpose: "Teaching",
+        suggestedAction: "Move",
+        targetTemplate: "Teaching/Other"
+      })
+    ).decision).toBe("abstain");
+  });
+
+  it("accepts cleaned JSON content but fails closed on extra authority-like fields", async () => {
+    const cases = await byId();
+    const testCase = cases.get("purpose-01");
+    const clean = assessment(testCase, { purpose: "Teaching" });
+
+    const response = {
+      choices: [{
+        message: {
+          content: `\`\`\`json\n${JSON.stringify(clean)}\n\`\`\``
+        }
+      }]
+    };
+    expect(parseProviderResponse(testCase, response).decision).toBe("teaching");
+
+    const extra = { ...clean, operationId: "op-1" };
+    expect(() => assessmentToDecision(testCase, extra)).toThrow(/managed_ai_unknown_field/u);
+  });
+});
