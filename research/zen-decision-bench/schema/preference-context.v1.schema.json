@@ -75,8 +75,7 @@
             "minLength": 1
           },
           "scope": {
-            "type": "object",
-            "minProperties": 1
+            "$ref": "#/$defs/scope"
           },
           "asserted_at": {
             "type": "string",
@@ -122,8 +121,7 @@
             "minLength": 1
           },
           "scope": {
-            "type": "object",
-            "minProperties": 1
+            "$ref": "#/$defs/scope"
           },
           "asserted_at": {
             "type": "string",
@@ -153,5 +151,89 @@
         }
       }
     }
-  }
+  },
+  "$defs": {
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "global_user": {
+          "const": true
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "managed_folder": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task_family": {
+          "enum": [
+            "purpose",
+            "lifecycle",
+            "suggested_action",
+            "existing_folder_choice"
+          ]
+        },
+        "domain_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lifecycle": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "minProperties": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "cold_start": {
+            "const": true
+          }
+        },
+        "required": [
+          "cold_start"
+        ]
+      },
+      "then": {
+        "properties": {
+          "preference_evidence": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cold_start": {
+            "const": false
+          }
+        },
+        "required": [
+          "cold_start"
+        ]
+      },
+      "then": {
+        "properties": {
+          "preference_evidence": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
 }
