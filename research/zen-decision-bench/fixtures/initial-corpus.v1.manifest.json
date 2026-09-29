@@ -26,7 +26,12 @@
     "adapter": "../adapters/managed-ai-deepseek.mjs",
     "status": "NOT_RUN",
     "first_allowed_split": "pilot",
-    "test_split_allowed_for_tuning": false
+    "test_split_allowed_for_tuning": false,
+    "required_run_schema": "zdb.run.v2",
+    "requires_frozen_manifest": true,
+    "requires_clean_tracked_worktree": true,
+    "retry_policy": "none",
+    "cost_accounting": "MEASURE_PROVIDER_USAGE_TOKENS_MONETARY_COST_UNAVAILABLE_WITHOUT_FROZEN_PRICE_SOURCE"
   },
   "evidence_note": "Owner-adjudicated 180-case finite-choice corpus frozen for ZDB-02 baseline work. The 30-case test split remains independently hash-locked and forbidden for prompt, mapping, threshold, calibration, preference, or case-specific tuning. No provider-quality, superiority, or production architecture claim is authorized before provider-run evidence and the later comparative-corpus gate.",
   "test_split_hash": "4afd78120d8bcba042752e6b65c9028ac653580d398d14ec338664cac4375c12",
