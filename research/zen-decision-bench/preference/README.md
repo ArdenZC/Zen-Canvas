@@ -8,6 +8,8 @@ Core invariant:
 
 \`Explicit User Truth != Preference != Rule\`
 
+Preference Evidence and Preference Context are separate schemas. A Context keeps Explicit User Truth, deterministic Rules, and Preference Evidence in separate fields; derived conflict/recommendation state is not supplied as input.
+
 Preference evidence is:
 
 - synthetic/non-sensitive in Phase 1;
