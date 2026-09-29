@@ -139,7 +139,7 @@ describe("ZDB-03 Preference Memory research activation", () => {
     expect(phase).toContain("Preference may not lower deterministic safety");
     expect(researchReadme).toContain("ZDB-03 Preference Memory Offline Hypothesis — **ACTIVE FOR RESEARCH ONLY**");
     expect(researchReadme).toContain("Explicit User Truth != Preference != Rule");
-    expect(preferenceReadme).toContain("No production authority");
+    expect(preferenceReadme).toContain("not production authority");
     expect(preferenceReadme).toContain("existing_folder_choice");
     expect(preferenceReadme).toContain("suggested_action");
   });
