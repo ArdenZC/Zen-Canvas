@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / PM-01 COMPLETE; PM-02A AUTOMATION INTENT FOUNDATION OWNER REVIEW PASSED. Merge of the dedicated activation PR activates PM-02A implementation only.**
+Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE; PM-02A AUTOMATION INTENT FOUNDATION OWNER REVIEW PASSED. Merge of the dedicated activation PR activates PM-02A implementation only.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
