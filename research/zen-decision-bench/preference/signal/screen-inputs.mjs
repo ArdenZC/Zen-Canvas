@@ -8,6 +8,11 @@ import { validateSavedCorpus } from "./validate-signal-corpus.mjs";
 import { validateBlindAdjudication } from "./validate-adjudication.mjs";
 
 export const START = "0fc3751de02a4acab07ff45dbd6523c8efa35a65";
+// PR #310's accepted B4 closeout changed this one pre-existing file.
+// Freeze its accepted blob explicitly; every other START entry stays frozen.
+export const ACCEPTED_POST_CLOSEOUT_BLOBS = Object.freeze({
+  "research/zen-decision-bench/preference/README.md": "6545ea8d46b4214865c0674a2627485aabafb45c"
+});
 export const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 export const OUT = new URL("../../results/evidence/zdb-03b4-preference-screen/", import.meta.url);
 export const BASELINE = new URL("../../results/evidence/zdb-03b3-same-case-generative/", import.meta.url);
@@ -25,18 +30,19 @@ export const jsonlText = rows => rows.map(row => JSON.stringify(row)).join("\n")
 export const primary = c => ["existing_folder_choice", "suggested_action"].includes(c.task);
 export const eligible = p => p.error == null && p.decision != null;
 
-// Verify every pre-existing research file against the exact starting tree,
+// Verify every pre-existing research file against the exact starting tree
+// with only the explicit accepted post-closeout blob above substituted,
 // including manifests, frozen construction sources and all B3 evidence.
-export async function verifyFrozenTree() {
+export async function verifyFrozenTree(root = ROOT) {
   const entries = git("ls-tree", "-r", START, "research/zen-decision-bench").split("\n");
   for (const line of entries) {
     const [, expected, path] = line.match(/^\d+ blob ([a-f0-9]+)\t(.+)$/u) ?? [];
     requirePass(expected && path, "frozen_tree_entry");
-    const bytes = await readFile(`${ROOT}/${path}`);
+    const bytes = await readFile(`${root}/${path}`);
     const actual = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-    requirePass(actual === expected, `frozen_blob:${path}`);
+    requirePass(actual === (ACCEPTED_POST_CLOSEOUT_BLOBS[path] ?? expected), `frozen_blob:${path}`);
   }
-  for (const [name, expected] of Object.entries(BLOBS)) requirePass(git("hash-object", `research/zen-decision-bench/preference/src/${name}.mjs`) === expected, `implementation_blob:${name}`);
+  for (const [name, expected] of Object.entries(BLOBS)) requirePass(git("-C", root, "hash-object", `research/zen-decision-bench/preference/src/${name}.mjs`) === expected, `implementation_blob:${name}`);
   return { checked_files: entries.length, hash_drift: 0, starting_tree: git("rev-parse", `${START}^{tree}`) };
 }
 export async function loadScreenInputs() {
