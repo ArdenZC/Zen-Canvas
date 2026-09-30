@@ -125,7 +125,7 @@ No profile ranking or tuning. Assignment comes only from the frozen `case_id →
 | profile-11 | 10 | 4 / 6 / 3 / 1 / 6 | 2 / 5 / 8 / 0 / 2 | 5 / 7 / 4 / 1 / 6 | 5 / 7 / 4 / 1 / 6 |
 | profile-12 | 10 | 1 / 1 / 7 / 0 / 3 | 1 / 1 / 9 / 0 / 1 | 2 / 2 / 6 / 0 / 4 | 1 / 1 / 7 / 0 / 3 |
 
-Support counts are identical across B/C/D: **none 55, weak 55, supported 6, correction_backed 4**. Conflict grouping: **conflicting 0, superseded 0, normal/no-conflict 120** per arm. Weak support does not by itself imply a resolver conflict.
+Support counts are identical across B/C/D: **none 55, weak 55, supported 6, correction_backed 4**. Conflict grouping: **conflicting 0, superseded 4, normal/no-conflict 116** per arm. The four `superseded` cases are the correction-backed contexts retained by the frozen resolver; weak support does not by itself imply a resolver conflict.
 
 Agreement matrix (per B/C/D): no recommendation **106**, baseline equals recommendation **0**, differs **10**, baseline unavailable **4**. Of the ten differing recommendations, higher authority prevents three from becoming Preference-caused changes; the remaining seven form the endpoint.
 
