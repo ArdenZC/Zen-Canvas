@@ -1,12 +1,14 @@
 # AI-only Product Migration
 
-Status: **ACTIVE — implementation — PM-01 Core Experience on `product/pm-01-ai-only-core-experience`**
+Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / PM-02A OWNER ACTIVATION REVIEW PASSED; MERGE OF THE PM-02A ACTIVATION PR ACTIVATES PM-02A IMPLEMENTATION ONLY**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
 Superseded historical activation: PR #274 — **CLOSED / not merged**.
 
-Fresh activation authority: [PM-01 Core Experience Activation](../tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md).
+Accepted PM-01 authority: [PM-01 Core Experience Activation](../tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md).
+
+Pending PM-02A authority: [Automation Intent Foundation Activation](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md).
 
 Deep-audit closure: [PM-01 Deep-Audit Closure](../tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -96,20 +98,36 @@ Do not implement Preference Memory in PM-01.
 
 PM-02 separately owns Automation Intent / Trigger / Policy architecture.
 
+PM-02 is now decomposed into separately gated slices:
+
+- **PM-02A — Automation Intent Foundation:** durable Organize-plan intent, manual trigger, fixed review-required / never-auto-execute policy, durable run receipt, fresh Query V2 snapshot resolution and Organization Plan handoff. Implementation activates only when its dedicated activation taskbook merges.
+- **PM-02B — Event / Schedule Triggers:** watcher/schedule/startup lifecycle and runtime admission. **NOT ACTIVE**.
+- Any additional workflow kinds or richer planner semantics require another bounded activation.
+
 PM-03 later owns remaining hierarchy/compatibility migration closeout.
 
-PM-01 must not create automation-intent tables, schedules, autonomous mutation, System One/Laya/Jev runtime integration, Preference Memory persistence, RAG/vector store, agent/tool/shell execution or release publication.
+PM-02A must preserve Rule Repository V2 and existing Organization/Managed AI authorities. It must not create schedule loops, autonomous mutation, a second scheduler/AI queue, System One/Laya/Jev runtime integration, Preference Memory persistence, RAG/vector store, agent/tool/shell execution or release publication.
 
 ## Research boundary
 
-Issue #283 is parallel research only and is not a PM-01 merge gate.
+Issue #283 is parallel/non-blocking research. Its bounded ZDB-03B screen is complete and frozen at `INCONCLUSIVE_LOW_DELTA`; the Owner disposition pauses further comparative execution and keeps the >=300 Stage-B corpus inactive.
+
+PM-02A does not consume Preference Memory as production authority.
 
 Production adoption of System One or Preference Memory requires later benchmark evidence and separate architecture review.
 
-## Activation rule
+## Current activation rule
 
-Activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.
+PM-01 is complete.
 
-Implementation branch: `product/pm-01-ai-only-core-experience`.
+PM-02A activation baseline:
 
-This record is **ACTIVE — implementation**. Production code may change only within the PM-01 scope and safety boundaries above.
+`master@1cb02bb419b032d7c83a4f54776c563010bb1e61`
+
+Activation taskbook:
+
+`docs/project/tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md`
+
+Owner activation review has passed. Until the activation PR merges, PM-02A production implementation remains **NOT ACTIVE**.
+
+Merge of the activation taskbook authorizes only PM-02A. PM-02B, PM-03, Preference Memory production, System One and Laya/Jev remain separately gated.
