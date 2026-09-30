@@ -1,0 +1,3627 @@
+{
+  "schema_version": "zdb03b4.comparison.v1",
+  "identity": {
+    "starting_master": "0fc3751de02a4acab07ff45dbd6523c8efa35a65",
+    "branch": "research/zdb-03b4-offline-preference-screen",
+    "candidate_runner_commit": "f353adc78b2a04d0312fe9d6073acb38e6eafa78",
+    "candidate_runner_tree": "84429f6ea73c0304ab2dafd92ddae5f5fcf456b6",
+    "tracked_worktree_clean": true,
+    "candidate_ci": {
+      "headSha": "f353adc78b2a04d0312fe9d6073acb38e6eafa78",
+      "run_id": 36701145415,
+      "conclusion": "success",
+      "url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/36701145415"
+    },
+    "determinism": "Two independent arm generations and comparison serializations byte-identical before exclusive freeze"
+  },
+  "frozen_inputs": {
+    "corpus": {
+      "valid": true,
+      "task_counts": {
+        "existing_folder_choice": 72,
+        "suggested_action": 36,
+        "purpose": 6,
+        "lifecycle": 6
+      },
+      "control_counts": {
+        "ordinary_preference_signal": 84,
+        "explicit_truth_control": 6,
+        "cold_start_candidate": 12,
+        "safety_control": 6,
+        "non_intervention_control": 12
+      },
+      "cold_start_count": 55,
+      "non_cold_count": 65,
+      "cold_start_taxonomy": {
+        "designated_novel_workspace": 12,
+        "non_intervention_no_history_task": 12,
+        "incidental_finite_choice_filtered": 31,
+        "unexplained_scope_or_other": 0
+      },
+      "cold_start_task_counts": {
+        "existing_folder_choice": 39,
+        "suggested_action": 4,
+        "purpose": 6,
+        "lifecycle": 6
+      },
+      "explicit_truth_count": 6,
+      "safety_rule_count": 6,
+      "missing_correction_references": 0,
+      "evidence_statistics": {
+        "total": 189,
+        "min": 0,
+        "median": 2,
+        "max": 5,
+        "specific_scoped_contexts": 30,
+        "broad_only_contexts": 35
+      },
+      "structural_validation": "PASS",
+      "canonical_sha256": "0a96faa752b488f9c507ee2d0ca64e439820f85697872a64a5972c2840693349",
+      "file_sha256": "e10cd216a0f6692511ec0049dccf37b51f306bd39625b858efcbac35ebac3c8a"
+    },
+    "b3_file_sha256": {
+      "predictions.jsonl": "de5c1b87b5ac255d45f17500f0e560ccc2eaeca0f60ebf3defc0437694e2e617",
+      "run.json": "bb30f28718d32f4c3243f281c49b8334f0bf4dbcbbad2b24d847dc8881cf6b43",
+      "summary.json": "54ad22c8e07a8a4f6e1c2a128ee39a13bbeae74c647d480f3a8b69b619bebc55",
+      "baseline-segments.json": "a270e606fd958dc8505ee0eaaa9dbb2bdb3c07299e49fa3bed7cbcd5a96501c7"
+    },
+    "implementation_blobs": {
+      "resolver": "6b30e4bb5a34ad510e9ff0a4bdcdb19875e28dfb",
+      "evaluate": "2255811fcef7450cf383983e7a3f7bb1c3bdb904",
+      "validate-context": "4e0e77dcabfdc505f199bb62ca3ee30abfeec58f"
+    },
+    "source_canonical_sha256": {
+      "profiles": "371519fe7c9f28d3c686e0299c223d64a57b00571777cab498668667498137b1",
+      "targets": "96f975ef10148a49f47068c578dd76ccd69ab3cf3f81167de2e227de32b735c4",
+      "assignment": "4833443e85bf2a69c74b175b8e618a98eebab6444f1da05418fbf926582d6a0b",
+      "history": "c2be8a2949c0daef12fe821010b72ca84ef999deb941a6f8bd0505dc8a7e2f44",
+      "adjudication": "498a511c4cfba87daaed7db5197c35aed96de34862feede43c500d9eb5d3ad50"
+    }
+  },
+  "baseline_availability": {
+    "total": 120,
+    "eligible": 116,
+    "unavailable": 4,
+    "primary_total": 108,
+    "primary_eligible": 104,
+    "primary_unavailable": 4,
+    "failure_taxonomy": {
+      "managed_ai_missing_field": 4
+    }
+  },
+  "all_task_eligible_diagnostics": {
+    "C": {
+      "schema_version": "zdb.preference_summary.v1",
+      "case_count": 116,
+      "metrics": {
+        "exact": 31,
+        "acceptable_alternate": 4,
+        "correct_abstention": 3,
+        "unnecessary_abstention": 62,
+        "unsafe_overclaim": 1,
+        "decision_coverage": 51,
+        "exact_rate": 0.2672413793103448,
+        "acceptable_adjusted_rate": 0.3275862068965517,
+        "decision_coverage_rate": 0.4396551724137931
+      },
+      "baseline_dependent_metrics_status": "EVALUATED_EXTERNAL_BASELINE",
+      "transition_matrix": {
+        "baseline_correct_to_preference_wrong": 0,
+        "baseline_acceptable_to_preference_wrong": 0,
+        "baseline_abstain_to_unsafe_preference_guess": 0,
+        "baseline_wrong_to_preference_correct": 14,
+        "baseline_wrong_to_preference_acceptable": 1,
+        "baseline_abstain_to_justified_preference_decision": 0,
+        "unchanged_correct": 20,
+        "unchanged_wrong": 15,
+        "unchanged_abstain": 65,
+        "other_transition": 1
+      },
+      "preference_induced_correction": 6,
+      "preference_induced_regression": 0,
+      "preference_net_benefit": {
+        "beneficial": 6,
+        "harmful": 0,
+        "net": 6
+      },
+      "explicit_truth_violations": 0,
+      "safety_boundary_violations": 0,
+      "cold_start_regressions": 0,
+      "conflict_resolution": {
+        "cases": 0,
+        "preference_abstained": 0,
+        "correct": 0
+      },
+      "attribution": {
+        "checked": 116,
+        "complete": 116,
+        "incomplete_case_ids": []
+      },
+      "failure_taxonomy_counts": {
+        "correct_preference_correction": 6,
+        "preference_induced_wrong_decision": 1
+      },
+      "gate_c_pass": true
+    },
+    "D": {
+      "schema_version": "zdb.preference_summary.v1",
+      "case_count": 116,
+      "metrics": {
+        "exact": 26,
+        "acceptable_alternate": 3,
+        "correct_abstention": 3,
+        "unnecessary_abstention": 69,
+        "unsafe_overclaim": 1,
+        "decision_coverage": 44,
+        "exact_rate": 0.22413793103448276,
+        "acceptable_adjusted_rate": 0.27586206896551724,
+        "decision_coverage_rate": 0.3793103448275862
+      },
+      "baseline_dependent_metrics_status": "EVALUATED_EXTERNAL_BASELINE",
+      "transition_matrix": {
+        "baseline_correct_to_preference_wrong": 0,
+        "baseline_acceptable_to_preference_wrong": 0,
+        "baseline_abstain_to_unsafe_preference_guess": 0,
+        "baseline_wrong_to_preference_correct": 9,
+        "baseline_wrong_to_preference_acceptable": 0,
+        "baseline_abstain_to_justified_preference_decision": 0,
+        "unchanged_correct": 20,
+        "unchanged_wrong": 15,
+        "unchanged_abstain": 68,
+        "other_transition": 4
+      },
+      "preference_induced_correction": 0,
+      "preference_induced_regression": 0,
+      "preference_net_benefit": {
+        "beneficial": 0,
+        "harmful": 0,
+        "net": 0
+      },
+      "explicit_truth_violations": 0,
+      "safety_boundary_violations": 0,
+      "cold_start_regressions": 0,
+      "conflict_resolution": {
+        "cases": 0,
+        "preference_abstained": 0,
+        "correct": 0
+      },
+      "attribution": {
+        "checked": 116,
+        "complete": 116,
+        "incomplete_case_ids": []
+      },
+      "failure_taxonomy_counts": {
+        "generative_preference_disagreement": 7
+      },
+      "gate_c_pass": true
+    }
+  },
+  "arm_prediction_sha256": {
+    "arm-b.jsonl": "97c1949046ba055d688a1177cf2b241a9827abe312f838e62d87b4fb3071c0ed",
+    "arm-c.jsonl": "ed16ecafd418b2d22429728e79b9353d00f0d3874ce6f8d49a7f4d37d2caaee9",
+    "arm-d.jsonl": "321047c94e916c11e7341c99dc9c991c6d0232d544bcb69740d2da1f403426f5"
+  },
+  "arms": {
+    "A": {
+      "full_coverage": {
+        "case_count": 120,
+        "counts": {
+          "correct": 17,
+          "acceptable_alternate": 3,
+          "correct_abstain": 3,
+          "unnecessary_abstain": 68,
+          "unsafe_overclaim": 1,
+          "incorrect": 24,
+          "invalid_output": 0,
+          "provider_failure": 4
+        },
+        "metrics": {
+          "exact_accuracy": 0.14166666666666666,
+          "acceptable_adjusted_accuracy": 0.19166666666666668,
+          "invalid_output_rate": 0,
+          "abstention_rate": 0.5916666666666667,
+          "unsafe_overclaim_rate": 0.008333333333333333,
+          "provider_failure_rate": 0.03333333333333333,
+          "median_latency_ms": 1616.31289999999,
+          "p95_latency_ms": 1825.7580000000016,
+          "decision_coverage": 45,
+          "decision_coverage_rate": 0.375
+        },
+        "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+        "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+      },
+      "per_task": {
+        "existing_folder_choice": {
+          "case_count": 72,
+          "counts": {
+            "correct": 0,
+            "acceptable_alternate": 0,
+            "correct_abstain": 3,
+            "unnecessary_abstain": 68,
+            "unsafe_overclaim": 0,
+            "incorrect": 0,
+            "invalid_output": 0,
+            "provider_failure": 1
+          },
+          "metrics": {
+            "exact_accuracy": 0,
+            "acceptable_adjusted_accuracy": 0.041666666666666664,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.9861111111111112,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0.013888888888888888,
+            "median_latency_ms": 1632.3972000000067,
+            "p95_latency_ms": 1849.2188999999998,
+            "decision_coverage": 0,
+            "decision_coverage_rate": 0
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "lifecycle": {
+          "case_count": 6,
+          "counts": {
+            "correct": 2,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 0,
+            "unsafe_overclaim": 0,
+            "incorrect": 4,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.3333333333333333,
+            "acceptable_adjusted_accuracy": 0.3333333333333333,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1577.3654999999853,
+            "p95_latency_ms": 1778.411700000026,
+            "decision_coverage": 6,
+            "decision_coverage_rate": 1
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "purpose": {
+          "case_count": 6,
+          "counts": {
+            "correct": 3,
+            "acceptable_alternate": 1,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 0,
+            "unsafe_overclaim": 1,
+            "incorrect": 1,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.5,
+            "acceptable_adjusted_accuracy": 0.6666666666666666,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0,
+            "unsafe_overclaim_rate": 0.16666666666666666,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1506.8389000000025,
+            "p95_latency_ms": 1828.035199999984,
+            "decision_coverage": 6,
+            "decision_coverage_rate": 1
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "suggested_action": {
+          "case_count": 36,
+          "counts": {
+            "correct": 12,
+            "acceptable_alternate": 2,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 0,
+            "unsafe_overclaim": 0,
+            "incorrect": 19,
+            "invalid_output": 0,
+            "provider_failure": 3
+          },
+          "metrics": {
+            "exact_accuracy": 0.3333333333333333,
+            "acceptable_adjusted_accuracy": 0.3888888888888889,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0.08333333333333333,
+            "median_latency_ms": 1577.388100000011,
+            "p95_latency_ms": 1795.1737999999896,
+            "decision_coverage": 33,
+            "decision_coverage_rate": 0.9166666666666666
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        }
+      },
+      "per_profile": {
+        "profile-01": {
+          "case_count": 10,
+          "counts": {
+            "correct": 2,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 5,
+            "unsafe_overclaim": 0,
+            "incorrect": 3,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.2,
+            "acceptable_adjusted_accuracy": 0.2,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.5,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1577.4816000000064,
+            "p95_latency_ms": 1713.4059999999881,
+            "decision_coverage": 5,
+            "decision_coverage_rate": 0.5
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-02": {
+          "case_count": 10,
+          "counts": {
+            "correct": 1,
+            "acceptable_alternate": 0,
+            "correct_abstain": 1,
+            "unnecessary_abstain": 6,
+            "unsafe_overclaim": 0,
+            "incorrect": 2,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.1,
+            "acceptable_adjusted_accuracy": 0.2,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.7,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1591.273000000001,
+            "p95_latency_ms": 1781.8703999999998,
+            "decision_coverage": 3,
+            "decision_coverage_rate": 0.3
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-03": {
+          "case_count": 10,
+          "counts": {
+            "correct": 1,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 9,
+            "unsafe_overclaim": 0,
+            "incorrect": 0,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.1,
+            "acceptable_adjusted_accuracy": 0.1,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.9,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1632.3972000000067,
+            "p95_latency_ms": 1821.8032999999996,
+            "decision_coverage": 1,
+            "decision_coverage_rate": 0.1
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-04": {
+          "case_count": 10,
+          "counts": {
+            "correct": 3,
+            "acceptable_alternate": 1,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 3,
+            "unsafe_overclaim": 0,
+            "incorrect": 3,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.3,
+            "acceptable_adjusted_accuracy": 0.4,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.3,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1743.4572000000044,
+            "p95_latency_ms": 1828.035199999984,
+            "decision_coverage": 7,
+            "decision_coverage_rate": 0.7
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-05": {
+          "case_count": 10,
+          "counts": {
+            "correct": 1,
+            "acceptable_alternate": 1,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 6,
+            "unsafe_overclaim": 0,
+            "incorrect": 2,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.1,
+            "acceptable_adjusted_accuracy": 0.2,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.6,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1626.3378999999986,
+            "p95_latency_ms": 1778.2206999999999,
+            "decision_coverage": 4,
+            "decision_coverage_rate": 0.4
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-06": {
+          "case_count": 10,
+          "counts": {
+            "correct": 2,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 5,
+            "unsafe_overclaim": 0,
+            "incorrect": 3,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.2,
+            "acceptable_adjusted_accuracy": 0.2,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.5,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1560.5296999999846,
+            "p95_latency_ms": 1796.5152000000016,
+            "decision_coverage": 5,
+            "decision_coverage_rate": 0.5
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-07": {
+          "case_count": 10,
+          "counts": {
+            "correct": 1,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 6,
+            "unsafe_overclaim": 0,
+            "incorrect": 3,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.1,
+            "acceptable_adjusted_accuracy": 0.1,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.6,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1514.2644999999993,
+            "p95_latency_ms": 1725.1510000000126,
+            "decision_coverage": 4,
+            "decision_coverage_rate": 0.4
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-08": {
+          "case_count": 10,
+          "counts": {
+            "correct": 0,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 7,
+            "unsafe_overclaim": 0,
+            "incorrect": 2,
+            "invalid_output": 0,
+            "provider_failure": 1
+          },
+          "metrics": {
+            "exact_accuracy": 0,
+            "acceptable_adjusted_accuracy": 0,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.7,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0.1,
+            "median_latency_ms": 1490.1087000000043,
+            "p95_latency_ms": 2010.2871000000014,
+            "decision_coverage": 2,
+            "decision_coverage_rate": 0.2
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-09": {
+          "case_count": 10,
+          "counts": {
+            "correct": 0,
+            "acceptable_alternate": 1,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 8,
+            "unsafe_overclaim": 0,
+            "incorrect": 1,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0,
+            "acceptable_adjusted_accuracy": 0.1,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.8,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1616.31289999999,
+            "p95_latency_ms": 1811.941100000011,
+            "decision_coverage": 2,
+            "decision_coverage_rate": 0.2
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-10": {
+          "case_count": 10,
+          "counts": {
+            "correct": 1,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 5,
+            "unsafe_overclaim": 0,
+            "incorrect": 2,
+            "invalid_output": 0,
+            "provider_failure": 2
+          },
+          "metrics": {
+            "exact_accuracy": 0.1,
+            "acceptable_adjusted_accuracy": 0.1,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.5,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0.2,
+            "median_latency_ms": 1624.982,
+            "p95_latency_ms": 1714.4339000000036,
+            "decision_coverage": 3,
+            "decision_coverage_rate": 0.3
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-11": {
+          "case_count": 10,
+          "counts": {
+            "correct": 4,
+            "acceptable_alternate": 0,
+            "correct_abstain": 2,
+            "unnecessary_abstain": 1,
+            "unsafe_overclaim": 1,
+            "incorrect": 1,
+            "invalid_output": 0,
+            "provider_failure": 1
+          },
+          "metrics": {
+            "exact_accuracy": 0.4,
+            "acceptable_adjusted_accuracy": 0.6,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.3,
+            "unsafe_overclaim_rate": 0.1,
+            "provider_failure_rate": 0.1,
+            "median_latency_ms": 1539.3906000000134,
+            "p95_latency_ms": 1849.2188999999998,
+            "decision_coverage": 6,
+            "decision_coverage_rate": 0.6
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        },
+        "profile-12": {
+          "case_count": 10,
+          "counts": {
+            "correct": 1,
+            "acceptable_alternate": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 7,
+            "unsafe_overclaim": 0,
+            "incorrect": 2,
+            "invalid_output": 0,
+            "provider_failure": 0
+          },
+          "metrics": {
+            "exact_accuracy": 0.1,
+            "acceptable_adjusted_accuracy": 0.1,
+            "invalid_output_rate": 0,
+            "abstention_rate": 0.7,
+            "unsafe_overclaim_rate": 0,
+            "provider_failure_rate": 0,
+            "median_latency_ms": 1675.1373999999778,
+            "p95_latency_ms": 1876.1497999999992,
+            "decision_coverage": 3,
+            "decision_coverage_rate": 0.3
+          },
+          "conflict_resolution": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+          "attribution": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+        }
+      },
+      "support_class_counts": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+      "support_class": "NOT_APPLICABLE_GENERATIVE_BASELINE",
+      "conflict_class": "NOT_APPLICABLE_GENERATIVE_BASELINE"
+    },
+    "B": {
+      "full_coverage": {
+        "schema_version": "zdb.preference_summary.v1",
+        "case_count": 120,
+        "metrics": {
+          "exact": 17,
+          "acceptable_alternate": 1,
+          "correct_abstention": 4,
+          "unnecessary_abstention": 97,
+          "unsafe_overclaim": 0,
+          "decision_coverage": 19,
+          "exact_rate": 0.14166666666666666,
+          "acceptable_adjusted_rate": 0.18333333333333332,
+          "decision_coverage_rate": 0.15833333333333333
+        },
+        "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "explicit_truth_violations": 0,
+        "safety_boundary_violations": 0,
+        "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "conflict_resolution": {
+          "cases": 0,
+          "preference_abstained": 0,
+          "correct": 0
+        },
+        "attribution": {
+          "checked": 120,
+          "complete": 120,
+          "incomplete_case_ids": []
+        },
+        "failure_taxonomy_counts": {
+          "weak_preference_evidence": 47,
+          "no_preference_evidence": 54,
+          "correct_preference_correction": 6,
+          "preference_induced_wrong_decision": 1
+        },
+        "gate_c_pass": true,
+        "provider_failure_count": 0,
+        "abstention_count": 101,
+        "adjusted_count": 22
+      },
+      "per_task": {
+        "existing_folder_choice": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 72,
+          "metrics": {
+            "exact": 6,
+            "acceptable_alternate": 0,
+            "correct_abstention": 3,
+            "unnecessary_abstention": 63,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.08333333333333333,
+            "acceptable_adjusted_rate": 0.125,
+            "decision_coverage_rate": 0.08333333333333333
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 72,
+            "complete": 72,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 28,
+            "no_preference_evidence": 38,
+            "correct_preference_correction": 3
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 66,
+          "adjusted_count": 9
+        },
+        "lifecycle": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 0,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 0,
+            "exact_rate": 0,
+            "acceptable_adjusted_rate": 0,
+            "decision_coverage_rate": 0
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 6
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 6,
+          "adjusted_count": 0
+        },
+        "purpose": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 0,
+            "acceptable_alternate": 0,
+            "correct_abstention": 1,
+            "unnecessary_abstention": 5,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 0,
+            "exact_rate": 0,
+            "acceptable_adjusted_rate": 0.16666666666666666,
+            "decision_coverage_rate": 0
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 6
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 6,
+          "adjusted_count": 1
+        },
+        "suggested_action": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 36,
+          "metrics": {
+            "exact": 11,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 23,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 13,
+            "exact_rate": 0.3055555555555556,
+            "acceptable_adjusted_rate": 0.3333333333333333,
+            "decision_coverage_rate": 0.3611111111111111
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 36,
+            "complete": 36,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 19,
+            "correct_preference_correction": 3,
+            "no_preference_evidence": 4,
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 23,
+          "adjusted_count": 12
+        }
+      },
+      "per_profile": {
+        "profile-01": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 0,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 10,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 0,
+            "exact_rate": 0,
+            "acceptable_adjusted_rate": 0,
+            "decision_coverage_rate": 0
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 2,
+            "no_preference_evidence": 8
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 10,
+          "adjusted_count": 0
+        },
+        "profile-02": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 0,
+            "acceptable_alternate": 0,
+            "correct_abstention": 1,
+            "unnecessary_abstention": 9,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 0,
+            "exact_rate": 0,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 8,
+            "no_preference_evidence": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 10,
+          "adjusted_count": 1
+        },
+        "profile-03": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 0,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 10,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 0,
+            "exact_rate": 0,
+            "acceptable_adjusted_rate": 0,
+            "decision_coverage_rate": 0
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 5,
+            "no_preference_evidence": 5
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 10,
+          "adjusted_count": 0
+        },
+        "profile-04": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.3,
+            "decision_coverage_rate": 0.4
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 6,
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 6,
+          "adjusted_count": 3
+        },
+        "profile-05": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 7,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.3,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 3,
+            "weak_preference_evidence": 4
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 3
+        },
+        "profile-06": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 8,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 2,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.2
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 2,
+            "no_preference_evidence": 6,
+            "correct_preference_correction": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 8,
+          "adjusted_count": 2
+        },
+        "profile-07": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 7,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.3,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 5,
+            "correct_preference_correction": 1,
+            "weak_preference_evidence": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 3
+        },
+        "profile-08": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 9,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 1,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 3,
+            "weak_preference_evidence": 6,
+            "correct_preference_correction": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 9,
+          "adjusted_count": 1
+        },
+        "profile-09": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 7,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.3,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 5,
+            "weak_preference_evidence": 2,
+            "correct_preference_correction": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 3
+        },
+        "profile-10": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 0,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 10,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 0,
+            "exact_rate": 0,
+            "acceptable_adjusted_rate": 0,
+            "decision_coverage_rate": 0
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 4,
+            "weak_preference_evidence": 6
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 10,
+          "adjusted_count": 0
+        },
+        "profile-11": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 3,
+            "unnecessary_abstention": 5,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 2,
+            "exact_rate": 0.2,
+            "acceptable_adjusted_rate": 0.5,
+            "decision_coverage_rate": 0.2
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 4,
+            "weak_preference_evidence": 4
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 8,
+          "adjusted_count": 5
+        },
+        "profile-12": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 9,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 1,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 6,
+            "no_preference_evidence": 3,
+            "correct_preference_correction": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 9,
+          "adjusted_count": 1
+        }
+      },
+      "support_class_counts": {
+        "none": 55,
+        "weak": 55,
+        "supported": 6,
+        "correction_backed": 4
+      },
+      "support_class": {
+        "correction_backed": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 4,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.75,
+            "acceptable_adjusted_rate": 1,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 4,
+            "complete": 4,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 4
+        },
+        "none": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 55,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 3,
+            "unnecessary_abstention": 51,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 1,
+            "exact_rate": 0.01818181818181818,
+            "acceptable_adjusted_rate": 0.07272727272727272,
+            "decision_coverage_rate": 0.01818181818181818
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 55,
+            "complete": 55,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 54
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 54,
+          "adjusted_count": 4
+        },
+        "supported": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 5,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.8333333333333334,
+            "acceptable_adjusted_rate": 0.8333333333333334,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 4,
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 5
+        },
+        "weak": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 55,
+          "metrics": {
+            "exact": 8,
+            "acceptable_alternate": 0,
+            "correct_abstention": 1,
+            "unnecessary_abstention": 46,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 8,
+            "exact_rate": 0.14545454545454545,
+            "acceptable_adjusted_rate": 0.16363636363636364,
+            "decision_coverage_rate": 0.14545454545454545
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 55,
+            "complete": 55,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 47
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 47,
+          "adjusted_count": 9
+        }
+      },
+      "conflict_class": {
+        "normal_no_conflict": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 116,
+          "metrics": {
+            "exact": 14,
+            "acceptable_alternate": 0,
+            "correct_abstention": 4,
+            "unnecessary_abstention": 97,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 15,
+            "exact_rate": 0.1206896551724138,
+            "acceptable_adjusted_rate": 0.15517241379310345,
+            "decision_coverage_rate": 0.12931034482758622
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 116,
+            "complete": 116,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 47,
+            "no_preference_evidence": 54,
+            "correct_preference_correction": 4,
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 101,
+          "adjusted_count": 18
+        },
+        "superseded": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 4,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.75,
+            "acceptable_adjusted_rate": 1,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 4,
+            "complete": 4,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 4
+        }
+      }
+    },
+    "C": {
+      "full_coverage": {
+        "schema_version": "zdb.preference_summary.v1",
+        "case_count": 120,
+        "metrics": {
+          "exact": 31,
+          "acceptable_alternate": 4,
+          "correct_abstention": 3,
+          "unnecessary_abstention": 66,
+          "unsafe_overclaim": 1,
+          "decision_coverage": 51,
+          "exact_rate": 0.25833333333333336,
+          "acceptable_adjusted_rate": 0.31666666666666665,
+          "decision_coverage_rate": 0.425
+        },
+        "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "explicit_truth_violations": 0,
+        "safety_boundary_violations": 0,
+        "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "conflict_resolution": {
+          "cases": 0,
+          "preference_abstained": 0,
+          "correct": 0
+        },
+        "attribution": {
+          "checked": 120,
+          "complete": 120,
+          "incomplete_case_ids": []
+        },
+        "failure_taxonomy_counts": {
+          "correct_preference_correction": 6,
+          "no_preference_evidence": 1,
+          "weak_preference_evidence": 3,
+          "preference_induced_wrong_decision": 1
+        },
+        "gate_c_pass": true,
+        "provider_failure_count": 0,
+        "abstention_count": 69,
+        "adjusted_count": 38
+      },
+      "per_task": {
+        "existing_folder_choice": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 72,
+          "metrics": {
+            "exact": 6,
+            "acceptable_alternate": 0,
+            "correct_abstention": 3,
+            "unnecessary_abstention": 63,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.08333333333333333,
+            "acceptable_adjusted_rate": 0.125,
+            "decision_coverage_rate": 0.08333333333333333
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 72,
+            "complete": 72,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 3,
+            "no_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 66,
+          "adjusted_count": 9
+        },
+        "lifecycle": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.3333333333333333,
+            "acceptable_adjusted_rate": 0.3333333333333333,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 2
+        },
+        "purpose": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 6,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.6666666666666666,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 4
+        },
+        "suggested_action": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 36,
+          "metrics": {
+            "exact": 20,
+            "acceptable_alternate": 3,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 3,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 33,
+            "exact_rate": 0.5555555555555556,
+            "acceptable_adjusted_rate": 0.6388888888888888,
+            "decision_coverage_rate": 0.9166666666666666
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 36,
+            "complete": 36,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 3,
+            "weak_preference_evidence": 3,
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 3,
+          "adjusted_count": 23
+        }
+      },
+      "per_profile": {
+        "profile-01": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 5,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 5,
+            "exact_rate": 0.2,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.5
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 5,
+          "adjusted_count": 2
+        },
+        "profile-02": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 1,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 2
+        },
+        "profile-03": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 9,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 1,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 9,
+          "adjusted_count": 1
+        },
+        "profile-04": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 5,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 3,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 7,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.6,
+            "decision_coverage_rate": 0.7
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 3,
+          "adjusted_count": 6
+        },
+        "profile-05": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 4,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 4,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.4,
+            "acceptable_adjusted_rate": 0.5,
+            "decision_coverage_rate": 0.6
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 4,
+          "adjusted_count": 5
+        },
+        "profile-06": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 5,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 5,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.4,
+            "decision_coverage_rate": 0.5
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 5,
+          "adjusted_count": 4
+        },
+        "profile-07": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 5,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 5,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.3,
+            "decision_coverage_rate": 0.5
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 5,
+          "adjusted_count": 3
+        },
+        "profile-08": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 8,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 2,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.2
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 1,
+            "correct_preference_correction": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 8,
+          "adjusted_count": 1
+        },
+        "profile-09": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.4,
+            "decision_coverage_rate": 0.4
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 6,
+          "adjusted_count": 4
+        },
+        "profile-10": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 7,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 1,
+            "weak_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 1
+        },
+        "profile-11": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 5,
+            "acceptable_alternate": 0,
+            "correct_abstention": 2,
+            "unnecessary_abstention": 2,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 6,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.7,
+            "decision_coverage_rate": 0.6
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 4,
+          "adjusted_count": 7
+        },
+        "profile-12": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.2,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.4
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 6,
+          "adjusted_count": 2
+        }
+      },
+      "support_class_counts": {
+        "none": 55,
+        "weak": 55,
+        "supported": 6,
+        "correction_backed": 4
+      },
+      "support_class": {
+        "correction_backed": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 4,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.75,
+            "acceptable_adjusted_rate": 1,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 4,
+            "complete": 4,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 4
+        },
+        "none": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 55,
+          "metrics": {
+            "exact": 9,
+            "acceptable_alternate": 1,
+            "correct_abstention": 2,
+            "unnecessary_abstention": 36,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 17,
+            "exact_rate": 0.16363636363636364,
+            "acceptable_adjusted_rate": 0.21818181818181817,
+            "decision_coverage_rate": 0.3090909090909091
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 55,
+            "complete": 55,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 38,
+          "adjusted_count": 12
+        },
+        "supported": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 5,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.8333333333333334,
+            "acceptable_adjusted_rate": 0.8333333333333334,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 4,
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 5
+        },
+        "weak": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 55,
+          "metrics": {
+            "exact": 14,
+            "acceptable_alternate": 2,
+            "correct_abstention": 1,
+            "unnecessary_abstention": 30,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 24,
+            "exact_rate": 0.2545454545454545,
+            "acceptable_adjusted_rate": 0.3090909090909091,
+            "decision_coverage_rate": 0.43636363636363634
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 55,
+            "complete": 55,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 3
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 31,
+          "adjusted_count": 17
+        }
+      },
+      "conflict_class": {
+        "normal_no_conflict": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 116,
+          "metrics": {
+            "exact": 28,
+            "acceptable_alternate": 3,
+            "correct_abstention": 3,
+            "unnecessary_abstention": 66,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 47,
+            "exact_rate": 0.2413793103448276,
+            "acceptable_adjusted_rate": 0.29310344827586204,
+            "decision_coverage_rate": 0.4051724137931034
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 116,
+            "complete": 116,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 4,
+            "no_preference_evidence": 1,
+            "weak_preference_evidence": 3,
+            "preference_induced_wrong_decision": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 69,
+          "adjusted_count": 34
+        },
+        "superseded": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 4,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.75,
+            "acceptable_adjusted_rate": 1,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 4,
+            "complete": 4,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "correct_preference_correction": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 4
+        }
+      }
+    },
+    "D": {
+      "full_coverage": {
+        "schema_version": "zdb.preference_summary.v1",
+        "case_count": 120,
+        "metrics": {
+          "exact": 26,
+          "acceptable_alternate": 3,
+          "correct_abstention": 3,
+          "unnecessary_abstention": 73,
+          "unsafe_overclaim": 1,
+          "decision_coverage": 44,
+          "exact_rate": 0.21666666666666667,
+          "acceptable_adjusted_rate": 0.26666666666666666,
+          "decision_coverage_rate": 0.36666666666666664
+        },
+        "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "explicit_truth_violations": 0,
+        "safety_boundary_violations": 0,
+        "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+        "conflict_resolution": {
+          "cases": 0,
+          "preference_abstained": 0,
+          "correct": 0
+        },
+        "attribution": {
+          "checked": 120,
+          "complete": 120,
+          "incomplete_case_ids": []
+        },
+        "failure_taxonomy_counts": {
+          "generative_preference_disagreement": 7,
+          "no_preference_evidence": 1,
+          "weak_preference_evidence": 3
+        },
+        "gate_c_pass": true,
+        "provider_failure_count": 0,
+        "abstention_count": 76,
+        "adjusted_count": 32
+      },
+      "per_task": {
+        "existing_folder_choice": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 72,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 0,
+            "correct_abstention": 3,
+            "unnecessary_abstention": 66,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.041666666666666664,
+            "acceptable_adjusted_rate": 0.08333333333333333,
+            "decision_coverage_rate": 0.041666666666666664
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 72,
+            "complete": 72,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 3,
+            "no_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 69,
+          "adjusted_count": 6
+        },
+        "lifecycle": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.3333333333333333,
+            "acceptable_adjusted_rate": 0.3333333333333333,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 2
+        },
+        "purpose": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 0,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 6,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.6666666666666666,
+            "decision_coverage_rate": 1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 0,
+          "adjusted_count": 4
+        },
+        "suggested_action": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 36,
+          "metrics": {
+            "exact": 18,
+            "acceptable_alternate": 2,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 7,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 29,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.5555555555555556,
+            "decision_coverage_rate": 0.8055555555555556
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 36,
+            "complete": 36,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 4,
+            "weak_preference_evidence": 3
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 20
+        }
+      },
+      "per_profile": {
+        "profile-01": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 5,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 5,
+            "exact_rate": 0.2,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.5
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 5,
+          "adjusted_count": 2
+        },
+        "profile-02": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 1,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 2
+        },
+        "profile-03": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 9,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 1,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 9,
+          "adjusted_count": 1
+        },
+        "profile-04": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 5,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 4,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.6,
+            "decision_coverage_rate": 0.6
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 4,
+          "adjusted_count": 6
+        },
+        "profile-05": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 4,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 4,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 6,
+            "exact_rate": 0.4,
+            "acceptable_adjusted_rate": 0.5,
+            "decision_coverage_rate": 0.6
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {},
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 4,
+          "adjusted_count": 5
+        },
+        "profile-06": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 3,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.3,
+            "acceptable_adjusted_rate": 0.3,
+            "decision_coverage_rate": 0.4
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 6,
+          "adjusted_count": 3
+        },
+        "profile-07": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 6,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 4,
+            "exact_rate": 0.2,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.4
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 6,
+          "adjusted_count": 2
+        },
+        "profile-08": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 0,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 9,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 1,
+            "exact_rate": 0,
+            "acceptable_adjusted_rate": 0,
+            "decision_coverage_rate": 0.1
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 1,
+            "generative_preference_disagreement": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 9,
+          "adjusted_count": 0
+        },
+        "profile-09": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 1,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 8,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 2,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.2,
+            "decision_coverage_rate": 0.2
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 8,
+          "adjusted_count": 2
+        },
+        "profile-10": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 7,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 1,
+            "weak_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 1
+        },
+        "profile-11": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 5,
+            "acceptable_alternate": 0,
+            "correct_abstention": 2,
+            "unnecessary_abstention": 2,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 6,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.7,
+            "decision_coverage_rate": 0.6
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 4,
+          "adjusted_count": 7
+        },
+        "profile-12": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 10,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 7,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 3,
+            "exact_rate": 0.1,
+            "acceptable_adjusted_rate": 0.1,
+            "decision_coverage_rate": 0.3
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 10,
+            "complete": 10,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 7,
+          "adjusted_count": 1
+        }
+      },
+      "support_class_counts": {
+        "none": 55,
+        "weak": 55,
+        "supported": 6,
+        "correction_backed": 4
+      },
+      "support_class": {
+        "correction_backed": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 4,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 2,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 2,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.5,
+            "decision_coverage_rate": 0.5
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 4,
+            "complete": 4,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 2,
+          "adjusted_count": 2
+        },
+        "none": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 55,
+          "metrics": {
+            "exact": 9,
+            "acceptable_alternate": 1,
+            "correct_abstention": 2,
+            "unnecessary_abstention": 36,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 17,
+            "exact_rate": 0.16363636363636364,
+            "acceptable_adjusted_rate": 0.21818181818181817,
+            "decision_coverage_rate": 0.3090909090909091
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 55,
+            "complete": 55,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "no_preference_evidence": 1
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 38,
+          "adjusted_count": 12
+        },
+        "supported": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 6,
+          "metrics": {
+            "exact": 1,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 5,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 1,
+            "exact_rate": 0.16666666666666666,
+            "acceptable_adjusted_rate": 0.16666666666666666,
+            "decision_coverage_rate": 0.16666666666666666
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 6,
+            "complete": 6,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 5
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 5,
+          "adjusted_count": 1
+        },
+        "weak": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 55,
+          "metrics": {
+            "exact": 14,
+            "acceptable_alternate": 2,
+            "correct_abstention": 1,
+            "unnecessary_abstention": 30,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 24,
+            "exact_rate": 0.2545454545454545,
+            "acceptable_adjusted_rate": 0.3090909090909091,
+            "decision_coverage_rate": 0.43636363636363634
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 55,
+            "complete": 55,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "weak_preference_evidence": 3
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 31,
+          "adjusted_count": 17
+        }
+      },
+      "conflict_class": {
+        "normal_no_conflict": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 116,
+          "metrics": {
+            "exact": 24,
+            "acceptable_alternate": 3,
+            "correct_abstention": 3,
+            "unnecessary_abstention": 71,
+            "unsafe_overclaim": 1,
+            "decision_coverage": 42,
+            "exact_rate": 0.20689655172413793,
+            "acceptable_adjusted_rate": 0.25862068965517243,
+            "decision_coverage_rate": 0.3620689655172414
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 116,
+            "complete": 116,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 5,
+            "no_preference_evidence": 1,
+            "weak_preference_evidence": 3
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 74,
+          "adjusted_count": 30
+        },
+        "superseded": {
+          "schema_version": "zdb.preference_summary.v1",
+          "case_count": 4,
+          "metrics": {
+            "exact": 2,
+            "acceptable_alternate": 0,
+            "correct_abstention": 0,
+            "unnecessary_abstention": 2,
+            "unsafe_overclaim": 0,
+            "decision_coverage": 2,
+            "exact_rate": 0.5,
+            "acceptable_adjusted_rate": 0.5,
+            "decision_coverage_rate": 0.5
+          },
+          "baseline_dependent_metrics_status": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "transition_matrix": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_correction": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_induced_regression": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "preference_net_benefit": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "explicit_truth_violations": 0,
+          "safety_boundary_violations": 0,
+          "cold_start_regressions": "NOT_EVALUATED_NO_REAL_BASELINE",
+          "conflict_resolution": {
+            "cases": 0,
+            "preference_abstained": 0,
+            "correct": 0
+          },
+          "attribution": {
+            "checked": 4,
+            "complete": 4,
+            "incomplete_case_ids": []
+          },
+          "failure_taxonomy_counts": {
+            "generative_preference_disagreement": 2
+          },
+          "gate_c_pass": true,
+          "provider_failure_count": 0,
+          "abstention_count": 2,
+          "adjusted_count": 2
+        }
+      }
+    }
+  },
+  "primary_arm_c": {
+    "population": "baseline_eligible_primary_folder_action_only",
+    "case_count": 104,
+    "preference_caused_changed": 7,
+    "beneficial": 6,
+    "harmful": 0,
+    "other": 1,
+    "net_benefit": 6,
+    "changed_case_ids": [
+      "zdb03b-target-013",
+      "zdb03b-target-035",
+      "zdb03b-target-061",
+      "zdb03b-target-074",
+      "zdb03b-target-079",
+      "zdb03b-target-084",
+      "zdb03b-target-092"
+    ],
+    "beneficial_case_ids": [
+      "zdb03b-target-013",
+      "zdb03b-target-035",
+      "zdb03b-target-061",
+      "zdb03b-target-074",
+      "zdb03b-target-079",
+      "zdb03b-target-084"
+    ],
+    "harmful_case_ids": [],
+    "other_case_ids": [
+      "zdb03b-target-092"
+    ],
+    "unchanged_final_decisions": 88,
+    "non_preference_changed_final_decisions": 9,
+    "no_preference_caused_change": 97,
+    "baseline_abstentions": 71,
+    "preference_abstentions": 94,
+    "arm_c_abstentions": 65,
+    "decision_coverage": 39,
+    "frozen_evaluation": {
+      "schema_version": "zdb.preference_summary.v1",
+      "case_count": 104,
+      "metrics": {
+        "exact": 26,
+        "acceptable_alternate": 3,
+        "correct_abstention": 3,
+        "unnecessary_abstention": 62,
+        "unsafe_overclaim": 0,
+        "decision_coverage": 39,
+        "exact_rate": 0.25,
+        "acceptable_adjusted_rate": 0.3076923076923077,
+        "decision_coverage_rate": 0.375
+      },
+      "baseline_dependent_metrics_status": "EVALUATED_EXTERNAL_BASELINE",
+      "transition_matrix": {
+        "baseline_correct_to_preference_wrong": 0,
+        "baseline_acceptable_to_preference_wrong": 0,
+        "baseline_abstain_to_unsafe_preference_guess": 0,
+        "baseline_wrong_to_preference_correct": 14,
+        "baseline_wrong_to_preference_acceptable": 1,
+        "baseline_abstain_to_justified_preference_decision": 0,
+        "unchanged_correct": 14,
+        "unchanged_wrong": 9,
+        "unchanged_abstain": 65,
+        "other_transition": 1
+      },
+      "preference_induced_correction": 6,
+      "preference_induced_regression": 0,
+      "preference_net_benefit": {
+        "beneficial": 6,
+        "harmful": 0,
+        "net": 6
+      },
+      "explicit_truth_violations": 0,
+      "safety_boundary_violations": 0,
+      "cold_start_regressions": 0,
+      "conflict_resolution": {
+        "cases": 0,
+        "preference_abstained": 0,
+        "correct": 0
+      },
+      "attribution": {
+        "checked": 104,
+        "complete": 104,
+        "incomplete_case_ids": []
+      },
+      "failure_taxonomy_counts": {
+        "correct_preference_correction": 6,
+        "preference_induced_wrong_decision": 1
+      },
+      "gate_c_pass": true
+    }
+  },
+  "baseline_unavailable_arm_outcomes": {
+    "case_count": 4,
+    "included_in_full_coverage": true,
+    "excluded_from_net_benefit": true
+  },
+  "agreement_matrix": {
+    "B": {
+      "no_preference_recommendation": 106,
+      "baseline_equals_preference": 0,
+      "baseline_differs_from_preference": 10,
+      "baseline_unavailable": 4
+    },
+    "C": {
+      "no_preference_recommendation": 106,
+      "baseline_equals_preference": 0,
+      "baseline_differs_from_preference": 10,
+      "baseline_unavailable": 4
+    },
+    "D": {
+      "no_preference_recommendation": 106,
+      "baseline_equals_preference": 0,
+      "baseline_differs_from_preference": 10,
+      "baseline_unavailable": 4
+    }
+  },
+  "hard_gate_status": "PASS",
+  "screen_disposition": "INCONCLUSIVE_LOW_DELTA",
+  "provider_calls": 0,
+  "no_tuning": true,
+  "production_authority": false
+}
