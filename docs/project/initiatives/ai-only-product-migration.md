@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE — PM-01 COMPLETE / PM-02A ACTIVATION UNDER OWNER REVIEW; PM-02A IMPLEMENTATION NOT ACTIVE UNTIL ACTIVATION MERGE**
+Status: **ACTIVE INITIATIVE — PM-01 COMPLETE / PM-02A OWNER ACTIVATION REVIEW PASSED; MERGE OF THE PM-02A ACTIVATION PR ACTIVATES PM-02A IMPLEMENTATION ONLY**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -128,6 +128,6 @@ Activation taskbook:
 
 `docs/project/tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md`
 
-Until that activation PR merges, PM-02A production implementation remains **NOT ACTIVE**.
+Owner activation review has passed. Until the activation PR merges, PM-02A production implementation remains **NOT ACTIVE**.
 
 Merge of the activation taskbook authorizes only PM-02A. PM-02B, PM-03, Preference Memory production, System One and Laya/Jev remain separately gated.
