@@ -1,8 +1,8 @@
 # ZDB-03B3 — Same-Case Canonical Generative Baseline
 
-Status: **ZDB-03B3 SAME-CASE GENERATIVE BASELINE COMPLETE — READY FOR OWNER REVIEW**.
+Status: **ZDB-03B3 SAME-CASE GENERATIVE BASELINE — OWNER REVIEW PASSED / BASELINE FROZEN**.
 
-Issue [#283](https://github.com/ArdenZC/Zen-Canvas/issues/283); frozen corpus [PR #306](https://github.com/ArdenZC/Zen-Canvas/pull/306); B3 [Draft PR #309](https://github.com/ArdenZC/Zen-Canvas/pull/309). This is research-only, one immutable 120-case synthetic pilot baseline. Owner review and merge remain pending. No Preference Arm, B4, >=300 comparative corpus, ZDB-04+ or PM-02 is active.
+Issue [#283](https://github.com/ArdenZC/Zen-Canvas/issues/283); frozen corpus [PR #306](https://github.com/ArdenZC/Zen-Canvas/pull/306); B3 [Draft PR #309](https://github.com/ArdenZC/Zen-Canvas/pull/309). This is research-only, one immutable 120-case synthetic pilot baseline. Owner review has passed; merge remains pending. No Preference Arm, >=300 comparative corpus, ZDB-04+ or PM-02 is active. ZDB-03B4 may activate only after this PR merges and merge-after CI succeeds.
 
 The initial B3 attempt stopped before provider execution because the merged B2C validator contained an accidental literal `\n` syntax defect from freeze-closeout. [PR #307](https://github.com/ArdenZC/Zen-Canvas/pull/307) repaired only that syntax defect. No corpus or experimental input changed, and the blocked attempt made zero provider requests, zero Arm executions, zero task modifications, zero commits and zero PRs. The hotfix merge master is `849e1f2deb2defb1f011751158962de7201960f8`; merge-after CI [36678724353](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36678724353) passed. The hotfix is not a B3 experimental change.
 
@@ -101,9 +101,9 @@ All five canonical/file hashes, Owner-frozen manifest status and corpus Git blob
 
 Credential/privacy review: saved predictions contain only the six declared fields; no raw body, completion, reason or headers are retained. Changed evidence was scanned for credential tokens and credential-bearing material. Request isolation passed for all 120; no request contained Preference or benchmark-answer metadata. **No credential or raw provider response leaked into changed files, evidence or PR text.**
 
-**ZDB-03B3 remains OWNER REVIEW PENDING.**
+**ZDB-03B3 OWNER REVIEW PASSED — BASELINE FROZEN.**
 
-**ZDB-03B4 remains NOT ACTIVE.**
+**ZDB-03B4 remains NOT ACTIVE until PR #309 merge + merge-after CI SUCCESS.**
 
 **>=300 comparative corpus remains NOT ACTIVE.**
 
@@ -111,7 +111,7 @@ Credential/privacy review: saved predictions contain only the six declared field
 
 **PM-02 remains NOT ACTIVE.**
 
-This is one synthetic baseline, with a weak folder-choice result, four parser failures and one scored unsafe overclaim. It establishes neither Preference benefit nor production/native/safety qualification. Owner review remains the acceptance gate. No production authority, schema, runtime, adapter, parser or evaluator changed; no merge was performed.
+This is one synthetic baseline, with a weak folder-choice result, four parser failures and one scored unsafe overclaim. It establishes neither Preference benefit nor production/native/safety qualification. Owner review is complete and passed. No production authority, schema, runtime, adapter, parser or evaluator changed; no merge has yet occurred.
 
 ## Closeout identity and verification
 
@@ -120,3 +120,18 @@ Final immutable evidence HEAD: `dc54001280e1bccc46fc7b64bef45ac69527dcc1`; tree 
 Passed: both repaired syntax gates, saved-corpus validator, five frozen source canonical/file hashes, corpus blob, request projection regeneration and mutation isolation, B3 5/5 tests, broader structural suite 75/75, unchanged evaluator, full evidence integrity checker, changed-document/governance checks and `git diff --check`. Frozen sources and accepted adapter/parser/evaluator have no B3 diff. No visual/native/product acceptance applies to this research-only execution.
 
 The worktree and shared dependency junction are intentionally retained for Draft/Owner review. The named preservation stash plus exact status/diff/hash snapshot are retained as requested recovery evidence. The ignored durable live-attempt marker is retained to forbid an accidental second run. Only task-owned disposable evaluator/integrity output and temporary PR-body files are removed at handoff; no shared caches or unrelated work are removed. Remaining gate: Owner review and merge decision. B3 evidence is complete; no downstream track is activated.
+
+
+## Owner freeze disposition
+
+Owner independently reviewed the request boundary, candidate/live chronology, immutable evidence chain, metrics and privacy state at exact PR head `876ec6f93d88a1a8d9a768b82acba181309c98f4`.
+
+Accepted immutable evidence commit: `dc54001280e1bccc46fc7b64bef45ac69527dcc1`.
+
+Independent recomputation reproduced the committed global, per-task, cold/non-cold and control metrics. Request isolation, no-retry execution, failure taxonomy, evidence hashes, frozen corpus/source bindings and credential/raw-response exclusion all passed.
+
+The weak existing-folder baseline is accepted as observed evidence and must not be tuned after the run.
+
+Only governance/status wording may change after this point. Runner, request projection, predictions, run manifest, summary, baseline segments, checksums, corpus, adapter, parser and evaluator are frozen.
+
+After PR #309 merge and successful merge-after CI, only ZDB-03B4 offline Preference comparison may activate.
