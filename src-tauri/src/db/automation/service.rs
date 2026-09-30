@@ -116,7 +116,7 @@ impl Database {
                         // terminal receipt; retry never restarts orchestration.
                         run.analysis_blocker_code = run
                             .requires_plan_refresh
-                            .then(|| "automation_analysis_not_requested".into());
+                            .then(|| "automation_analysis_admission_unconfirmed".into());
                     }
                     Err(_) => {
                         drop(savepoint);

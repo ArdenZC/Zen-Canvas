@@ -97,6 +97,8 @@ describe("PM-02A Intent-first workspace", () => {
     expect(document.body.textContent).toContain("Analysis requested"); expect(document.body.textContent).toContain("Refresh the plan in Organize");
     vi.mocked(automationApi.listAutomationRuns).mockResolvedValue([{ ...run, status: "blocked", requiresPlanRefresh: true, analysisBlockerCode: "managed_cloud_ai_consent_required" }]); await click("Refresh");
     expect(document.body.textContent).toContain("Needs attention"); expect(document.body.textContent).toContain("cloud consent settings");
+    vi.mocked(automationApi.listAutomationRuns).mockResolvedValue([{ ...run, status: "blocked", requiresPlanRefresh: true, analysisBlockerCode: "automation_analysis_admission_unconfirmed" }]); await click("Refresh");
+    expect(document.body.textContent).toContain("Analysis admission is unconfirmed");
     await click("Advanced Rules"); expect(document.body.textContent).toContain("Existing Rules workspace");
     expect(automationApi.runAutomationIntentManual).not.toHaveBeenCalled();
   });

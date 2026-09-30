@@ -2,6 +2,7 @@ import type { Language } from "./types";
 export type { Language } from "./types";
 
 const zh = {
+  automationAnalysisUnconfirmed: "分析提交结果尚未确认。请打开计划检查当前分析状态。",
   automationIntentWorkspaceTitle: "自动化",
   automationIntents: "自动化意图",
   automationAdvancedRules: "高级规则",
@@ -2695,6 +2696,7 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
+  automationAnalysisUnconfirmed: "Analysis admission is unconfirmed. Open the plan to check its current analysis state.",
   automationIntentWorkspaceTitle: "Automation",
   automationIntents: "Intents",
   automationAdvancedRules: "Advanced Rules",

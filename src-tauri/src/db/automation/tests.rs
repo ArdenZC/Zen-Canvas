@@ -428,6 +428,29 @@ fn fresh_analysis_ready_uses_existing_queue_only_and_retry_does_not_enqueue() {
             .unwrap(),
         0
     );
+    // Crash window: queue admission committed, final receipt update did not.
+    // Its outcome stays explicitly unconfirmed; retry must not admit again.
+    conn.execute("UPDATE automation_runs SET status='blocked',queued_analysis_count=0,analysis_blocker_code='automation_analysis_admission_unconfirmed' WHERE id=?1",[&run.id]).unwrap();
+    drop(conn);
+    let interrupted = db
+        .run_automation_intent_manual(request(&i, "local-ready"))
+        .unwrap();
+    assert_eq!(
+        interrupted.analysis_blocker_code.as_deref(),
+        Some("automation_analysis_admission_unconfirmed")
+    );
+    assert_eq!(interrupted.result_plan_id, run.result_plan_id);
+    assert_eq!(
+        db.conn()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM ai_jobs WHERE status='pending'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
 }
 
 #[test]
