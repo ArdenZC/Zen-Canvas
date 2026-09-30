@@ -137,6 +137,7 @@ Owner review and merge decisions use direct diff inspection, repository governan
 ## ZDB-03B2 source freezes
 
 ZDB-03B1 is **COMPLETE / MERGED / OWNER REVIEW PASSED / PACKS FROZEN**. ZDB-03B2A is **COMPLETE / MERGED through PR #303 / ASSIGNMENT + HISTORY FROZEN**. ZDB-03B2B is **COMPLETE / MERGED through PR #304 / OWNER BLIND ADJUDICATION FROZEN**. History was unseen at adjudication freeze; the historical B2A blindness gate is satisfied. Frozen source identities remain immutable.
+
 ## ZDB-03B2C structural clarification
 
 The first B2C assembly attempt stopped before artifact creation because an execution instruction incorrectly expected exactly 24 cold-start / 96 non-cold contexts. Owner reproduction from the five frozen inputs established the deterministic truth as **55 cold-start / 65 non-cold**: 12 designated novel-workspace controls, 12 purpose/lifecycle no-history controls, and 31 incidental finite-choice cold starts. There are 0 unexplained scope-mismatch cold starts and 0 missing correction references. See [ZDB-03B2C Cold-Start Structural Clarification](tasks/ZDB-03B2C-COLD-START-STRUCTURAL-CLARIFICATION.md).

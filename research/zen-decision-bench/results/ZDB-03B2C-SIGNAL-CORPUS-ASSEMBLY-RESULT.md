@@ -82,8 +82,8 @@ Attached evidence records across cases: **189**. Per-case count minimum/median/m
 - Local structural ZDB suite: **70/70 across 7 files**, including **12 B2C tests**. The existing `preference-hypothesis.test.mjs` resolver/Arm suite was excluded from local B2C execution to preserve assembly-only scope. Hosted CI follows its unchanged repository routing and may run pre-existing conformance tests; that does not execute the B2C corpus through a research arm.
 - Existing B2A and blind-adjudication validators: **PASS**.
 - Windows Node `24.15.0`; existing shebang scripts needed local LF normalization for Vitest, with original checkout line endings restored and committed blobs unchanged.
-- Documentation/governance and `git diff --check`: required before delivery.
-- Fresh exact-head hosted CI: recorded in the Draft PR handoff; local candidate results do not replace it.
+- Documentation/governance and `git diff --check`: **PASS**.
+- Artifact implementation exact-head hosted CI [36673064442](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36673064442): **SUCCESS** at `bacceb6d2f3e2c58e708b1a24763ce76a9964464`, tree `ce62a77c2f8a5b2f14a56133a32873b825f8af2d`. This result records that validated artifact head; the final documentation-only successor receives fresh exact-head CI separately in Draft PR #306 and the handoff. Local structural tests are bound to the artifact implementation tree.
 
 Commands:
 
