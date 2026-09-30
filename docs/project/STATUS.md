@@ -29,7 +29,7 @@ Last verified: 2026-09-30
 
 **AI-only Product Migration**
 
-Status: **PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A OWNER ACTIVATION REVIEW PASSED. Merge of the PM-02A activation PR activates PM-02A implementation only. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
+Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A OWNER ACTIVATION REVIEW PASSED. Merge of the PM-02A activation PR activates PM-02A implementation only. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Branch: `product/pm-01-ai-only-core-experience`. Activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.
 
