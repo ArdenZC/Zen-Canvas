@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/preference-signal-adjudication.v1.schema.json",
+  "title": "ZDB-03B2 Owner blind adjudication",
+  "description": "Owner-authored target truth created from frozen Profile + Target + Assignment only, before any Owner inspection of History content.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "profile_id",
+    "gold",
+    "acceptable",
+    "abstain_allowed",
+    "rationale",
+    "profile_tendency_ids_consulted",
+    "authority_basis",
+    "authority_refs",
+    "adjudicated_by",
+    "adjudication_blindness",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "zdb.preference_signal_adjudication.v1"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^zdb03b-target-(0[0-9][1-9]|0[1-9][0-9]|1[01][0-9]|120)$"
+    },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^profile-(0[1-9]|1[0-2])$"
+    },
+    "gold": {
+      "type": "string",
+      "minLength": 1
+    },
+    "acceptable": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "abstain_allowed": {
+      "type": "boolean"
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 20
+    },
+    "profile_tendency_ids_consulted": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^profile-(0[1-9]|1[0-2])-(folder|action)-[1-9][0-9]*$"
+      }
+    },
+    "authority_basis": {
+      "enum": [
+        "owner_semantic_judgment",
+        "owner_profile_informed_judgment",
+        "explicit_user_truth",
+        "safety_rule",
+        "owner_material_ambiguity_abstain"
+      ]
+    },
+    "authority_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "adjudicated_by": {
+      "const": "owner"
+    },
+    "adjudication_blindness": {
+      "const": "history_unseen"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "source"
+      ],
+      "properties": {
+        "category": {
+          "const": "manual_nonsensitive"
+        },
+        "source": {
+          "const": "zdb-03b2-owner-blind-adjudication-v1"
+        }
+      }
+    }
+  }
+}
