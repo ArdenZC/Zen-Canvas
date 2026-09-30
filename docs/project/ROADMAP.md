@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / PM-01 COMPLETE; PM-02A AUTOMATION INTENT FOUNDATION ACTIVATION UNDER OWNER REVIEW. Implementation remains NOT ACTIVE until the PM-02A activation PR merges.**
+Status: **ACTIVE INITIATIVE / PM-01 COMPLETE; PM-02A AUTOMATION INTENT FOUNDATION OWNER REVIEW PASSED. Merge of the dedicated activation PR activates PM-02A implementation only.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -101,7 +101,7 @@ Current production / research sequence:
 2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
 3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
 4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
-5. **PM-02A Automation Intent Foundation — ACTIVATION UNDER OWNER REVIEW.** Merge of the dedicated activation taskbook authorizes only manual, review-required Organize-plan automation foundation work.
+5. **PM-02A Automation Intent Foundation — OWNER ACTIVATION REVIEW PASSED.** Merge of the dedicated activation taskbook authorizes only manual, review-required Organize-plan automation foundation work.
 6. PM-02B event/schedule triggers — **NOT ACTIVE**.
 7. PM-03 migration closeout — later.
 8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
