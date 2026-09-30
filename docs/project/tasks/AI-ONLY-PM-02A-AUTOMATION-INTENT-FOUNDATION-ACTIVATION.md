@@ -278,6 +278,7 @@ status
 result_plan_id?
 queued_analysis_count
 requires_plan_refresh
+analysis_blocker_code?
 error_code?
 created_at
 completed_at
@@ -307,7 +308,8 @@ A run may be recorded as:
 The result may indicate:
 
 - plan materialized and ready to inspect;
-- plan materialized with Managed AI analysis queued / refresh required.
+- plan materialized with Managed AI analysis queued / refresh required;
+- plan materialized but fresh analysis blocked by current readiness/consent, with the plan retained for truthful review.
 
 Do not invent a persistent long-running Automation worker.
 
@@ -338,13 +340,14 @@ Required order:
 4. require `workflow=organize_plan`;
 5. require `trigger=manual`;
 6. revalidate the canonical managed Query V2 scope;
-7. evaluate current backend AI readiness / provider / managed-scope consent;
-8. resolve a fresh current File Library query snapshot;
-9. construct a current `LibrarySelectionV1::AllMatching` using the backend canonical query/fingerprint/snapshot;
-10. materialize an Organization Plan through the existing Organization Plan authority;
-11. invoke the existing bounded `analyze_organization_plan_items` path for missing/current analysis eligibility;
-12. persist an Automation Run receipt binding the intent revision, scope/snapshot identity and result plan ID;
-13. return a projection that lets the UI open the Organization Plan.
+7. resolve a fresh current File Library query snapshot;
+8. construct a current `LibrarySelectionV1::AllMatching` using the backend canonical query/fingerprint/snapshot;
+9. materialize an Organization Plan through the existing Organization Plan authority, consuming any already-current Managed AI assessments exactly as normal Organize does;
+10. inspect the plan's existing `needs_analysis` / currentness state;
+11. only for items that require fresh Managed AI work, evaluate current backend AI readiness / provider / managed-scope consent and invoke the existing bounded `analyze_organization_plan_items` path when eligible;
+12. if fresh analysis is required but unavailable, keep the materialized plan truthfully blocked/pending and record a sanitized analysis-blocker outcome rather than deleting the plan or falling back to Rules;
+13. persist an Automation Run receipt binding the intent revision, scope/snapshot identity, plan ID and analysis enqueue/blocker result;
+14. return a projection that lets the UI open the Organization Plan.
 
 The Automation command must stop there.
 
@@ -383,20 +386,26 @@ PM-02A reuses current backend readiness composition.
 
 It must not invent a new readiness store or connectivity monitor.
 
-Before plan materialization, the backend must evaluate current:
+Automation must preserve the existing distinction between **consuming current semantic evidence** and **requesting new semantic work**.
+
+Plan materialization may consume already-current Managed AI assessments even when the provider is not presently reachable/configured for new work.
+
+When the materialized plan contains items requiring fresh analysis, the backend must evaluate current:
 
 - AI enabled/provider/model configuration;
 - credential readiness where applicable;
 - Managed Scope eligibility;
 - local/cloud Managed AI consent/policy.
 
-A blocked run must expose a stable, sanitized product error code.
+If fresh analysis is required but readiness/consent does not permit it:
+
+- keep the Organization Plan;
+- keep those items truthfully in their existing needs-analysis/blocked state;
+- do not fabricate proposals;
+- do not fall back to legacy Rules/classification semantics;
+- return and persist a stable sanitized `analysis_blocker_code` in the Automation Run outcome.
 
 Do not persist or display raw provider/network secrets.
-
-AI unavailable means Automation cannot generate a new semantic Organize plan.
-
-Do not silently fall back to legacy Rules/classification semantics.
 
 Already-existing valid reviewed Organization Plans remain governed by their existing authority and recovery rules.
 
@@ -640,12 +649,14 @@ The Automation Run receipt may reference durable IDs and sanitized status only.
 
 ### AI/readiness
 
-- AI disabled blocks before plan materialization;
-- invalid provider/model blocks;
-- missing credential blocks cloud path;
-- missing Managed Scope consent blocks;
+- current assessments can materialize a reviewable plan without requiring a new provider call;
+- when fresh analysis is required, AI disabled records a truthful analysis blocker;
+- invalid provider/model blocks only the needed fresh-analysis enqueue path;
+- missing credential blocks only the needed cloud-analysis enqueue path;
+- missing Managed Scope consent blocks only the needed analysis path;
+- blocked analysis leaves the durable plan and needs-analysis truth intact;
 - no legacy Rules fallback;
-- current eligible local/provider path succeeds.
+- current eligible local/provider path enqueues through the existing Managed AI authority.
 
 ### Organization integration
 
@@ -850,7 +861,7 @@ Return:
 - permission classes;
 - intent/query canonicalization behavior;
 - request-key idempotence behavior;
-- readiness/consent blockers;
+- readiness/consent behavior for already-current versus fresh-analysis-needed items;
 - Organization Plan integration proof;
 - proof of zero filesystem mutation from Automation Run;
 - proof no second queue/scheduler exists;
