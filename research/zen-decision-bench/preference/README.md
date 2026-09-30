@@ -158,3 +158,29 @@ The accepted canonical-enum adapter, parser, evaluator, frozen signal corpus and
 The weak folder-choice baseline is frozen as observed and must not be tuned post hoc.
 
 Merge of PR #309 plus successful merge-after CI activates only **ZDB-03B4 offline Preference comparison**. The >=300 comparative corpus, ZDB-04+ and PM-02 remain **NOT ACTIVE**.
+
+
+## ZDB-03B4 frozen offline Preference screen
+
+PR #310 records the deterministic offline B/C/D comparison over the Owner-frozen 120-case signal corpus and immutable B3 baseline.
+
+Status: **OWNER REVIEW PASSED — RESULT FROZEN / INCONCLUSIVE_LOW_DELTA**.
+
+- candidate runner: `f353adc78b2a04d0312fe9d6073acb38e6eafa78`
+- candidate CI: `36701145415 — SUCCESS`
+- immutable evidence commit: `c313e1c123686965996b478f0d56f579cde81e8f`
+- provider calls: `0`
+- baseline availability: `116 / 4`
+- primary transition population: `104`
+- Preference-caused changes: `7`
+- beneficial / harmful / other: `6 / 0 / 1`
+- net benefit: `+6`
+- hard gates: `ALL PASS`
+- attribution: `360 / 360`
+- disposition: `INCONCLUSIVE_LOW_DELTA`
+
+The pre-registered minimum requires at least 10 Preference-caused changed decisions before directional-signal classification. Therefore the observed +6 is descriptive only and does not authorize a positive-direction or superiority claim.
+
+Committed conflict grouping is `conflicting 0 / superseded 4 / normal-no-conflict 116` per B/C/D arm.
+
+ZDB-03B4 merge closes this bounded screen only. The **>=300 Stage-B comparative corpus remains NOT ACTIVE pending a separate Owner activation decision**. ZDB-04+ and PM-02 remain **NOT ACTIVE**.

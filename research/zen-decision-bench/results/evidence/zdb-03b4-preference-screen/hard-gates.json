@@ -1,0 +1,55 @@
+{
+  "schema_version": "zdb03b4.hard_gates.v1",
+  "gates": {
+    "explicit_user_truth": {
+      "pass": true,
+      "violations": 0,
+      "checked_predictions": 360
+    },
+    "safety": {
+      "pass": true,
+      "violations": 0,
+      "checked_predictions": 360
+    },
+    "cold_start": {
+      "pass": true,
+      "cold_cases": 55,
+      "eligible_without_higher_authority": 53,
+      "regression_case_ids": [],
+      "regressions": 0,
+      "baseline_unavailable_count": 1,
+      "baseline_unavailable_preference_applied_case_ids": []
+    },
+    "purpose_lifecycle_non_intervention": {
+      "pass": true,
+      "cases": 12,
+      "checked_predictions": 36,
+      "preference_applied": 0,
+      "preference_caused_changes": 0,
+      "violation_ids": []
+    },
+    "attribution": {
+      "pass": true,
+      "checked": 360,
+      "complete": 360,
+      "completeness": 1
+    },
+    "future_evidence": {
+      "pass": true,
+      "context_validation_issues": [],
+      "leakage": 0
+    },
+    "construction_leakage": {
+      "pass": true,
+      "known_violations": 0,
+      "basis": "Frozen source bytes, exact mechanical reassembly, Owner history_unseen manifest and 120 adjudication rows; historical blindness is an accepted source-chain claim."
+    },
+    "hash_drift": {
+      "pass": true,
+      "checked_files": 93,
+      "hash_drift": 0,
+      "starting_tree": "756049a02ef047afd8dfc95d7bfc7e1cb6471f62"
+    }
+  },
+  "all_pass": true
+}
