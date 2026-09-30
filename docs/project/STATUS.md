@@ -144,8 +144,8 @@ The first B2C assembly attempt stopped before artifact creation because an execu
 
 No frozen Profile, Target, Assignment, History, or adjudication artifact changed. B2C mechanical assembly may resume only with the frozen 55/65 constants. ZDB-03B3/B4 remain NOT ACTIVE.
 
-## ZDB-03B2C mechanical corpus candidate
+## ZDB-03B2C frozen mechanical corpus
 
-[Mechanical assembly result](../../research/zen-decision-bench/results/ZDB-03B2C-SIGNAL-CORPUS-ASSEMBLY-RESULT.md), issue #283: **SIGNAL CORPUS CANDIDATE / OWNER FREEZE PENDING** from exact `master@0c9a7b36510f2399176f8d79e29c0761f7f50d9c` after PR #305. All five sources remain unchanged. The 120 cases mechanically yield **55 cold-start / 65 non-cold**, taxonomy **12 novel-workspace / 12 purpose-lifecycle / 31 finite-choice filtered / 0 unexplained** and **0 missing correction references**. This is Owner-frozen structural truth and must not be tuned.
+[Mechanical assembly result](../../research/zen-decision-bench/results/ZDB-03B2C-SIGNAL-CORPUS-ASSEMBLY-RESULT.md), issue #283: **OWNER CORPUS FREEZE PASSED — FROZEN FOR ZDB-03B3 INPUT** from exact `master@0c9a7b36510f2399176f8d79e29c0761f7f50d9c` after PR #305. All five sources remain unchanged. The 120 cases mechanically yield **55 cold-start / 65 non-cold**, taxonomy **12 novel-workspace / 12 purpose-lifecycle / 31 finite-choice filtered / 0 unexplained** and **0 missing correction references**. This is Owner-frozen structural truth and must not be tuned.
 
-No provider or B2C resolver/Arm run, baseline prediction, effectiveness result or production change occurred. ZDB-03B2C remains **CANDIDATE pending Owner corpus freeze**; ZDB-03B3/B4, >=300 comparative corpus, ZDB-04+ and PM-02 remain **NOT ACTIVE**. The candidate PR remains Draft and unmerged.
+No provider or B2C resolver/Arm run, baseline prediction, effectiveness result or production change occurred. Owner accepted corpus content at `f1aa255d17f7b6f4749631096332549a5b7fd58b`; canonical SHA-256 `0a96faa752b488f9c507ee2d0ca64e439820f85697872a64a5972c2840693349`, file SHA-256 `e10cd216a0f6692511ec0049dccf37b51f306bd39625b858efcbac35ebac3c8a`, Git blob `0e483df2063acbc07ee599e3caa379f4a6f404bf`. Merge of PR #306 plus merge-after CI activates only ZDB-03B3 same-case canonical Generative baseline. ZDB-03B4, >=300 comparative corpus, ZDB-04+ and PM-02 remain **NOT ACTIVE**.
