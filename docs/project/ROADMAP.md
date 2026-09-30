@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / BETWEEN IMPLEMENTATION WAVES — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; issue #273 remains OPEN; PM-02 is NOT ACTIVE.**
+Status: **ACTIVE INITIATIVE / PM-01 COMPLETE; PM-02A AUTOMATION INTENT FOUNDATION ACTIVATION UNDER OWNER REVIEW. Implementation remains NOT ACTIVE until the PM-02A activation PR merges.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -100,10 +100,11 @@ Current production / research sequence:
 1. Pre-PM foundations #272 / #276 / #279 / #285 — **COMPLETE / MERGED**.
 2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
 3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
-4. **ZenDecisionBench Phase 1 research via #283 — ACTIVE / RESEARCH ONLY. ZDB-01 COMPLETE/FROZEN; ZDB-02 baseline + canonical-enum remediation COMPLETE/ACCEPTED; ZDB-03 Preference Memory Offline Hypothesis ACTIVE FOR RESEARCH ONLY; ZDB-04+ NOT ACTIVE.**
-5. PM-02 Automation Intent + Policies — **NOT ACTIVE; requires separate activation/review after PM-01 and is not implied by #287 merge**.
-6. PM-03 migration closeout — later.
-7. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
+4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
+5. **PM-02A Automation Intent Foundation — ACTIVATION UNDER OWNER REVIEW.** Merge of the dedicated activation taskbook authorizes only manual, review-required Organize-plan automation foundation work.
+6. PM-02B event/schedule triggers — **NOT ACTIVE**.
+7. PM-03 migration closeout — later.
+8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
 
 PM-01 consumed rather than recreated the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded. No production implementation branch is active after the PM-01 closeout.
 
