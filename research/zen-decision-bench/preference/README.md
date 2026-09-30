@@ -109,3 +109,14 @@ npm test -- research/zen-decision-bench/tests
 ```
 
 The builders refuse to overwrite existing artifacts. No adjudication/gold, target Preference Context, target scope materialization, assembled signal corpus, resolver simulation, applicability analysis or provider call is part of B2A. ZDB-03B3/B4, >=300 comparative work, ZDB-04+ and PM-02 remain **NOT ACTIVE**.
+
+
+## ZDB-03B2C cold-start clarification
+
+Before any provider execution, mechanical assembly exposed an execution-assumption error: the frozen screen produces **55 cold-start and 65 non-cold contexts**, not 24/96. The additional 31 cold starts are primary folder targets where History matches task/scope but its frozen decision is not representable in the target's finite choices. No source artifact is changed to eliminate these cases.
+
+The authoritative clarification is:
+
+`docs/project/tasks/ZDB-03B2C-COLD-START-STRUCTURAL-CLARIFICATION.md`
+
+B2C must reproduce the frozen 55/65 coverage exactly. Low Preference exposure may legitimately lead to `INCONCLUSIVE_LOW_DELTA`; it must not be tuned away.
