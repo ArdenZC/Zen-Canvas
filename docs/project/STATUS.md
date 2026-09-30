@@ -5,7 +5,7 @@ Last verified: 2026-09-30
 ## Current execution truth
 
 - Latest repository master: `master@1cb02bb419b032d7c83a4f54776c563010bb1e61`, the docs-only ZDB-03 Owner research-disposition merge / PR #311; merge-after CI 36708496097 is **SUCCESS**. Latest production-code baseline remains PM-01 at `ee3347dbc9963067851378da2acd0fd0d85d114c` / PR #287.
-- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 is COMPLETE / MERGED / Owner Review PASS. PM-02A Automation Intent Foundation activation is under Owner review; production implementation remains NOT ACTIVE until that activation merges.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
+- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 is COMPLETE / MERGED / Owner Review PASS. PM-02A Automation Intent Foundation Owner activation review has PASSED; production implementation activates only when the dedicated activation PR merges.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
 - PM-01 is **COMPLETE / MERGED — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**. The final product/evidence disposition is recorded in the PM-01 Result; schema remains 35.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -29,7 +29,7 @@ Last verified: 2026-09-30
 
 **AI-only Product Migration**
 
-Status: **PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A ACTIVATION UNDER OWNER REVIEW. PM-02A implementation is NOT ACTIVE until activation merge. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
+Status: **PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A OWNER ACTIVATION REVIEW PASSED. Merge of the PM-02A activation PR activates PM-02A implementation only. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Branch: `product/pm-01-ai-only-core-experience`. Activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.
 
@@ -66,7 +66,7 @@ Research issue #283 is non-blocking for the product track. PM-02 is **NOT ACTIVE
 
 ## PM-02A Automation Intent Foundation activation
 
-[PM-02A activation taskbook](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md): **OWNER REVIEW PENDING — MERGE ACTIVATES PM-02A IMPLEMENTATION ONLY**.
+[PM-02A activation taskbook](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md): **OWNER REVIEW PASSED — MERGE ACTIVATES PM-02A IMPLEMENTATION ONLY**.
 
 PM-02A is intentionally narrower than full Automation:
 
@@ -82,7 +82,7 @@ PM-02A explicitly does **not** authorize scheduled/watcher Automation Intent exe
 
 Existing Rule Repository V2 remains intact as advanced Policy/Signal compatibility authority. Existing watcher-driven Rule evaluation remains Rule behavior and must not be relabeled as an Automation Intent trigger.
 
-Implementation remains **NOT ACTIVE** until the activation PR passes Owner review and merges.
+Owner activation review has passed. Implementation remains **NOT ACTIVE** until the activation PR merges.
 
 
 ## Release, schema and platform truth
