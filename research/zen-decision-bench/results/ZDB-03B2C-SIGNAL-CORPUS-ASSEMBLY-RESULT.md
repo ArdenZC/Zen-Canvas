@@ -1,6 +1,8 @@
 # ZDB-03B2C — Mechanical Signal Corpus Assembly
 
-Status: **SIGNAL CORPUS CANDIDATE — OWNER FREEZE PENDING**.
+Status: **OWNER CORPUS FREEZE PASSED — SIGNAL CORPUS FROZEN FOR ZDB-03B3 INPUT**.
+
+Owner accepted exact content head `f1aa255d17f7b6f4749631096332549a5b7fd58b`. Frozen corpus Git blob: `0e483df2063acbc07ee599e3caa379f4a6f404bf`.
 
 **55/65 coverage is the Owner-frozen mechanical truth and must not be tuned.** Issue [#283](https://github.com/ArdenZC/Zen-Canvas/issues/283); clarification [PR #305](https://github.com/ArdenZC/Zen-Canvas/pull/305).
 
@@ -36,7 +38,7 @@ All five canonical and file hashes passed before assembly and are rechecked by t
 - Existing case identity: `zdb.case.v1` plus the unchanged Preference Context contract.
 - Corpus canonical SHA-256: `0a96faa752b488f9c507ee2d0ca64e439820f85697872a64a5972c2840693349`.
 - Corpus file SHA-256: `e10cd216a0f6692511ec0049dccf37b51f306bd39625b858efcbac35ebac3c8a`.
-- Manifest status: **CANDIDATE — OWNER CORPUS FREEZE REQUIRED BEFORE B3**. No acceptance or corpus freeze is claimed.
+- Manifest status: **FROZEN — OWNER REVIEW PASSED / AUTHORIZED FOR ZDB-03B3 INPUT**. Corpus content, hashes and Git blob are frozen.
 
 ## Cold-start structural clarification
 
@@ -101,8 +103,8 @@ The assembler refuses to overwrite existing output; pure assembly reproduces the
 
 **NO PROVIDER CALL OCCURRED. NO PREFERENCE ARM WAS EXECUTED ON THE B2C CORPUS. NO PREFERENCE EFFECTIVENESS RESULT EXISTS.** No baseline predictions, recommendation simulation, support-level outcomes, accuracy, transitions or Net Benefit were computed. No production code, resolver, thresholds, schema authority, permissions, runtime or dependency change occurred.
 
-B1 is COMPLETE / FROZEN; B2A is COMPLETE / MERGED / ASSIGNMENT + HISTORY FROZEN; B2B is COMPLETE / MERGED / OWNER BLIND ADJUDICATION FROZEN. **ZDB-03B2C remains CANDIDATE pending Owner corpus freeze. ZDB-03B3 remains NOT ACTIVE. ZDB-03B4 remains NOT ACTIVE. ZDB-04+ remain NOT ACTIVE. PM-02 remains NOT ACTIVE.** The >=300 comparative corpus remains NOT ACTIVE.
+B1 is COMPLETE / FROZEN; B2A is COMPLETE / MERGED / ASSIGNMENT + HISTORY FROZEN; B2B is COMPLETE / MERGED / OWNER BLIND ADJUDICATION FROZEN; **B2C OWNER CORPUS FREEZE PASSED**. Merge of PR #306 plus merge-after CI activates only **ZDB-03B3 same-case canonical Generative baseline**. ZDB-03B4 remains NOT ACTIVE. ZDB-04+ remain NOT ACTIVE. PM-02 remains NOT ACTIVE. The >=300 comparative corpus remains NOT ACTIVE.
 
 The branch/worktree and borrowed dependency junction are retained for the open Draft PR's review; shared dependency caches are preserved. Review and merge remain Owner decisions.
 
-**ZDB-03B2C SIGNAL CORPUS CANDIDATE COMPLETE — READY FOR OWNER FREEZE REVIEW**
+**ZDB-03B2C OWNER CORPUS FREEZE COMPLETE — READY FOR MERGE / B3 GATE**
