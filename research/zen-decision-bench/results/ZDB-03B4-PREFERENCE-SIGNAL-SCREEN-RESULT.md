@@ -1,6 +1,6 @@
 # ZDB-03B4 — Offline Preference Signal Screen Result
 
-Status: **OFFLINE SCREEN COMPLETE / OWNER REVIEW PENDING**.
+Status: **OWNER REVIEW PASSED / RESULT FROZEN — INCONCLUSIVE_LOW_DELTA**.
 
 Issue [#283](https://github.com/ArdenZC/Zen-Canvas/issues/283); frozen B3 [PR #309](https://github.com/ArdenZC/Zen-Canvas/pull/309); [Draft PR #310](https://github.com/ArdenZC/Zen-Canvas/pull/310). Research only. Provider calls = **0**. No tuning occurred; no frozen artifact changed.
 
@@ -179,14 +179,34 @@ B4 dependencies exclude the DeepSeek adapter, B3 provider runner and HTTP helper
 
 **ZDB-03B3 — COMPLETE / FROZEN.**
 
-**ZDB-03B4 remains OWNER REVIEW PENDING.**
+**ZDB-03B4 OWNER REVIEW PASSED — RESULT FROZEN / INCONCLUSIVE_LOW_DELTA.**
 
-**>=300 comparative corpus remains NOT ACTIVE.**
+**>=300 comparative corpus remains NOT ACTIVE pending a separate Owner activation decision.**
 
 **ZDB-04+ remain NOT ACTIVE.**
 
 **PM-02 remains NOT ACTIVE.**
 
-Draft PR #310 is retained for Owner review; do not merge. The task worktree/branch are intentionally retained for that open review. Task-owned temporary validation outputs are removed at handoff; shared dependency caches are preserved.
+Owner review has passed. PR #310 remains unmerged pending freeze-closeout exact-head CI and merge qualification. The task worktree/branch remain retained until merge. Task-owned temporary validation outputs were removed at handoff; shared dependency caches are preserved.
 
-**ZDB-03B4 OFFLINE PREFERENCE SIGNAL SCREEN COMPLETE — READY FOR OWNER REVIEW**
+**ZDB-03B4 OFFLINE PREFERENCE SIGNAL SCREEN — OWNER REVIEW PASSED / RESULT FROZEN**
+
+
+## Owner freeze disposition
+
+Owner independently reproduced the committed Arm A/B/C/D headline counts, the 116/4 baseline availability split, the 104-case primary transition population, all seven Preference-caused changed cases, and the frozen Arm-C endpoint: **6 beneficial / 0 harmful / 1 other / net +6**.
+
+The pre-registered screen disposition remains **INCONCLUSIVE_LOW_DELTA** because only 7 Preference-caused changed decisions were observed, below the required minimum of 10. The positive raw net count is retained descriptively and is not promoted into a directional-signal or superiority claim.
+
+Owner also rechecked the hard-gate evidence: Explicit User Truth 0 violations, safety 0 violations, cold-start 0 regressions, purpose/lifecycle Preference interventions 0, attribution 360/360, future-evidence leakage 0, construction leakage 0 known violations, and frozen research-file hash drift 0.
+
+A reporting-only discrepancy was corrected before freeze: committed Arm evidence and `comparison-summary.json` contain **conflicting 0 / superseded 4 / normal-no-conflict 116** per B/C/D arm. No evidence, resolver/evaluator behavior, endpoint, hard gate or disposition changed.
+
+Research-gate disposition for broader comparative work:
+- Gate A / signal: **INCONCLUSIVE** under the pre-registered minimum-delta rule;
+- Gate B / harm: no observed harmful Preference transition or cold/control regression;
+- Gate C / authority safety: **PASS**;
+- Gate D / ambiguity: no conflicting Preference cases were present in this signal corpus, so this screen does not establish conflict-resolution evidence;
+- Gate E / attribution: **PASS**.
+
+Accordingly, merge of PR #310 closes ZDB-03B4 only. It does **not** activate the Stage-B >=300 comparative corpus. Any broader comparative work requires a separate Owner activation decision.
