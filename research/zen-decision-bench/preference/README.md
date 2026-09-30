@@ -120,3 +120,18 @@ The authoritative clarification is:
 `docs/project/tasks/ZDB-03B2C-COLD-START-STRUCTURAL-CLARIFICATION.md`
 
 B2C must reproduce the frozen 55/65 coverage exactly. Low Preference exposure may legitimately lead to `INCONCLUSIVE_LOW_DELTA`; it must not be tuned away.
+
+### ZDB-03B2C mechanical corpus candidate
+
+B1 is **COMPLETE / FROZEN**; B2A is **COMPLETE / MERGED through PR #303 / ASSIGNMENT + HISTORY FROZEN**; B2B is **COMPLETE / MERGED through PR #304 / OWNER BLIND ADJUDICATION FROZEN**. The earlier pre-adjudication state above is historical; the Owner froze adjudication while History was unseen before assembly resumed.
+
+[Mechanical assembly result](../results/ZDB-03B2C-SIGNAL-CORPUS-ASSEMBLY-RESULT.md): **SIGNAL CORPUS CANDIDATE / OWNER FREEZE PENDING**. `signal/signal-corpus.v1.jsonl` and its separate manifest join all five immutable inputs under the existing case/Preference Context contracts. PR #305 corrected only the earlier 24/96 execution expectation. **55/65 coverage is the Owner-frozen mechanical truth and must not be tuned.** Taxonomy is 12/12/31/0; missing correction references are 0.
+
+Validate only:
+
+```text
+node research/zen-decision-bench/preference/signal/validate-signal-corpus.mjs
+npm test -- research/zen-decision-bench/tests --exclude **/preference-hypothesis.test.mjs
+```
+
+The assembler refuses to overwrite existing output. No provider, B2C resolver/Arm execution or effectiveness result exists. This structural projection check does not substitute for B3's provider-request proof. B2C remains **CANDIDATE pending Owner corpus freeze**; B3/B4, >=300 comparative work, ZDB-04+ and PM-02 remain **NOT ACTIVE**.

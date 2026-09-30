@@ -1,0 +1,65 @@
+{
+  "schema_version": "zdb.preference_signal_corpus_manifest.v1",
+  "schema_identity": "zdb.case.v1",
+  "assembly_identity": "zdb-03b2c-mechanical-assembly-v1",
+  "choice_order_identity": "zdb-03b-choice-order-v1",
+  "count": 120,
+  "input_canonical_sha256": {
+    "profiles": "371519fe7c9f28d3c686e0299c223d64a57b00571777cab498668667498137b1",
+    "targets": "96f975ef10148a49f47068c578dd76ccd69ab3cf3f81167de2e227de32b735c4",
+    "assignment": "4833443e85bf2a69c74b175b8e618a98eebab6444f1da05418fbf926582d6a0b",
+    "history": "c2be8a2949c0daef12fe821010b72ca84ef999deb941a6f8bd0505dc8a7e2f44",
+    "adjudication": "498a511c4cfba87daaed7db5197c35aed96de34862feede43c500d9eb5d3ad50"
+  },
+  "input_file_sha256": {
+    "profiles": "211a879964dfa6bccbadd78e4ad739f4d8324a71dbd974f9fc7a81d0f27ed5fe",
+    "targets": "b414f7510345c95e0629f34780dce1125b0f71c12a84cdf5c555d01d1c5217aa",
+    "assignment": "f05291e3bf421538b66ed2caf8ae599f2fcea4ff3e263f9d9088764091d684ef",
+    "history": "a463442fcc837bbbfa542a9423b1370cef655c12ffa14e2e3cd3a67d57c6b6af",
+    "adjudication": "7f87770e30dae42a735b26b620209fabcd59eac1e449aad528de68523d56abbf"
+  },
+  "canonical_sha256": "0a96faa752b488f9c507ee2d0ca64e439820f85697872a64a5972c2840693349",
+  "file_sha256": "e10cd216a0f6692511ec0049dccf37b51f306bd39625b858efcbac35ebac3c8a",
+  "valid": true,
+  "task_counts": {
+    "existing_folder_choice": 72,
+    "suggested_action": 36,
+    "purpose": 6,
+    "lifecycle": 6
+  },
+  "control_counts": {
+    "ordinary_preference_signal": 84,
+    "explicit_truth_control": 6,
+    "cold_start_candidate": 12,
+    "safety_control": 6,
+    "non_intervention_control": 12
+  },
+  "cold_start_count": 55,
+  "non_cold_count": 65,
+  "cold_start_taxonomy": {
+    "designated_novel_workspace": 12,
+    "non_intervention_no_history_task": 12,
+    "incidental_finite_choice_filtered": 31,
+    "unexplained_scope_or_other": 0
+  },
+  "cold_start_task_counts": {
+    "existing_folder_choice": 39,
+    "suggested_action": 4,
+    "purpose": 6,
+    "lifecycle": 6
+  },
+  "explicit_truth_count": 6,
+  "safety_rule_count": 6,
+  "missing_correction_references": 0,
+  "evidence_statistics": {
+    "total": 189,
+    "min": 0,
+    "median": 2,
+    "max": 5,
+    "specific_scoped_contexts": 30,
+    "broad_only_contexts": 35
+  },
+  "structural_validation": "PASS",
+  "research_only": true,
+  "status": "CANDIDATE — OWNER CORPUS FREEZE REQUIRED BEFORE B3"
+}
