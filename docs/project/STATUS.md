@@ -1,11 +1,11 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-30
+Last verified: 2026-10-01
 
 ## Current execution truth
 
-- PM-02A implementation baseline: `master@b698228e94a1857e0610cccb2364e1027f6b1b0d`, the Owner-approved activation merge / PR #312. PM-02A changes are proposed on `product/pm-02a-automation-intent-foundation`; they are not merged or Owner-accepted. Latest merged production-code baseline remains PM-01 / PR #287.
-- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 is COMPLETE / MERGED / Owner Review PASS. PM-02A Automation Intent Foundation is IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING, following merged activation PR #312. PM-02B and PM-03 remain NOT ACTIVE.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
+- PM-02A activation baseline remains `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` from merged PR #312. Latest merged production-code baseline is `master@960092844ca495ad01198c250c4b0e130881444b` from repair PR #314; merge-after CI [36768107546](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36768107546) is **SUCCESS**. PM-02A PR #313 remains Draft on `product/pm-02a-automation-intent-foundation`; its post-repair implementation source head before native evidence was `8763c8735ab96cf0975d9c293aacef270f950f26`, with exact-head CI [36768343962](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36768343962) **SUCCESS**. Current qualification changes document the Windows native UI blocker only; that UI gate is **BLOCKED / NOT COMPLETE** because this session exposes no targetable native app window. The startup log and Schema 36 database do not substitute for UI acceptance.
+- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 is COMPLETE / MERGED / Owner Review PASS. PM-02A Automation Intent Foundation is IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING; its Windows native closeout remains BLOCKED / NOT COMPLETE. PM-02B and PM-03 remain NOT ACTIVE.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
 - PM-01 is **COMPLETE / MERGED — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**. The final product/evidence disposition is recorded in the PM-01 Result; schema remains 35.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -29,9 +29,9 @@ Last verified: 2026-09-30
 
 **AI-only Product Migration**
 
-Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING. PM-02B and PM-03 remain NOT ACTIVE. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
+Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING, with Windows native closeout BLOCKED / NOT COMPLETE. PM-02B and PM-03 remain NOT ACTIVE. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
 
-Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Current branch: `product/pm-02a-automation-intent-foundation`. Current implementation baseline: `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` / PR #312. [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md).
+Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Current branch: `product/pm-02a-automation-intent-foundation`. PM-02A activation baseline: `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` / PR #312. Implementation source head before native evidence: `8763c8735ab96cf0975d9c293aacef270f950f26` / Draft PR #313. The current branch successor is documentation-only native qualification evidence. [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md); [Windows native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md).
 
 Result: [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Final reviewed PR head `3d91c6689bb62d10eddf343419f00c4abaea9fee` passed CI [36439052294](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36439052294); PR #287 squash-merged as `master@ee3347dbc9963067851378da2acd0fd0d85d114c`; merge-after master CI [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) is **SUCCESS**. Owner Review passed after direct diff, CI, manifest and 12-screenshot evidence inspection.
 
@@ -82,7 +82,7 @@ PM-02A explicitly does **not** authorize scheduled/watcher Automation Intent exe
 
 Existing Rule Repository V2 remains intact as advanced Policy/Signal compatibility authority. Existing watcher-driven Rule evaluation remains Rule behavior and must not be relabeled as an Automation Intent trigger.
 
-Owner activation review passed and PR #312 merged. The [bounded implementation result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md) is **OWNER REVIEW PENDING**; no merge is authorized here.
+Owner activation review passed and PR #312 merged. PR #313 contains the bounded implementation and remains **Draft / OWNER REVIEW PENDING**. The [Windows native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md) records that native UI acceptance is blocked by the current session's missing native-control endpoint; PM-02A is not ready for final owner review until this gate is completed. No merge is authorized here.
 
 
 ## Release, schema and platform truth
