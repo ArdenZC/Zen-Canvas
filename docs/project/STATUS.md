@@ -4,8 +4,8 @@ Last verified: 2026-09-30
 
 ## Current execution truth
 
-- Latest merged production baseline: `master@ee3347dbc9963067851378da2acd0fd0d85d114c`, the squash merge for PM-01 AI-only Core Experience / PR #287. Final reviewed PR head `3d91c6689bb62d10eddf343419f00c4abaea9fee` passed exact-head CI [36439052294](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36439052294); merge-after master CI [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) / run #1623 is **SUCCESS**.
-- Current engineering initiative: **AI-only Product Migration (#273) remains open, but there is no active production implementation. PM-01 is COMPLETE / MERGED / Owner Review PASS.** PM-02 is **NOT ACTIVE**. Research issue #283 is active only as a research lane: ZDB-01 is COMPLETE/FROZEN, ZDB-02 baseline/remediation evidence is COMPLETE/ACCEPTED, and ZDB-03 Preference Memory Offline Hypothesis is ACTIVE FOR RESEARCH ONLY.
+- Latest repository master: `master@1cb02bb419b032d7c83a4f54776c563010bb1e61`, the docs-only ZDB-03 Owner research-disposition merge / PR #311; merge-after CI 36708496097 is **SUCCESS**. Latest production-code baseline remains PM-01 at `ee3347dbc9963067851378da2acd0fd0d85d114c` / PR #287.
+- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 is COMPLETE / MERGED / Owner Review PASS. PM-02A Automation Intent Foundation activation is under Owner review; production implementation remains NOT ACTIVE until that activation merges.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
 - PM-01 is **COMPLETE / MERGED — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**. The final product/evidence disposition is recorded in the PM-01 Result; schema remains 35.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -29,7 +29,7 @@ Last verified: 2026-09-30
 
 **AI-only Product Migration**
 
-Status: **BETWEEN PRODUCTION IMPLEMENTATION WAVES — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02 NOT ACTIVE. #283 research is active but remains non-production authority; ZDB-03 is OFFLINE RESEARCH ONLY.**
+Status: **PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A ACTIVATION UNDER OWNER REVIEW. PM-02A implementation is NOT ACTIVE until activation merge. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Branch: `product/pm-01-ai-only-core-experience`. Activation baseline: `master@189c0fd522579d643216e313d6fcb6bcc8467ab7`.
 
@@ -46,7 +46,7 @@ Immediate implementation boundaries:
 - preserve Operation Preview, confirmation, Safe Trash, journal and Restore authority;
 - do not implement PM-02 Automation architecture, System One/Laya/Jev production runtime or Preference Memory persistence.
 
-Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; the ZDB-02 original baseline and canonical-enum remediation are COMPLETE/ACCEPTED; ZDB-03 Preference Memory Offline Hypothesis is ACTIVE FOR RESEARCH ONLY under its dedicated activation taskbook. PM-02 requires its own later activation and remains NOT ACTIVE. #270 remains separate. Release publication remains deferred.
+Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; ZDB-02 baseline/remediation is COMPLETE/ACCEPTED; ZDB-03B is COMPLETE/MERGED and frozen at `INCONCLUSIVE_LOW_DELTA`; the Owner research disposition pauses >=300 comparative execution. PM-02A now has a dedicated activation taskbook under Owner review; implementation remains NOT ACTIVE until activation merge. #270 remains separate. Release publication remains deferred.
 
 ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](../../research/zen-decision-bench/results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md). PR #300 is **MERGED** as `master@b92fe40a18b38b60febe5618caf72ba3e988bcdb`; merge-after CI 36564738415 is **SUCCESS**. ZDB-03A is **COMPLETE / MERGED / OWNER REVIEW PASSED — CONFORMANCE ONLY**. Its 60-case JSONL must never become ZDB-03B signal/effectiveness evidence.
 
@@ -63,6 +63,27 @@ ZDB-03B is complete and frozen at `INCONCLUSIVE_LOW_DELTA`: 7 Preference-caused 
 The **>=300 Stage-B comparative corpus remains NOT ACTIVE**. No threshold, History, finite-choice, corpus, baseline, resolver or evaluator tuning is authorized to increase exposure. Any future Preference study requires a new separately pre-registered Owner activation.
 
 Research issue #283 is non-blocking for the product track. PM-02 is **NOT ACTIVE but eligible for separate Owner planning/activation review**. PM-02 remains bounded to Automation Intent / Trigger / Policy architecture and may not introduce Preference Memory production authority, System One/Laya/Jev runtime integration, hidden personalization or autonomous mutation authority.
+
+## PM-02A Automation Intent Foundation activation
+
+[PM-02A activation taskbook](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md): **OWNER REVIEW PENDING — MERGE ACTIVATES PM-02A IMPLEMENTATION ONLY**.
+
+PM-02A is intentionally narrower than full Automation:
+
+- durable `AutomationIntentV1` and `AutomationRunV1`;
+- `workflow=organize_plan` only;
+- `trigger=manual` only;
+- review required / auto-execute false;
+- durable File Query V2 scope semantics resolved to a fresh backend snapshot per run;
+- existing Organization Plan + Managed AI analysis authorities are reused;
+- a manual Automation Run stops after creating/enqueuing a reviewable Organization Plan and recording the plan reference.
+
+PM-02A explicitly does **not** authorize scheduled/watcher Automation Intent execution, autonomous file mutation, Cleanup automation, a second AI queue/scheduler, general agent/tool/shell execution, Preference Memory production, System One, Laya/Jev, RAG/vector storage, PM-02B or PM-03.
+
+Existing Rule Repository V2 remains intact as advanced Policy/Signal compatibility authority. Existing watcher-driven Rule evaluation remains Rule behavior and must not be relabeled as an Automation Intent trigger.
+
+Implementation remains **NOT ACTIVE** until the activation PR passes Owner review and merges.
+
 
 ## Release, schema and platform truth
 
