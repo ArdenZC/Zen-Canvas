@@ -134,15 +134,18 @@ ZDB-03B1 has a [12-profile pack and 120-target pack](../../research/zen-decision
 
 Owner review and merge decisions use direct diff inspection, repository governance checks and applicable CI evidence. Codex Review is not merge authority.
 
-## ZDB-03B2A bounded research candidate
+## ZDB-03B2 source freezes
 
-[Assignment and blind History freeze result](../../research/zen-decision-bench/results/ZDB-03B2A-ASSIGNMENT-HISTORY-FREEZE-RESULT.md), issue #283, starts from clean `master@167ef8eee7706bddd6694e021ea0d1c947eba517` (PR #302 squash merge). ZDB-03B1 is **COMPLETE / MERGED / OWNER REVIEW PASSED / PACKS FROZEN**. ZDB-03B2A is **ASSIGNMENT + HISTORY HASH FROZEN / OWNER ADJUDICATION PENDING** in a research-only candidate; ZDB-03B2 overall remains **ACTIVE** for blind Owner adjudication. Assignment has exactly 120 cases / 10 per profile; History has exactly 288 episodes / 24 per profile and structural validation PASS. History is **HASH FROZEN — OWNER HAS NOT INSPECTED HISTORY CONTENT**, not Owner-content-reviewed. **OWNER MUST COMPLETE BLIND ADJUDICATION BEFORE INSPECTING HISTORY CONTENT OR HISTORY GENERATOR SEMANTICS.**
+ZDB-03B1 is **COMPLETE / MERGED / OWNER REVIEW PASSED / PACKS FROZEN**. ZDB-03B2A is **COMPLETE / MERGED through PR #303 / ASSIGNMENT + HISTORY FROZEN**. ZDB-03B2B is **COMPLETE / MERGED through PR #304 / OWNER BLIND ADJUDICATION FROZEN**. History was unseen at adjudication freeze; the historical B2A blindness gate is satisfied. Frozen source identities remain immutable.
 
-No adjudication/gold, target Preference Context or assembled signal corpus exists in B2A. No provider call or production change occurred. ZDB-03B3/B4, the >=300 comparative corpus, ZDB-04+ and PM-02 remain **NOT ACTIVE**. The Draft PR remains unmerged and does not change the production baseline.
-
-
-### ZDB-03B2C structural clarification
+## ZDB-03B2C structural clarification
 
 The first B2C assembly attempt stopped before artifact creation because an execution instruction incorrectly expected exactly 24 cold-start / 96 non-cold contexts. Owner reproduction from the five frozen inputs established the deterministic truth as **55 cold-start / 65 non-cold**: 12 designated novel-workspace controls, 12 purpose/lifecycle no-history controls, and 31 incidental finite-choice cold starts. There are 0 unexplained scope-mismatch cold starts and 0 missing correction references. See [ZDB-03B2C Cold-Start Structural Clarification](tasks/ZDB-03B2C-COLD-START-STRUCTURAL-CLARIFICATION.md).
 
 No frozen Profile, Target, Assignment, History, or adjudication artifact changed. B2C mechanical assembly may resume only with the frozen 55/65 constants. ZDB-03B3/B4 remain NOT ACTIVE.
+
+## ZDB-03B2C frozen mechanical corpus
+
+[Mechanical assembly result](../../research/zen-decision-bench/results/ZDB-03B2C-SIGNAL-CORPUS-ASSEMBLY-RESULT.md), issue #283: **OWNER CORPUS FREEZE PASSED — FROZEN FOR ZDB-03B3 INPUT** from exact `master@0c9a7b36510f2399176f8d79e29c0761f7f50d9c` after PR #305. All five sources remain unchanged. The 120 cases mechanically yield **55 cold-start / 65 non-cold**, taxonomy **12 novel-workspace / 12 purpose-lifecycle / 31 finite-choice filtered / 0 unexplained** and **0 missing correction references**. This is Owner-frozen structural truth and must not be tuned.
+
+No provider or B2C resolver/Arm run, baseline prediction, effectiveness result or production change occurred. Owner accepted corpus content at `f1aa255d17f7b6f4749631096332549a5b7fd58b`; canonical SHA-256 `0a96faa752b488f9c507ee2d0ca64e439820f85697872a64a5972c2840693349`, file SHA-256 `e10cd216a0f6692511ec0049dccf37b51f306bd39625b858efcbac35ebac3c8a`, Git blob `0e483df2063acbc07ee599e3caa379f4a6f404bf`. Merge of PR #306 plus merge-after CI activates only ZDB-03B3 same-case canonical Generative baseline. ZDB-03B4, >=300 comparative corpus, ZDB-04+ and PM-02 remain **NOT ACTIVE**.
