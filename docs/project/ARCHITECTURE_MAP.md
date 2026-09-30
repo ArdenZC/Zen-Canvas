@@ -49,6 +49,7 @@ The normal direction is **durable backend authority → API → replaceable fron
 | Restore | operation/cleanup ledgers plus identity revalidation | Restore intent, confirmation and outcome projection |
 | App settings | persisted versioned settings | Editing/reconciliation projection |
 | AI readiness / consent | existing AI settings + credential store, backend-owned Managed Scope policy, Content Scope Policy and distinct Cleanup local/cloud sharing policy composed by `crate::ai::readiness`; no separate readiness store | Settings/status presentation only; no renderer-created authority |
+| Automation | Schema 36 `automation_intents` and `automation_runs`; CAS Intent revisions, globally unique request keys and atomic Run + existing Organization Plan materialization | Intent editor, one-shot manual request, receipt projection and existing Organize handoff; no scheduler, provider loop or filesystem executor |
 | Managed AI | existing durable managed-AI queue and provider policy; canonical per-file `SemanticAssessmentV1` lives in `ai_analysis_state.classification_json` | Configuration/progress projection |
 
 Preview in the table means **content Quick Preview**, not Operation Preview. File-operation planning remains owned by the existing mutation/operation authorities and is not merged into W3 Preview Platform.
@@ -272,3 +273,12 @@ A change that moves durable authority, persistence ownership, command permission
 4. focused contract tests and applicable full validation.
 
 W4 activation records the native host/process/native-access boundary in ADR-0005 without moving existing durable Preview/read/identity/mutation ownership. If a W4 implementation Track discovers that its proposed solution would move one of those authorities, it must stop and return to architecture review before coding further.
+
+
+## PM-02A manual Automation boundary
+
+The main-window-only API resolves reusable File Query V2 semantics against healthy enabled roots and a fresh backend library revision on every new request. `current_scan`, Browse paths, renderer-selected IDs/counts and saved snapshot revisions are rejected as Intent authority. Current Managed AI semantics remain owned by Organize; its builder is extracted unchanged into `db/queries/organization/materialize.rs` so one immediate transaction can publish a Plan and Run receipt.
+
+Missing/stale analysis is admitted only after existing backend readiness, provider/credential and managed-scope consent checks, in batches of at most 100 through `analyze_organization_plan_items`. Current valid assessments bypass fresh provider readiness. The existing queue/governor owns subsequent analysis. Automation never accepts decisions, requests Dry Run, executes files, or starts a timer/worker. Crashes after Plan publication retain a terminal blocked receipt and reviewable Plan; retry returns the existing receipt and cannot enqueue again. Organize owns explicit analysis/refresh and all later review/execution.
+
+[Schema 36 contract](SCHEMA_36_AUTOMATION_INTENTS.md) and [ADR-0010](DECISIONS/0010-manual-automation-intent-boundary.md). PM-02A is Owner review pending; PM-02B and PM-03 remain inactive.

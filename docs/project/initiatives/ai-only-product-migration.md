@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / PM-02A OWNER ACTIVATION REVIEW PASSED; MERGE OF THE PM-02A ACTIVATION PR ACTIVATES PM-02A IMPLEMENTATION ONLY**
+Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE; PM-02A IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING; PM-02B AND PM-03 NOT ACTIVE**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -8,7 +8,7 @@ Superseded historical activation: PR #274 — **CLOSED / not merged**.
 
 Accepted PM-01 authority: [PM-01 Core Experience Activation](../tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md).
 
-Pending PM-02A authority: [Automation Intent Foundation Activation](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md).
+Merged PM-02A authority (PR #312): [Automation Intent Foundation Activation](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md).
 
 Deep-audit closure: [PM-01 Deep-Audit Closure](../tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -100,7 +100,7 @@ PM-02 separately owns Automation Intent / Trigger / Policy architecture.
 
 PM-02 is now decomposed into separately gated slices:
 
-- **PM-02A — Automation Intent Foundation:** durable Organize-plan intent, manual trigger, fixed review-required / never-auto-execute policy, durable run receipt, fresh Query V2 snapshot resolution and Organization Plan handoff. Implementation activates only when its dedicated activation taskbook merges.
+- **PM-02A — Automation Intent Foundation:** durable Organize-plan intent, manual trigger, fixed review-required / never-auto-execute policy, durable run receipt, fresh Query V2 snapshot resolution and Organization Plan handoff. Activation PR #312 has merged. The [bounded implementation result](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md) remains OWNER REVIEW PENDING.
 - **PM-02B — Event / Schedule Triggers:** watcher/schedule/startup lifecycle and runtime admission. **NOT ACTIVE**.
 - Any additional workflow kinds or richer planner semantics require another bounded activation.
 
@@ -122,12 +122,12 @@ PM-01 is complete.
 
 PM-02A activation baseline:
 
-`master@1cb02bb419b032d7c83a4f54776c563010bb1e61`
+`master@b698228e94a1857e0610cccb2364e1027f6b1b0d` / merged activation PR #312
 
 Activation taskbook:
 
 `docs/project/tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md`
 
-Owner activation review has passed. Until the activation PR merges, PM-02A production implementation remains **NOT ACTIVE**.
+Owner activation review passed and PR #312 merged. PM-02A is **IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING**, on its isolated implementation branch. No merge or PM-02B/PM-03 activation is authorized.
 
 Merge of the activation taskbook authorizes only PM-02A. PM-02B, PM-03, Preference Memory production, System One and Laya/Jev remain separately gated.

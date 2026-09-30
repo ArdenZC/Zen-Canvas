@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-29
+Last verified: 2026-09-30
 
 ## Completed
 
@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE; PM-02A AUTOMATION INTENT FOUNDATION OWNER REVIEW PASSED. Merge of the dedicated activation PR activates PM-02A implementation only.**
+Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE; PM-02A IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING following activation PR #312. PM-02B and PM-03 remain NOT ACTIVE.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -101,9 +101,9 @@ Current production / research sequence:
 2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
 3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
 4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
-5. **PM-02A Automation Intent Foundation — OWNER ACTIVATION REVIEW PASSED.** Merge of the dedicated activation taskbook authorizes only manual, review-required Organize-plan automation foundation work.
+5. **PM-02A Automation Intent Foundation — IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING.** [Result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md): Schema 36, reusable Query V2 scope, manual Intent-to-Plan handoff and existing Managed AI admission; no automatic execution.
 6. PM-02B event/schedule triggers — **NOT ACTIVE**.
-7. PM-03 migration closeout — later.
+7. PM-03 migration closeout — **NOT ACTIVE**.
 8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
 
 PM-01 consumed rather than recreated the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded. No production implementation branch is active after the PM-01 closeout.

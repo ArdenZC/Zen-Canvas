@@ -141,8 +141,9 @@ describe("W6-03 product hierarchy", () => {
     const navGroupsSource = appShell.slice(appShell.indexOf("function navGroups"));
 
     expect(navGroupsSource).not.toContain('{ id: "rules", label: t("automation")');
-    expect(appShell).toContain('const RulesView = lazy(() => import("../views/rules/RulesView")');
-    expect(appShell).toContain('else if (view === "rules") content = <RulesView />');
+    expect(appShell).toContain('const AutomationWorkspace = lazy(() => import("../views/automation/AutomationWorkspace")');
+    expect(appShell).toContain('else if (view === "rules") content = <AutomationWorkspace />');
+    expect(read("src/views/automation/AutomationWorkspace.tsx")).toContain('import("../rules/RulesView")');
     expect(settingsView).toContain('onOpenRules={() => setView("rules")}');
     expect(automationSection).toContain("onOpenRules");
   });

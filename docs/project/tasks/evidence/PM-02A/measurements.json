@@ -1,0 +1,45 @@
+{
+  "evidenceBoundary": "Browser mock presentation; not native or provider acceptance",
+  "results": [
+    {
+      "name": "desktop-blocked",
+      "width": 1440,
+      "height": 960,
+      "language": "en",
+      "query": "",
+      "pass": true,
+      "expected": "Needs attention",
+      "horizontalOverflow": false,
+      "planHandoff": true,
+      "advancedRules": true,
+      "focusRestored": true
+    },
+    {
+      "name": "narrow-pending",
+      "width": 760,
+      "height": 900,
+      "language": "en",
+      "query": "pm02a-analysis=queued",
+      "pass": true,
+      "expected": "Analysis requested",
+      "horizontalOverflow": false,
+      "planHandoff": true,
+      "advancedRules": true,
+      "focusRestored": true
+    },
+    {
+      "name": "desktop-current-zh",
+      "width": 1440,
+      "height": 960,
+      "language": "zh",
+      "query": "pm01-organize=ready",
+      "pass": true,
+      "expected": "计划已生成",
+      "horizontalOverflow": false,
+      "planHandoff": true,
+      "advancedRules": true,
+      "focusRestored": true
+    }
+  ],
+  "pageErrors": []
+}

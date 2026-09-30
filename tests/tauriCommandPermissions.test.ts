@@ -65,6 +65,8 @@ function groupedContracts(
 // A command omitted here is a contract failure; it is never treated as read-only
 // by default.
 const explicitContracts: CommandContract[] = [
+  ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/db/automation/commands.rs", ["create_automation_intent", "update_automation_intent", "set_automation_intent_enabled", "archive_automation_intent", "run_automation_intent_manual"]),
+  ...groupedContracts("READ_ONLY", "require_main_window", "src-tauri/src/db/automation/commands.rs", ["list_automation_intents", "get_automation_intent", "list_automation_runs"]),
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/db/commands.rs", [
     "init_db",
     "insert_file",

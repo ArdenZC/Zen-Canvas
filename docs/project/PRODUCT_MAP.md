@@ -18,7 +18,7 @@ This map describes product ownership. Durable implementation authority is define
 
 | Workspace | User purpose | Product boundary |
 | --- | --- | --- |
-| Automation | Browse, create, review, enable and run rules | Rule Repository V2 plus durable Rule Proposal; Apply, Enable and Run remain separate |
+| Automation | Save reusable file scopes, enable/pause Intents and manually generate plans for review | Schema 36 Automation Intent/Run ledgers; only organize_plan/manual/review-required/never-auto-execute. Existing Rules and Rule Proposal remain reachable through Advanced Rules. Entry remains in Settings/Spotlight. |
 | Settings | Configure app, search, indexing, AI/provider, lifecycle and diagnostics | Persisted settings/provider contracts; technical detail remains secondary to task language |
 
 ### Files workspace ownership

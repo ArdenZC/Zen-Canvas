@@ -1,3 +1,6 @@
+mod automation;
+mod schema_automation;
+pub use automation::*;
 mod classification;
 mod commands;
 mod connection;

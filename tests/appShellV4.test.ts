@@ -22,8 +22,9 @@ describe("App Shell v4", () => {
     expect(nav).not.toContain('id: "preview"');
     expect(appShell).toContain('view === "cleanup"');
     expect(appShell).toContain('view === "preview"');
-    expect(appShell).toContain('const RulesView = lazy(() => import("../views/rules/RulesView")');
-    expect(appShell).toContain('else if (view === "rules") content = <RulesView />');
+    expect(appShell).toContain('const AutomationWorkspace = lazy(() => import("../views/automation/AutomationWorkspace")');
+    expect(appShell).toContain('else if (view === "rules") content = <AutomationWorkspace />');
+    expect(read("src/views/automation/AutomationWorkspace.tsx")).toContain('import("../rules/RulesView")');
     expect(appShell).toContain('id: "primary"');
     expect(appShell).toContain('id: "advanced"');
   });
