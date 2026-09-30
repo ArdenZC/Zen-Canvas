@@ -94,6 +94,8 @@ All five canonical/file hashes, Owner-frozen manifest status and corpus Git blob
 | run.json | `bb30f28718d32f4c3243f281c49b8334f0bf4dbcbbad2b24d847dc8881cf6b43` |
 | summary.json | `54ad22c8e07a8a4f6e1c2a128ee39a13bbeae74c647d480f3a8b69b619bebc55` |
 | baseline-segments.json | `a270e606fd958dc8505ee0eaaa9dbb2bdb3c07299e49fa3bed7cbcd5a96501c7` |
+| SHA256SUMS.txt | `14e6502409ef37f35a88e4877a8d4ecb2482ba35abeb8525f8e7b98437e6af61` |
+| Scoped .gitattributes | `46262f3dc2c2c18905cc9802f30eababf7523fa26b9b5e1712828e735d7fb6c4` |
 
 [SHA256SUMS](evidence/zdb-03b3-same-case-generative/SHA256SUMS.txt) freezes those six artifacts. Scoped evidence attributes preserve LF checkout bytes for hash reproducibility. The final evidence commit and review-head CI are recorded in the closeout below and PR handoff; pre-provider candidate CI is a distinct gate.
 
