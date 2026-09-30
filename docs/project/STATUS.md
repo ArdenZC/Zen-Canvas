@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-29
+Last verified: 2026-09-30
 
 ## Current execution truth
 
@@ -50,7 +50,7 @@ Research issue #283 remains separate/non-blocking from production. ZDB-01 is COM
 
 ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](../../research/zen-decision-bench/results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md). PR #300 is **MERGED** as `master@b92fe40a18b38b60febe5618caf72ba3e988bcdb`; merge-after CI 36564738415 is **SUCCESS**. ZDB-03A is **COMPLETE / MERGED / OWNER REVIEW PASSED — CONFORMANCE ONLY**. Its 60-case JSONL must never become ZDB-03B signal/effectiveness evidence.
 
-ZDB-03B is defined as a separate [120-case synthetic Preference signal screen](tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md). **OWNER REVIEW PASSED** for the definition. Merge of PR #301 activates only **ZDB-03B1 Profile + Target construction**. History Pool construction, Owner Adjudication, assembled signal-corpus freeze, provider execution, and offline comparison remain separately gated and NOT AUTHORIZED. The >=300 comparative-corpus superiority gate remains separate and inactive. ZDB-04+ remain NOT ACTIVE.
+ZDB-03B is defined as a separate [120-case synthetic Preference signal screen](tasks/ZDB-03B-PREFERENCE-SIGNAL-SCREEN-ACTIVATION.md). **OWNER REVIEW PASSED** for the definition. Merge of PR #301 activates only **ZDB-03B1 Profile + Target construction**. The initial B1-only activation has been superseded by the Owner-frozen B1 inputs and bounded B2A authorization below; later adjudication, corpus assembly, provider execution and comparison remain separately gated. The >=300 comparative-corpus superiority gate remains separate and inactive. ZDB-04+ remain NOT ACTIVE.
 
 ZDB-03B1 has a [12-profile pack and 120-target pack](../../research/zen-decision-bench/results/ZDB-03B1-PROFILE-TARGET-CONSTRUCTION-RESULT.md). **OWNER RE-REVIEW PASSED** at `020b2270464a2c6b7cf98c886d3f5293e2e41b65`; both pack hashes are **FROZEN FOR ZDB-03B2 INPUT**. Merge of PR #302 activates only ZDB-03B2 deterministic assignment + History Pool + separate Owner Adjudication construction. Same-case Generative baseline/provider execution (B3) and Preference comparison (B4) remain NOT ACTIVE.
 
@@ -133,3 +133,9 @@ ZDB-03B1 has a [12-profile pack and 120-target pack](../../research/zen-decision
 ## Review policy
 
 Owner review and merge decisions use direct diff inspection, repository governance checks and applicable CI evidence. Codex Review is not merge authority.
+
+## ZDB-03B2A bounded research candidate
+
+[Assignment and blind History freeze result](../../research/zen-decision-bench/results/ZDB-03B2A-ASSIGNMENT-HISTORY-FREEZE-RESULT.md), issue #283, starts from clean `master@167ef8eee7706bddd6694e021ea0d1c947eba517` (PR #302 squash merge). ZDB-03B1 is **COMPLETE / MERGED / OWNER REVIEW PASSED / PACKS FROZEN**. ZDB-03B2A is **ASSIGNMENT + HISTORY HASH FROZEN / OWNER ADJUDICATION PENDING** in a research-only candidate; ZDB-03B2 overall remains **ACTIVE** for blind Owner adjudication. Assignment has exactly 120 cases / 10 per profile; History has exactly 288 episodes / 24 per profile and structural validation PASS. History is **HASH FROZEN — OWNER HAS NOT INSPECTED HISTORY CONTENT**, not Owner-content-reviewed. **OWNER MUST COMPLETE BLIND ADJUDICATION BEFORE INSPECTING HISTORY CONTENT OR HISTORY GENERATOR SEMANTICS.**
+
+No adjudication/gold, target Preference Context or assembled signal corpus exists in B2A. No provider call or production change occurred. ZDB-03B3/B4, the >=300 comparative corpus, ZDB-04+ and PM-02 remain **NOT ACTIVE**. The Draft PR remains unmerged and does not change the production baseline.

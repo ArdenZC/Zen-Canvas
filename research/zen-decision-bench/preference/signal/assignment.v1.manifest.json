@@ -1,0 +1,16 @@
+{
+  "schema_version": "zdb.preference_signal_assignment_manifest.v1",
+  "schema_identity": "zdb.preference_signal_assignment.v1",
+  "profile_pack_hash": "371519fe7c9f28d3c686e0299c223d64a57b00571777cab498668667498137b1",
+  "target_pack_hash": "96f975ef10148a49f47068c578dd76ccd69ab3cf3f81167de2e227de32b735c4",
+  "assignment_seed": "27418e52bb5e483ef523d2cdc1045dfb17a1ec45238b8f0cf67d431f0163bfaf",
+  "algorithm_identity": "zdb-03b-assignment-v1",
+  "rank_index_origin": 0,
+  "cases_per_profile": 10,
+  "status": "FROZEN — DETERMINISTIC FROM OWNER-FROZEN B1 INPUTS",
+  "artifact_file": "assignment.v1.jsonl",
+  "count": 120,
+  "canonical_sha256": "4833443e85bf2a69c74b175b8e618a98eebab6444f1da05418fbf926582d6a0b",
+  "file_sha256": "f05291e3bf421538b66ed2caf8ae599f2fcea4ff3e263f9d9088764091d684ef",
+  "research_only": true
+}

@@ -93,3 +93,19 @@ From the repository root, validate the committed candidate packs with:
 node research/zen-decision-bench/preference/signal/validate-packs.mjs
 npm test -- research/zen-decision-bench/tests
 ```
+
+### ZDB-03B2A pre-adjudication freeze
+
+Status: **B2A COMPLETE — HISTORY HASH FROZEN / OWNER ADJUDICATION PENDING**; B2 overall remains **ACTIVE**. See the [Owner-safe structural result](../results/ZDB-03B2A-ASSIGNMENT-HISTORY-FREEZE-RESULT.md). Deterministic assignment contains exactly 120 cases / 10 per profile. The independent Profile-only History envelope contains exactly 288 episodes / 24 per profile. Separate manifests bind canonical and file SHA-256 values; structural validation passed. B1 JSONL inputs remain immutable.
+
+**OWNER MUST COMPLETE BLIND ADJUDICATION BEFORE INSPECTING HISTORY CONTENT OR HISTORY GENERATOR SEMANTICS**, including History-related tests/validators. **HASH FROZEN — OWNER HAS NOT INSPECTED HISTORY CONTENT** is the recorded state; no History Owner-review PASS is claimed.
+
+Run structural validation only:
+
+```text
+node research/zen-decision-bench/preference/signal/validate-b2a.mjs assignment
+node research/zen-decision-bench/preference/signal/validate-b2a.mjs history
+npm test -- research/zen-decision-bench/tests
+```
+
+The builders refuse to overwrite existing artifacts. No adjudication/gold, target Preference Context, target scope materialization, assembled signal corpus, resolver simulation, applicability analysis or provider call is part of B2A. ZDB-03B3/B4, >=300 comparative work, ZDB-04+ and PM-02 remain **NOT ACTIVE**.

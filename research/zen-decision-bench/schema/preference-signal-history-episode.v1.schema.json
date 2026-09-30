@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/preference-signal-history-episode.v1.schema.json",
+  "title": "Research-only profile History envelope; Owner content blind before adjudication",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "profile_id", "evidence"],
+  "properties": {
+    "schema_version": { "const": "zdb.preference_signal_history_episode.v1" },
+    "profile_id": { "type": "string", "pattern": "^profile-(0[1-9]|1[0-2])$" },
+    "evidence": { "$ref": "preference-evidence.v1.schema.json" }
+  }
+}
