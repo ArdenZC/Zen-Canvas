@@ -1,0 +1,19 @@
+{
+  "schema_version": "zdb.preference_signal_adjudication_manifest.v1",
+  "schema_identity": "zdb.preference_signal_adjudication.v1",
+  "artifact_file": "adjudication.v1.jsonl",
+  "count": 120,
+  "profile_pack_canonical_sha256": "371519fe7c9f28d3c686e0299c223d64a57b00571777cab498668667498137b1",
+  "target_pack_canonical_sha256": "96f975ef10148a49f47068c578dd76ccd69ab3cf3f81167de2e227de32b735c4",
+  "assignment_canonical_sha256": "4833443e85bf2a69c74b175b8e618a98eebab6444f1da05418fbf926582d6a0b",
+  "assignment_file_sha256": "f05291e3bf421538b66ed2caf8ae599f2fcea4ff3e263f9d9088764091d684ef",
+  "assignment_seed": "27418e52bb5e483ef523d2cdc1045dfb17a1ec45238b8f0cf67d431f0163bfaf",
+  "canonical_sha256": "498a511c4cfba87daaed7db5197c35aed96de34862feede43c500d9eb5d3ad50",
+  "file_sha256": "7f87770e30dae42a735b26b620209fabcd59eac1e449aad528de68523d56abbf",
+  "git_blob_sha": "1946fc65c4b2efa2086cfd5d0916eaaea7f5e949",
+  "status": "FROZEN — OWNER BLIND ADJUDICATION COMPLETE",
+  "owner_state": "OWNER ADJUDICATION FROZEN BEFORE HISTORY INSPECTION",
+  "history_content_inspected_at_freeze": false,
+  "research_only": true,
+  "next_gate": "Review frozen History against its pre-registered B2A template, then assemble the B2 signal-corpus candidate without changing adjudication"
+}
