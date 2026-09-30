@@ -1,0 +1,18 @@
+{
+  "schema_version": "zdb.request-projection-manifest.v1",
+  "projection_id": "zdb-03b3-same-case-generative-v1-request-projection",
+  "case_count": 120,
+  "corpus_canonical_sha256": "0a96faa752b488f9c507ee2d0ca64e439820f85697872a64a5972c2840693349",
+  "adapter_id": "managed-ai-deepseek-canonical-enum-v1",
+  "prompt_sha256": "c4fd929f7fce4f581cac8328a198cecae164d3db16eeab03c1b74835b233b68b",
+  "model": "deepseek-v4-flash",
+  "endpoint": "https://api.deepseek.com/chat/completions",
+  "canonical_sha256": "81365cb1b4c2880babd867e83a13a5c2e0294cfef79fb62f9373b546db60ac73",
+  "file_sha256": "5a1d48f4e13fbbf7f4e4537e2c32a86139be2876105f5ae74f9cb0b3d436d7f0",
+  "isolation": {
+    "case_count": 120,
+    "minimal_projection": "PASS",
+    "forbidden_metadata_mutation": "PASS",
+    "current_file_mutation": "PASS"
+  }
+}
