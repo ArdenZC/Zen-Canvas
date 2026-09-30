@@ -1,0 +1,923 @@
+{
+  "global": {
+    "case_count": 120,
+    "exact_count": 17,
+    "adjusted_count": 23,
+    "abstain_count": 71,
+    "unsafe_overclaim_count": 1,
+    "provider_failure_count": 4,
+    "counts": {
+      "correct": 17,
+      "acceptable_alternate": 3,
+      "correct_abstain": 3,
+      "unnecessary_abstain": 68,
+      "unsafe_overclaim": 1,
+      "incorrect": 24,
+      "invalid_output": 0,
+      "provider_failure": 4
+    },
+    "metrics": {
+      "exact_accuracy": 0.14166666666666666,
+      "acceptable_adjusted_accuracy": 0.19166666666666668,
+      "invalid_output_rate": 0,
+      "abstention_rate": 0.5916666666666667,
+      "unsafe_overclaim_rate": 0.008333333333333333,
+      "provider_failure_rate": 0.03333333333333333,
+      "median_latency_ms": 1616.31289999999,
+      "p95_latency_ms": 1825.7580000000016
+    },
+    "calibration": {
+      "count": 116,
+      "ece": 0.4626724137931032,
+      "brier": 0.38848706896551727,
+      "buckets": [
+        {
+          "min": 0.3,
+          "max": 0.4,
+          "count": 10,
+          "avg_confidence": 0.35000000000000003,
+          "accuracy": 0.5
+        },
+        {
+          "min": 0.4,
+          "max": 0.5,
+          "count": 6,
+          "avg_confidence": 0.42166666666666663,
+          "accuracy": 0.3333333333333333
+        },
+        {
+          "min": 0.5,
+          "max": 0.6,
+          "count": 18,
+          "avg_confidence": 0.55,
+          "accuracy": 0.2222222222222222
+        },
+        {
+          "min": 0.6,
+          "max": 0.7,
+          "count": 25,
+          "avg_confidence": 0.6191999999999996,
+          "accuracy": 0.08
+        },
+        {
+          "min": 0.7,
+          "max": 0.8,
+          "count": 47,
+          "avg_confidence": 0.7221276595744678,
+          "accuracy": 0.19148936170212766
+        },
+        {
+          "min": 0.8,
+          "max": 0.9,
+          "count": 10,
+          "avg_confidence": 0.8319999999999999,
+          "accuracy": 0.1
+        }
+      ]
+    },
+    "mean_latency_ms": 1601.7010891666664
+  },
+  "per_task": {
+    "existing_folder_choice": {
+      "case_count": 72,
+      "exact_count": 0,
+      "adjusted_count": 3,
+      "abstain_count": 71,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 1,
+      "counts": {
+        "correct": 0,
+        "acceptable_alternate": 0,
+        "correct_abstain": 3,
+        "unnecessary_abstain": 68,
+        "unsafe_overclaim": 0,
+        "incorrect": 0,
+        "invalid_output": 0,
+        "provider_failure": 1
+      },
+      "metrics": {
+        "exact_accuracy": 0,
+        "acceptable_adjusted_accuracy": 0.041666666666666664,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0.9861111111111112,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0.013888888888888888,
+        "median_latency_ms": 1632.3972000000067,
+        "p95_latency_ms": 1849.2188999999998
+      },
+      "calibration": {
+        "count": 71,
+        "ece": 0.6153521126760562,
+        "brier": 0.43497323943661953,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 1,
+            "avg_confidence": 0.35,
+            "accuracy": 0
+          },
+          {
+            "min": 0.4,
+            "max": 0.5,
+            "count": 5,
+            "avg_confidence": 0.422,
+            "accuracy": 0.2
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 10,
+            "avg_confidence": 0.5499999999999999,
+            "accuracy": 0
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 17,
+            "avg_confidence": 0.6199999999999999,
+            "accuracy": 0
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 31,
+            "avg_confidence": 0.7212903225806451,
+            "accuracy": 0.06451612903225806
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 7,
+            "avg_confidence": 0.8328571428571427,
+            "accuracy": 0
+          }
+        ]
+      },
+      "mean_latency_ms": 1615.9226805555559
+    },
+    "suggested_action": {
+      "case_count": 36,
+      "exact_count": 12,
+      "adjusted_count": 14,
+      "abstain_count": 0,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 3,
+      "counts": {
+        "correct": 12,
+        "acceptable_alternate": 2,
+        "correct_abstain": 0,
+        "unnecessary_abstain": 0,
+        "unsafe_overclaim": 0,
+        "incorrect": 19,
+        "invalid_output": 0,
+        "provider_failure": 3
+      },
+      "metrics": {
+        "exact_accuracy": 0.3333333333333333,
+        "acceptable_adjusted_accuracy": 0.3888888888888889,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0.08333333333333333,
+        "median_latency_ms": 1577.388100000011,
+        "p95_latency_ms": 1795.1737999999896
+      },
+      "calibration": {
+        "count": 33,
+        "ece": 0.3784848484848485,
+        "brier": 0.3555121212121212,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 5,
+            "avg_confidence": 0.35,
+            "accuracy": 0.8
+          },
+          {
+            "min": 0.4,
+            "max": 0.5,
+            "count": 1,
+            "avg_confidence": 0.42,
+            "accuracy": 1
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 5,
+            "avg_confidence": 0.55,
+            "accuracy": 0.6
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 7,
+            "avg_confidence": 0.6171428571428572,
+            "accuracy": 0.14285714285714285
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 13,
+            "avg_confidence": 0.7246153846153847,
+            "accuracy": 0.38461538461538464
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 2,
+            "avg_confidence": 0.835,
+            "accuracy": 0
+          }
+        ]
+      },
+      "mean_latency_ms": 1587.987619444445
+    },
+    "purpose": {
+      "case_count": 6,
+      "exact_count": 3,
+      "adjusted_count": 4,
+      "abstain_count": 0,
+      "unsafe_overclaim_count": 1,
+      "provider_failure_count": 0,
+      "counts": {
+        "correct": 3,
+        "acceptable_alternate": 1,
+        "correct_abstain": 0,
+        "unnecessary_abstain": 0,
+        "unsafe_overclaim": 1,
+        "incorrect": 1,
+        "invalid_output": 0,
+        "provider_failure": 0
+      },
+      "metrics": {
+        "exact_accuracy": 0.5,
+        "acceptable_adjusted_accuracy": 0.6666666666666666,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0,
+        "unsafe_overclaim_rate": 0.16666666666666666,
+        "provider_failure_rate": 0,
+        "median_latency_ms": 1506.8389000000025,
+        "p95_latency_ms": 1828.035199999984
+      },
+      "calibration": {
+        "count": 6,
+        "ece": 0.17833333333333337,
+        "brier": 0.16241666666666668,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 1,
+            "avg_confidence": 0.35,
+            "accuracy": 0
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 1,
+            "avg_confidence": 0.62,
+            "accuracy": 1
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 3,
+            "avg_confidence": 0.7200000000000001,
+            "accuracy": 0.6666666666666666
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 1,
+            "avg_confidence": 0.82,
+            "accuracy": 1
+          }
+        ]
+      },
+      "mean_latency_ms": 1545.3533833333252
+    },
+    "lifecycle": {
+      "case_count": 6,
+      "exact_count": 2,
+      "adjusted_count": 2,
+      "abstain_count": 0,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 0,
+      "counts": {
+        "correct": 2,
+        "acceptable_alternate": 0,
+        "correct_abstain": 0,
+        "unnecessary_abstain": 0,
+        "unsafe_overclaim": 0,
+        "incorrect": 4,
+        "invalid_output": 0,
+        "provider_failure": 0
+      },
+      "metrics": {
+        "exact_accuracy": 0.3333333333333333,
+        "acceptable_adjusted_accuracy": 0.3333333333333333,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0,
+        "median_latency_ms": 1577.3654999999853,
+        "p95_latency_ms": 1778.411700000026
+      },
+      "calibration": {
+        "count": 6,
+        "ece": 0.11666666666666667,
+        "brier": 0.24583333333333335,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 3,
+            "avg_confidence": 0.3499999999999999,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 3,
+            "avg_confidence": 0.55,
+            "accuracy": 0.3333333333333333
+          }
+        ]
+      },
+      "mean_latency_ms": 1569.6705166666652
+    }
+  },
+  "cold_start": {
+    "cold_55": {
+      "case_count": 55,
+      "exact_count": 8,
+      "adjusted_count": 11,
+      "abstain_count": 38,
+      "unsafe_overclaim_count": 1,
+      "provider_failure_count": 1,
+      "counts": {
+        "correct": 8,
+        "acceptable_alternate": 1,
+        "correct_abstain": 2,
+        "unnecessary_abstain": 36,
+        "unsafe_overclaim": 1,
+        "incorrect": 6,
+        "invalid_output": 0,
+        "provider_failure": 1
+      },
+      "metrics": {
+        "exact_accuracy": 0.14545454545454545,
+        "acceptable_adjusted_accuracy": 0.2,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0.6909090909090909,
+        "unsafe_overclaim_rate": 0.01818181818181818,
+        "provider_failure_rate": 0.01818181818181818,
+        "median_latency_ms": 1577.3654999999853,
+        "p95_latency_ms": 1826.0241000000024
+      },
+      "calibration": {
+        "count": 54,
+        "ece": 0.4092592592592592,
+        "brier": 0.3713518518518516,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 6,
+            "avg_confidence": 0.35000000000000003,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.4,
+            "max": 0.5,
+            "count": 6,
+            "avg_confidence": 0.42166666666666663,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 11,
+            "avg_confidence": 0.5499999999999999,
+            "accuracy": 0.18181818181818182
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 6,
+            "avg_confidence": 0.62,
+            "accuracy": 0.16666666666666666
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 19,
+            "avg_confidence": 0.7189473684210528,
+            "accuracy": 0.15789473684210525
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 6,
+            "avg_confidence": 0.84,
+            "accuracy": 0.16666666666666666
+          }
+        ]
+      },
+      "mean_latency_ms": 1581.4413963636362
+    },
+    "non_cold_65": {
+      "case_count": 65,
+      "exact_count": 9,
+      "adjusted_count": 12,
+      "abstain_count": 33,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 3,
+      "counts": {
+        "correct": 9,
+        "acceptable_alternate": 2,
+        "correct_abstain": 1,
+        "unnecessary_abstain": 32,
+        "unsafe_overclaim": 0,
+        "incorrect": 18,
+        "invalid_output": 0,
+        "provider_failure": 3
+      },
+      "metrics": {
+        "exact_accuracy": 0.13846153846153847,
+        "acceptable_adjusted_accuracy": 0.18461538461538463,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0.5076923076923077,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0.046153846153846156,
+        "median_latency_ms": 1655.5267000000022,
+        "p95_latency_ms": 1825.7580000000016
+      },
+      "calibration": {
+        "count": 62,
+        "ece": 0.5124193548387096,
+        "brier": 0.40341129032258033,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 4,
+            "avg_confidence": 0.35,
+            "accuracy": 0.75
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 7,
+            "avg_confidence": 0.5499999999999999,
+            "accuracy": 0.2857142857142857
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 19,
+            "avg_confidence": 0.6189473684210525,
+            "accuracy": 0.05263157894736842
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 28,
+            "avg_confidence": 0.7242857142857143,
+            "accuracy": 0.21428571428571427
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 4,
+            "avg_confidence": 0.82,
+            "accuracy": 0
+          }
+        ]
+      },
+      "mean_latency_ms": 1618.8439061538459
+    }
+  },
+  "controls": {
+    "ordinary_preference_signal": {
+      "case_count": 84,
+      "exact_count": 6,
+      "adjusted_count": 11,
+      "abstain_count": 60,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 4,
+      "counts": {
+        "correct": 6,
+        "acceptable_alternate": 2,
+        "correct_abstain": 3,
+        "unnecessary_abstain": 57,
+        "unsafe_overclaim": 0,
+        "incorrect": 12,
+        "invalid_output": 0,
+        "provider_failure": 4
+      },
+      "metrics": {
+        "exact_accuracy": 0.07142857142857142,
+        "acceptable_adjusted_accuracy": 0.13095238095238096,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0.7142857142857143,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0.047619047619047616,
+        "median_latency_ms": 1629.3061000000016,
+        "p95_latency_ms": 1826.0241000000024
+      },
+      "calibration": {
+        "count": 80,
+        "ece": 0.5333749999999998,
+        "brier": 0.41666874999999975,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 4,
+            "avg_confidence": 0.35,
+            "accuracy": 0.5
+          },
+          {
+            "min": 0.4,
+            "max": 0.5,
+            "count": 3,
+            "avg_confidence": 0.42333333333333334,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 11,
+            "avg_confidence": 0.5499999999999999,
+            "accuracy": 0.18181818181818182
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 18,
+            "avg_confidence": 0.6199999999999998,
+            "accuracy": 0
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 37,
+            "avg_confidence": 0.723243243243243,
+            "accuracy": 0.16216216216216217
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 7,
+            "avg_confidence": 0.8328571428571427,
+            "accuracy": 0
+          }
+        ]
+      },
+      "mean_latency_ms": 1612.625038095238
+    },
+    "explicit_truth_control": {
+      "case_count": 6,
+      "exact_count": 1,
+      "adjusted_count": 1,
+      "abstain_count": 3,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 0,
+      "counts": {
+        "correct": 1,
+        "acceptable_alternate": 0,
+        "correct_abstain": 0,
+        "unnecessary_abstain": 3,
+        "unsafe_overclaim": 0,
+        "incorrect": 2,
+        "invalid_output": 0,
+        "provider_failure": 0
+      },
+      "metrics": {
+        "exact_accuracy": 0.16666666666666666,
+        "acceptable_adjusted_accuracy": 0.16666666666666666,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0.5,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0,
+        "median_latency_ms": 1577.388100000011,
+        "p95_latency_ms": 1778.2206999999999
+      },
+      "calibration": {
+        "count": 6,
+        "ece": 0.63,
+        "brier": 0.39943333333333336,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 1,
+            "avg_confidence": 0.35,
+            "accuracy": 1
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 1,
+            "avg_confidence": 0.55,
+            "accuracy": 0
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 3,
+            "avg_confidence": 0.62,
+            "accuracy": 0
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 1,
+            "avg_confidence": 0.72,
+            "accuracy": 0
+          }
+        ]
+      },
+      "mean_latency_ms": 1627.7440666666714
+    },
+    "cold_start_candidate": {
+      "case_count": 12,
+      "exact_count": 3,
+      "adjusted_count": 3,
+      "abstain_count": 8,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 0,
+      "counts": {
+        "correct": 3,
+        "acceptable_alternate": 0,
+        "correct_abstain": 0,
+        "unnecessary_abstain": 8,
+        "unsafe_overclaim": 0,
+        "incorrect": 1,
+        "invalid_output": 0,
+        "provider_failure": 0
+      },
+      "metrics": {
+        "exact_accuracy": 0.25,
+        "acceptable_adjusted_accuracy": 0.25,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0.6666666666666666,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0,
+        "median_latency_ms": 1515.0666999999958,
+        "p95_latency_ms": 1795.1737999999896
+      },
+      "calibration": {
+        "count": 12,
+        "ece": 0.4475,
+        "brier": 0.40340833333333337,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 1,
+            "avg_confidence": 0.35,
+            "accuracy": 1
+          },
+          {
+            "min": 0.4,
+            "max": 0.5,
+            "count": 3,
+            "avg_confidence": 0.42,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 3,
+            "avg_confidence": 0.55,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 3,
+            "avg_confidence": 0.7133333333333333,
+            "accuracy": 0
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 2,
+            "avg_confidence": 0.835,
+            "accuracy": 0
+          }
+        ]
+      },
+      "mean_latency_ms": 1584.6344083333345
+    },
+    "safety_control": {
+      "case_count": 6,
+      "exact_count": 2,
+      "adjusted_count": 2,
+      "abstain_count": 0,
+      "unsafe_overclaim_count": 0,
+      "provider_failure_count": 0,
+      "counts": {
+        "correct": 2,
+        "acceptable_alternate": 0,
+        "correct_abstain": 0,
+        "unnecessary_abstain": 0,
+        "unsafe_overclaim": 0,
+        "incorrect": 4,
+        "invalid_output": 0,
+        "provider_failure": 0
+      },
+      "metrics": {
+        "exact_accuracy": 0.3333333333333333,
+        "acceptable_adjusted_accuracy": 0.3333333333333333,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0,
+        "unsafe_overclaim_rate": 0,
+        "provider_failure_rate": 0,
+        "median_latency_ms": 1533.0831999999937,
+        "p95_latency_ms": 1705.071100000001
+      },
+      "calibration": {
+        "count": 6,
+        "ece": 0.33333333333333337,
+        "brier": 0.3406666666666667,
+        "buckets": [
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 3,
+            "avg_confidence": 0.6133333333333333,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 3,
+            "avg_confidence": 0.7200000000000001,
+            "accuracy": 0.3333333333333333
+          }
+        ]
+      },
+      "mean_latency_ms": 1545.234466666666
+    },
+    "non_intervention_control": {
+      "case_count": 12,
+      "exact_count": 5,
+      "adjusted_count": 6,
+      "abstain_count": 0,
+      "unsafe_overclaim_count": 1,
+      "provider_failure_count": 0,
+      "counts": {
+        "correct": 5,
+        "acceptable_alternate": 1,
+        "correct_abstain": 0,
+        "unnecessary_abstain": 0,
+        "unsafe_overclaim": 1,
+        "incorrect": 5,
+        "invalid_output": 0,
+        "provider_failure": 0
+      },
+      "metrics": {
+        "exact_accuracy": 0.4166666666666667,
+        "acceptable_adjusted_accuracy": 0.5,
+        "invalid_output_rate": 0,
+        "abstention_rate": 0,
+        "unsafe_overclaim_rate": 0.08333333333333333,
+        "provider_failure_rate": 0,
+        "median_latency_ms": 1567.9136999999755,
+        "p95_latency_ms": 1828.035199999984
+      },
+      "calibration": {
+        "count": 12,
+        "ece": 0.14750000000000005,
+        "brier": 0.204125,
+        "buckets": [
+          {
+            "min": 0.3,
+            "max": 0.4,
+            "count": 4,
+            "avg_confidence": 0.35,
+            "accuracy": 0.25
+          },
+          {
+            "min": 0.5,
+            "max": 0.6,
+            "count": 3,
+            "avg_confidence": 0.55,
+            "accuracy": 0.3333333333333333
+          },
+          {
+            "min": 0.6,
+            "max": 0.7,
+            "count": 1,
+            "avg_confidence": 0.62,
+            "accuracy": 1
+          },
+          {
+            "min": 0.7,
+            "max": 0.8,
+            "count": 3,
+            "avg_confidence": 0.7200000000000001,
+            "accuracy": 0.6666666666666666
+          },
+          {
+            "min": 0.8,
+            "max": 0.9,
+            "count": 1,
+            "avg_confidence": 0.82,
+            "accuracy": 1
+          }
+        ]
+      },
+      "mean_latency_ms": 1557.5119499999953
+    }
+  },
+  "folder_mapping_diagnostic": {
+    "task_count": 72,
+    "case_count": 72,
+    "exact_count": 0,
+    "adjusted_count": 3,
+    "abstain_count": 71,
+    "unsafe_overclaim_count": 0,
+    "provider_failure_count": 1,
+    "counts": {
+      "correct": 0,
+      "acceptable_alternate": 0,
+      "correct_abstain": 3,
+      "unnecessary_abstain": 68,
+      "unsafe_overclaim": 0,
+      "incorrect": 0,
+      "invalid_output": 0,
+      "provider_failure": 1
+    },
+    "metrics": {
+      "exact_accuracy": 0,
+      "acceptable_adjusted_accuracy": 0.041666666666666664,
+      "invalid_output_rate": 0,
+      "abstention_rate": 0.9861111111111112,
+      "unsafe_overclaim_rate": 0,
+      "provider_failure_rate": 0.013888888888888888,
+      "median_latency_ms": 1632.3972000000067,
+      "p95_latency_ms": 1849.2188999999998
+    },
+    "calibration": {
+      "count": 71,
+      "ece": 0.6153521126760562,
+      "brier": 0.43497323943661953,
+      "buckets": [
+        {
+          "min": 0.3,
+          "max": 0.4,
+          "count": 1,
+          "avg_confidence": 0.35,
+          "accuracy": 0
+        },
+        {
+          "min": 0.4,
+          "max": 0.5,
+          "count": 5,
+          "avg_confidence": 0.422,
+          "accuracy": 0.2
+        },
+        {
+          "min": 0.5,
+          "max": 0.6,
+          "count": 10,
+          "avg_confidence": 0.5499999999999999,
+          "accuracy": 0
+        },
+        {
+          "min": 0.6,
+          "max": 0.7,
+          "count": 17,
+          "avg_confidence": 0.6199999999999999,
+          "accuracy": 0
+        },
+        {
+          "min": 0.7,
+          "max": 0.8,
+          "count": 31,
+          "avg_confidence": 0.7212903225806451,
+          "accuracy": 0.06451612903225806
+        },
+        {
+          "min": 0.8,
+          "max": 0.9,
+          "count": 7,
+          "avg_confidence": 0.8328571428571427,
+          "accuracy": 0
+        }
+      ]
+    },
+    "mean_latency_ms": 1615.9226805555559,
+    "mapped_decisions": {
+      "abstain": 71,
+      "null": 1
+    },
+    "limitation": "Strict accepted parser maps relative targetTemplate to frozen choice labels after the response. Raw templates are not retained; unmatched templates cannot be distinguished from other parser abstentions. No parser tuning or relabeling."
+  }
+}

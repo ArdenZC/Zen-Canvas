@@ -135,3 +135,26 @@ npm test -- research/zen-decision-bench/tests --exclude **/preference-hypothesis
 ```
 
 The assembler refuses to overwrite existing output. No provider, B2C resolver/Arm execution or effectiveness result exists. This structural projection check does not substitute for B3's provider-request proof. Corpus content head `f1aa255d17f7b6f4749631096332549a5b7fd58b`, canonical SHA-256 `0a96faa752b488f9c507ee2d0ca64e439820f85697872a64a5972c2840693349`, file SHA-256 `e10cd216a0f6692511ec0049dccf37b51f306bd39625b858efcbac35ebac3c8a`, and Git blob `0e483df2063acbc07ee599e3caa379f4a6f404bf` are frozen. Merge of PR #306 plus merge-after CI activates only B3 same-case canonical Generative baseline. B4, >=300 comparative work, ZDB-04+ and PM-02 remain **NOT ACTIVE**.
+
+
+## ZDB-03B3 frozen same-case Generative baseline
+
+PR #309 records one immutable 120-case same-case canonical Generative baseline over the Owner-frozen ZDB-03B corpus.
+
+Status: **OWNER REVIEW PASSED — BASELINE FROZEN**.
+
+- candidate runner: `9b98d48964cd1172dbd9cdd27590eaf2bf28b8d2`
+- pre-provider CI: `36696028168 — SUCCESS`
+- immutable evidence commit: `dc54001280e1bccc46fc7b64bef45ac69527dcc1`
+- reviewed evidence head: `876ec6f93d88a1a8d9a768b82acba181309c98f4`
+- final reviewed exact-head CI: `36697609492 — SUCCESS`
+- attempted/succeeded/failed: `120 / 116 / 4`
+- exact/adjusted: `17 / 23`
+- retries: `0`
+- Preference Arm executions: `0`
+
+The accepted canonical-enum adapter, parser, evaluator, frozen signal corpus and all five source artifacts remain unchanged. Provider requests were independently verified to exclude Preference Context, History, Truth/Rules, Profile/Assignment, gold/acceptable/abstain and finite benchmark choices.
+
+The weak folder-choice baseline is frozen as observed and must not be tuned post hoc.
+
+Merge of PR #309 plus successful merge-after CI activates only **ZDB-03B4 offline Preference comparison**. The >=300 comparative corpus, ZDB-04+ and PM-02 remain **NOT ACTIVE**.
