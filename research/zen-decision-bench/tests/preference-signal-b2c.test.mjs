@@ -107,10 +107,10 @@ describe("B2C mechanical assembly only", () => {
       const bad = copy(cases); mutate(bad); expect(() => validateCorpus(bad, inputs)).toThrow();
     }
   });
-  it("retains candidate state and refuses overwrite", async () => {
+  it("retains frozen Owner state and refuses overwrite", async () => {
     await expect(writeCorpus()).rejects.toThrow("corpus_artifact_already_exists");
     const m = JSON.parse(await readFile(new URL("../preference/signal/signal-corpus.v1.manifest.json", import.meta.url), "utf8"));
-    expect(m.status).toBe("CANDIDATE — OWNER CORPUS FREEZE REQUIRED BEFORE B3");
+    expect(m.status).toBe("FROZEN — OWNER REVIEW PASSED / AUTHORIZED FOR ZDB-03B3 INPUT");\n    expect(m.owner_freeze.accepted_content_head).toBe("f1aa255d17f7b6f4749631096332549a5b7fd58b");\n    expect(m.owner_freeze.corpus_git_blob).toBe("0e483df2063acbc07ee599e3caa379f4a6f404bf");
   });
   it("has a closed research-only dependency graph without network/credentials/resolver", async () => {
     const visited = new Set();
