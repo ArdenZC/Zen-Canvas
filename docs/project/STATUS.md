@@ -54,6 +54,16 @@ ZDB-03B is defined as a separate [120-case synthetic Preference signal screen](t
 
 ZDB-03B1 has a [12-profile pack and 120-target pack](../../research/zen-decision-bench/results/ZDB-03B1-PROFILE-TARGET-CONSTRUCTION-RESULT.md). **OWNER RE-REVIEW PASSED** at `020b2270464a2c6b7cf98c886d3f5293e2e41b65`; both pack hashes are **FROZEN FOR ZDB-03B2 INPUT**. Merge of PR #302 activates only ZDB-03B2 deterministic assignment + History Pool + separate Owner Adjudication construction. Same-case Generative baseline/provider execution (B3) and Preference comparison (B4) remain NOT ACTIVE.
 
+## ZDB-03 Owner research disposition
+
+[Owner research disposition](tasks/ZDB-03-OWNER-RESEARCH-DISPOSITION.md): **RESEARCH CHECKPOINT COMPLETE — PAUSED / NO FURTHER COMPARATIVE EXECUTION AUTHORIZED**.
+
+ZDB-03B is complete and frozen at `INCONCLUSIVE_LOW_DELTA`: 7 Preference-caused changes, 6 beneficial / 0 harmful / 1 other, raw net +6, with all hard gates passing. The result is not upgraded to a directional-signal claim because the pre-registered minimum of 10 changed decisions was not reached. The frozen screen exposed only 10 actionable supported/correction-backed Preference recommendations; three were superseded by higher current authority, leaving seven Preference-caused final changes. Gate A therefore remains inconclusive, and Gate D has no observed conflicting-case denominator.
+
+The **>=300 Stage-B comparative corpus remains NOT ACTIVE**. No threshold, History, finite-choice, corpus, baseline, resolver or evaluator tuning is authorized to increase exposure. Any future Preference study requires a new separately pre-registered Owner activation.
+
+Research issue #283 is non-blocking for the product track. PM-02 is **NOT ACTIVE but eligible for separate Owner planning/activation review**. PM-02 remains bounded to Automation Intent / Trigger / Policy architecture and may not introduce Preference Memory production authority, System One/Laya/Jev runtime integration, hidden personalization or autonomous mutation authority.
+
 ## Release, schema and platform truth
 
 - W6-10A result: [Release Candidate Freeze — Result](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md).
