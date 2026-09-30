@@ -11,7 +11,10 @@ import {
   resolvePerformanceSuite,
 } from "./performanceManifest.mjs";
 import { resolvePerformanceProfile } from "./performanceProfile.mjs";
-import { createPerformanceFixtureIdentity } from "./performanceFixtureIdentity.mjs";
+import {
+  createPerformanceFixtureIdentity,
+  PERFORMANCE_FIXTURE_SCHEMA_VERSION,
+} from "./performanceFixtureIdentity.mjs";
 import { createPerformanceBuildIdentity } from "./performanceBuildIdentity.mjs";
 import {
   manifestTargetPath,
@@ -168,7 +171,7 @@ function main(argv) {
       expectedProfile: profile,
       expectedFixtureIdentity: fixtureIdentity,
       expectedFixtureType: "file-library-sqlite-working-copies",
-      expectedSchemaVersion: 35,
+      expectedSchemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
       expectedFixtureFormatVersion: 1,
       expectedCacheScope: "fixture-cache",
       requiredFiles: requiredFixtures,
