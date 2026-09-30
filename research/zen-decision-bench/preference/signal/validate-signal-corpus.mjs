@@ -76,7 +76,7 @@ export async function validateSavedCorpus() {
   requirePass(manifest.canonical_sha256 === sha256(cases) && manifest.file_sha256 === fileHash(bytes), "manifest_hash");
   for (const [key, value] of Object.entries(summary)) requirePass(same(manifest[key], value), `manifest:${key}`);
   requirePass(manifest.count === 120 && manifest.schema_identity === "zdb.case.v1" && manifest.assembly_identity === ASSEMBLY_ID &&
-    manifest.choice_order_identity === CHOICE_ORDER_ID && manifest.research_only === true && manifest.status === "CANDIDATE — OWNER CORPUS FREEZE REQUIRED BEFORE B3", "manifest_state");
+    manifest.choice_order_identity === CHOICE_ORDER_ID && manifest.research_only === true && manifest.status === "FROZEN — OWNER REVIEW PASSED / AUTHORIZED FOR ZDB-03B3 INPUT" &&\n    manifest.owner_freeze?.accepted_content_head === "f1aa255d17f7b6f4749631096332549a5b7fd58b" && manifest.owner_freeze?.corpus_git_blob === "0e483df2063acbc07ee599e3caa379f4a6f404bf", "manifest_state");
   requirePass(same(manifest.input_canonical_sha256, Object.fromEntries(Object.entries(FROZEN_INPUTS).map(([name, hashes]) => [name, hashes[0]]))) &&
     same(manifest.input_file_sha256, Object.fromEntries(Object.entries(FROZEN_INPUTS).map(([name, hashes]) => [name, hashes[1]]))), "manifest_inputs");
   return { ...summary, canonical_sha256: manifest.canonical_sha256, file_sha256: manifest.file_sha256 };
