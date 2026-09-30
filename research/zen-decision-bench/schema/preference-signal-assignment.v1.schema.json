@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zen-canvas.local/research/zdb/preference-signal-assignment.v1.schema.json",
+  "title": "Research-only deterministic profile assignment",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "case_id", "rank_key", "rank_index", "profile_id"],
+  "properties": {
+    "schema_version": { "const": "zdb.preference_signal_assignment.v1" },
+    "case_id": { "type": "string", "pattern": "^zdb03b-target-(00[1-9]|0[1-9][0-9]|1[01][0-9]|120)$" },
+    "rank_key": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "rank_index": { "type": "integer", "minimum": 0, "maximum": 119 },
+    "profile_id": { "type": "string", "pattern": "^profile-(0[1-9]|1[0-2])$" }
+  }
+}

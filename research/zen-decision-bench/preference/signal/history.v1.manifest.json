@@ -1,0 +1,15 @@
+{
+  "schema_version": "zdb.preference_signal_history_manifest.v1",
+  "schema_identity": "zdb.preference_signal_history_episode.v1",
+  "profile_pack_hash": "371519fe7c9f28d3c686e0299c223d64a57b00571777cab498668667498137b1",
+  "generator_identity": "zdb-03b2a-profile-only-history-v1",
+  "episodes_per_profile": 24,
+  "structural_validation": "PASS",
+  "status": "FROZEN PRE-ADJUDICATION — OWNER CONTENT BLIND",
+  "owner_state": "HASH FROZEN — OWNER HAS NOT INSPECTED HISTORY CONTENT",
+  "artifact_file": "history.v1.jsonl",
+  "count": 288,
+  "canonical_sha256": "c2be8a2949c0daef12fe821010b72ca84ef999deb941a6f8bd0505dc8a7e2f44",
+  "file_sha256": "a463442fcc837bbbfa542a9423b1370cef655c12ffa14e2e3cd3a67d57c6b6af",
+  "research_only": true
+}
