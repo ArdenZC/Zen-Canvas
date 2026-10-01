@@ -11,14 +11,14 @@ use windows_sys::Win32::{
 
 pub(crate) struct AutomationResumeWake {
     handle: isize,
-    context: Option<Box<Arc<AutomationWake>>>,
+    context: Option<Arc<AutomationWake>>,
 }
 impl AutomationResumeWake {
     pub(crate) fn start(wake: Arc<AutomationWake>) -> Result<Self, String> {
-        let context = Box::new(wake);
+        let context = wake;
         let parameters = DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
             Callback: Some(receive),
-            Context: (&*context as *const Arc<AutomationWake>).cast_mut().cast(),
+            Context: Arc::as_ptr(&context).cast_mut().cast(),
         };
         let mut handle = std::ptr::null_mut();
         let status = unsafe {
@@ -46,7 +46,7 @@ unsafe extern "system" fn receive(
     event: u32,
     _setting: *const core::ffi::c_void,
 ) -> u32 {
-    let wake = unsafe { &*context.cast::<Arc<AutomationWake>>() };
+    let wake = unsafe { &*context.cast::<AutomationWake>() };
     match event {
         PBT_APMSUSPEND => wake.set_paused(true),
         PBT_APMRESUMEAUTOMATIC => {
@@ -64,7 +64,7 @@ impl Drop for AutomationResumeWake {
             // A failed unregister may leave the OS callback live. Preserve its
             // context rather than free memory still reachable by native code.
             if let Some(context) = self.context.take() {
-                let _ = Box::leak(context);
+                std::mem::forget(context);
             }
         }
     }
