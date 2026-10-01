@@ -3248,6 +3248,14 @@ fn scan_root_display_name(path: &str) -> String {
         .to_string()
 }
 
+fn bump_root_change_revision(conn: &Connection, root_id: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE scan_roots SET library_change_revision=library_change_revision+1 WHERE id=?1",
+        [root_id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5097,12 +5105,4 @@ mod tests {
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));
     }
-}
-
-fn bump_root_change_revision(conn: &Connection, root_id: &str) -> Result<(), DbError> {
-    conn.execute(
-        "UPDATE scan_roots SET library_change_revision=library_change_revision+1 WHERE id=?1",
-        [root_id],
-    )?;
-    Ok(())
 }
