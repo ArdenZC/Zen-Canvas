@@ -120,14 +120,16 @@ Production adoption of System One or Preference Memory requires later benchmark 
 
 PM-01 is complete.
 
-PM-02A activation baseline:
+PM-02A is **COMPLETE / MERGED / OWNER REVIEW PASSED** through PR #313 at `master@195e3b18b4bfa718276829f9ed35414714689a7f`; merge-after master CI `36821813846` is **SUCCESS**.
 
-`master@b698228e94a1857e0610cccb2364e1027f6b1b0d` / merged activation PR #312
+Current PM-02B activation baseline:
 
-Activation taskbook:
+`master@5a4b67e1f0d2d5b3d6bd26c1d19df16a992fea98`
 
-`docs/project/tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md`
+Current activation taskbook:
 
-Owner activation review passed and PR #312 merged. PM-02A implementation PR #313 is **COMPLETE / MERGED** at `master@195e3b18b4bfa718276829f9ed35414714689a7f`; final closeout CI `36820155950` and merge-after master CI `36821813846` are **SUCCESS**. PM-02B/PM-03 activation remains unauthorized.
+`docs/project/tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md`
 
-Completion of PM-02A does not itself activate the next slice. PM-02B now has a dedicated activation definition under Owner review; implementation remains inactive until that activation merges. PM-03, Preference Memory production, System One and Laya/Jev remain separately gated.
+PM-02B activation is **OWNER REVIEW PENDING / SPECIFICATION ONLY**. Production implementation remains **NOT ACTIVE** until the dedicated activation PR passes Owner review and merges.
+
+Merge of that activation may authorize only PM-02B Event / Schedule Trigger implementation. PM-03, Cleanup automation, startup-as-a-user-trigger, Preference Memory production, System One, Laya/Jev, general agents and autonomous filesystem mutation remain separately gated.
