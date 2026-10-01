@@ -4,8 +4,8 @@ Last verified: 2026-10-01
 
 ## Current execution truth
 
-- PM-02A activation baseline remains `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` from merged PR #312. Latest merged production-code baseline is `master@960092844ca495ad01198c250c4b0e130881444b` from repair PR #314; merge-after CI [36768107546](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36768107546) is **SUCCESS**. PM-02A PR #313 remains Draft on `product/pm-02a-automation-intent-foundation`; its post-repair implementation source head before native evidence was `8763c8735ab96cf0975d9c293aacef270f950f26`, with exact-head CI [36768343962](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36768343962) **SUCCESS**. The later source `1c8b2a1a14540062871317ca4cf5e993652636c7` / tree `8ce5da2c284a1a1aae3fffd131fe26a97ad2e8f6` received exact-head CI [36776476275](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36776476275) **SUCCESS**. Windows native + restart acceptance is now **PASS**. Run 36776476275 remains bound to its stated source SHA; final exact-head CI for the evidence commit is tracked on PR #313. See the [final native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md).
-- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 is COMPLETE / MERGED / Owner Review PASS. PM-02A Automation Intent Foundation OWNER FINAL REVIEW PASSED; Windows native + restart acceptance is PASS / OWNER ACCEPTED. PR #313 is READY TO MERGE after final documentation-closeout exact-head CI. PM-02B and PM-03 remain NOT ACTIVE.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
+- PM-02A activation baseline is `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` from merged PR #312. PM-02A implementation PR #313 is **COMPLETE / MERGED / OWNER REVIEW PASSED** at `master@195e3b18b4bfa718276829f9ed35414714689a7f`. Final PR closeout CI [36820155950](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36820155950) is **SUCCESS**; merge-after master CI [36821813846](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36821813846) is **SUCCESS**. Windows native + exact-binary restart acceptance is **PASS / OWNER ACCEPTED**. Database schema is now **36**. PM-02B and PM-03 remain **NOT ACTIVE**.
+- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 is COMPLETE / MERGED / Owner Review PASS. PM-02A Automation Intent Foundation is COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; Windows native + restart acceptance is PASS / OWNER ACCEPTED. PM-02B and PM-03 remain NOT ACTIVE.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
 - PM-01 is **COMPLETE / MERGED — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**. The final product/evidence disposition is recorded in the PM-01 Result; schema remains 35.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -29,7 +29,7 @@ Last verified: 2026-10-01
 
 **AI-only Product Migration**
 
-Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 remains OPEN; PM-02A OWNER FINAL REVIEW PASSED, Windows native + restart acceptance OWNER ACCEPTED, PR #313 READY TO MERGE after final closeout CI. PM-02B and PM-03 remain NOT ACTIVE. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
+Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; #273 remains OPEN; PM-02B and PM-03 remain NOT ACTIVE. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Taskbook: [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md). Deep-audit closure: [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Current branch: `product/pm-02a-automation-intent-foundation`. PM-02A activation baseline: `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` / PR #312. Implementation source head before native evidence: `8763c8735ab96cf0975d9c293aacef270f950f26` / Draft PR #313. The current branch successor is documentation-only native qualification evidence. [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md); [Windows native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md).
 
@@ -46,7 +46,7 @@ Immediate implementation boundaries:
 - preserve Operation Preview, confirmation, Safe Trash, journal and Restore authority;
 - PM-02A adds manual Intent-to-Plan orchestration only; PM-02B, PM-03, System One/Laya/Jev production runtime and Preference Memory persistence remain inactive.
 
-Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; ZDB-02 baseline/remediation is COMPLETE/ACCEPTED; ZDB-03B is COMPLETE/MERGED and frozen at `INCONCLUSIVE_LOW_DELTA`; the Owner research disposition pauses >=300 comparative execution. PM-02A activation PR #312 has merged; the bounded implementation is OWNER REVIEW PENDING. #270 remains separate. Release publication remains deferred.
+Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; ZDB-02 baseline/remediation is COMPLETE/ACCEPTED; ZDB-03B is COMPLETE/MERGED and frozen at `INCONCLUSIVE_LOW_DELTA`; the Owner research disposition pauses >=300 comparative execution. PM-02A is COMPLETE / MERGED through PR #313 with Owner Review PASS and merge-after CI SUCCESS. PM-02B remains separately gated. #270 remains separate. Release publication remains deferred.
 
 ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](../../research/zen-decision-bench/results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md). PR #300 is **MERGED** as `master@b92fe40a18b38b60febe5618caf72ba3e988bcdb`; merge-after CI 36564738415 is **SUCCESS**. ZDB-03A is **COMPLETE / MERGED / OWNER REVIEW PASSED — CONFORMANCE ONLY**. Its 60-case JSONL must never become ZDB-03B signal/effectiveness evidence.
 
@@ -66,7 +66,7 @@ Research issue #283 is non-blocking for the product track. PM-02A is separately 
 
 ## PM-02A Automation Intent Foundation activation
 
-[PM-02A activation taskbook](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md): **ACTIVATION PR #312 MERGED — PM-02A OWNER FINAL REVIEW PASSED / PR #313 READY TO MERGE AFTER FINAL CLOSEOUT CI**.
+[PM-02A activation taskbook](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md): **PM-02A COMPLETE / MERGED through PR #313 — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**.
 
 PM-02A is intentionally narrower than full Automation:
 
@@ -82,7 +82,7 @@ PM-02A explicitly does **not** authorize scheduled/watcher Automation Intent exe
 
 Existing Rule Repository V2 remains intact as advanced Policy/Signal compatibility authority. Existing watcher-driven Rule evaluation remains Rule behavior and must not be relabeled as an Automation Intent trigger.
 
-Owner activation review passed and PR #312 merged. PR #313 contains the bounded implementation and has **OWNER FINAL REVIEW PASSED**. The [Windows native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md) records **Windows native + restart acceptance PASS / OWNER ACCEPTED**. Final evidence head `fb00c4e1029e54743902efc7c2f6765641cc593e` completed GitHub Actions run `36816026415`; attempt 1 had one unrelated macOS PDF CMap timeout and Owner-authorized attempt 2 succeeded on the same exact HEAD with no source/test change. PR #313 is ready to merge only after the documentation-closeout HEAD receives fresh exact-head CI success.
+Owner activation review passed and PR #312 merged. PR #313 is **COMPLETE / MERGED** at `master@195e3b18b4bfa718276829f9ed35414714689a7f`. The [Windows native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md) records **Windows native + restart acceptance PASS / OWNER ACCEPTED**. Final evidence head `fb00c4e1029e54743902efc7c2f6765641cc593e` completed GitHub Actions run `36816026415`; attempt 1 had one unrelated macOS PDF CMap timeout and Owner-authorized attempt 2 succeeded on the same exact HEAD with no source/test change. Final documentation-closeout PR head `701a22d7c31ea336b34b1e110d893e590f32cecd` passed CI `36820155950`; merge-after master CI `36821813846` is **SUCCESS**.
 
 
 ## Release, schema and platform truth
