@@ -4,8 +4,8 @@ Last verified: 2026-10-01
 
 ## Current execution truth
 
-- PM-02A activation baseline is `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` from merged PR #312. PM-02A implementation PR #313 is **COMPLETE / MERGED / OWNER REVIEW PASSED** at `master@195e3b18b4bfa718276829f9ed35414714689a7f`. Final PR closeout CI [36820155950](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36820155950) is **SUCCESS**; merge-after master CI [36821813846](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36821813846) is **SUCCESS**. Windows native + exact-binary restart acceptance is **PASS / OWNER ACCEPTED**. Database schema is now **36**. PM-02B and PM-03 remain **NOT ACTIVE**.
-- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 and PM-02A are COMPLETE / MERGED / Owner Review PASS. PM-02B Event / Schedule Trigger Owner activation review has PASSED; implementation activates only when the dedicated activation PR merges. PM-03 remains NOT ACTIVE.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
+- PM-02A activation baseline is `master@b698228e94a1857e0610cccb2364e1027f6b1b0d` from merged PR #312. PM-02A implementation PR #313 is **COMPLETE / MERGED / OWNER REVIEW PASSED** at `master@195e3b18b4bfa718276829f9ed35414714689a7f`. Final PR closeout CI [36820155950](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36820155950) is **SUCCESS**; merge-after master CI [36821813846](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36821813846) is **SUCCESS**. Windows native + exact-binary restart acceptance is **PASS / OWNER ACCEPTED**. Merged database schema remains **36**. PM-02B implementation is active from merged activation PR #316; its Schema 37 implementation is **OWNER REVIEW PENDING**. PM-03 remains **NOT ACTIVE**.
+- Current engineering initiative: **AI-only Product Migration (#273) remains open. PM-01 and PM-02A are COMPLETE / MERGED / Owner Review PASS. PM-02B activation PR #316 is merged; Event / Schedule Trigger implementation is **OWNER REVIEW PENDING**. PM-03 remains NOT ACTIVE.** ZDB-03 research is COMPLETE through the bounded 120-case screen and PAUSED at `INCONCLUSIVE_LOW_DELTA`; >=300 comparative work remains inactive.
 - PM-01 is **COMPLETE / MERGED — OWNER REVIEW PASSED — MERGE-AFTER MASTER CI SUCCESS**. The final product/evidence disposition is recorded in the PM-01 Result; schema remains 35.
 - Release truth remains separate and unchanged: W6-10A / RC1 is frozen; W6-10B remains **BLOCKED** on valid SmartScreen/UAC evidence; W6-10C remains **DEFERRED / UNVERIFIED** without a supported Apple Silicon host; full supported-platform release PASS is **NOT CLAIMED**; publication remains **DEFERRED**.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -29,9 +29,9 @@ Last verified: 2026-10-01
 
 **AI-only Product Migration**
 
-Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; #273 remains OPEN; PM-02B OWNER ACTIVATION REVIEW PASSED / IMPLEMENTATION NOT ACTIVE UNTIL ACTIVATION MERGE; PM-03 remains NOT ACTIVE. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
+Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; #273 remains OPEN; PM-02B ACTIVATION MERGED / IMPLEMENTATION OWNER REVIEW PENDING; PM-03 remains NOT ACTIVE. ZDB-03 research checkpoint is PAUSED at INCONCLUSIVE_LOW_DELTA.**
 
-Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Current activation branch: `product/pm-02b-trigger-foundation-activation`. PM-02B activation baseline: `master@5a4b67e1f0d2d5b3d6bd26c1d19df16a992fea98`. Current taskbook: [PM-02B Event / Schedule Trigger Activation](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md). Accepted predecessor: [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md), merged through PR #313; [Windows native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md). PM-01 historical authority remains [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md) and [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
+Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md). Issue: [#273](https://github.com/ArdenZC/Zen-Canvas/issues/273). Current implementation branch: `product/pm-02b-event-schedule-triggers`. Merged activation PR #316 / exact implementation base: `master@91589a89974324e821b4963b062c3070949252a8`. Current taskbook: [PM-02B Event / Schedule Trigger Activation](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md). Accepted predecessor: [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md), merged through PR #313; [Windows native qualification record](tasks/evidence/PM-02A/windows-native-qualification.md). PM-01 historical authority remains [PM-01 Core Experience Activation](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md) and [PM-01 Deep-Audit Closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
 Result: [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Final reviewed PR head `3d91c6689bb62d10eddf343419f00c4abaea9fee` passed CI [36439052294](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36439052294); PR #287 squash-merged as `master@ee3347dbc9963067851378da2acd0fd0d85d114c`; merge-after master CI [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) is **SUCCESS**. Owner Review passed after direct diff, CI, manifest and 12-screenshot evidence inspection.
 
@@ -44,9 +44,9 @@ Immediate implementation boundaries:
 - consume backend readiness from #279/#285; frontend readiness remains presentation;
 - correct active semantic explanation, Cleanup trace operation, onboarding and Rules/Preference product copy;
 - preserve Operation Preview, confirmation, Safe Trash, journal and Restore authority;
-- PM-02A adds manual Intent-to-Plan orchestration only; PM-02B, PM-03, System One/Laya/Jev production runtime and Preference Memory persistence remain inactive.
+- PM-02A adds manual Intent-to-Plan orchestration; PM-02B adds review-only schedule/event preparation under Owner review. PM-03, System One/Laya/Jev production runtime and Preference Memory persistence remain inactive.
 
-Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; ZDB-02 baseline/remediation is COMPLETE/ACCEPTED; ZDB-03B is COMPLETE/MERGED and frozen at `INCONCLUSIVE_LOW_DELTA`; the Owner research disposition pauses >=300 comparative execution. PM-02A is COMPLETE / MERGED through PR #313 with Owner Review PASS and merge-after CI SUCCESS. PM-02B remains separately gated. #270 remains separate. Release publication remains deferred.
+Research issue #283 remains separate/non-blocking from production. ZDB-01 is COMPLETE/FROZEN; ZDB-02 baseline/remediation is COMPLETE/ACCEPTED; ZDB-03B is COMPLETE/MERGED and frozen at `INCONCLUSIVE_LOW_DELTA`; the Owner research disposition pauses >=300 comparative execution. PM-02A is COMPLETE / MERGED through PR #313 with Owner Review PASS and merge-after CI SUCCESS. PM-02B implementation remains Owner review pending. #270 remains separate. Release publication remains deferred.
 
 ZDB-03A has a [deterministic offline resolver and 60-case conformance fixture](../../research/zen-decision-bench/results/ZDB-03A-OFFLINE-PREFERENCE-PROTOTYPE-RESULT.md). PR #300 is **MERGED** as `master@b92fe40a18b38b60febe5618caf72ba3e988bcdb`; merge-after CI 36564738415 is **SUCCESS**. ZDB-03A is **COMPLETE / MERGED / OWNER REVIEW PASSED — CONFORMANCE ONLY**. Its 60-case JSONL must never become ZDB-03B signal/effectiveness evidence.
 
@@ -62,7 +62,7 @@ ZDB-03B is complete and frozen at `INCONCLUSIVE_LOW_DELTA`: 7 Preference-caused 
 
 The **>=300 Stage-B comparative corpus remains NOT ACTIVE**. No threshold, History, finite-choice, corpus, baseline, resolver or evaluator tuning is authorized to increase exposure. Any future Preference study requires a new separately pre-registered Owner activation.
 
-Research issue #283 is non-blocking for the product track. PM-02A is **COMPLETE / MERGED** through PR #313 with Owner Review PASS and merge-after CI SUCCESS. PM-02B has a dedicated Event / Schedule Trigger activation taskbook under Owner review; implementation remains **NOT ACTIVE** until that activation merges. PM-03 remains **NOT ACTIVE**. PM-02 remains bounded to Automation Intent / Trigger / Policy architecture and may not introduce Preference Memory production authority, System One/Laya/Jev runtime integration, hidden personalization or autonomous mutation authority.
+Research issue #283 is non-blocking for the product track. PM-02A is **COMPLETE / MERGED** through PR #313 with Owner Review PASS and merge-after CI SUCCESS. PM-02B activation is merged through PR #316; its implementation is **OWNER REVIEW PENDING**. PM-03 remains **NOT ACTIVE**. PM-02 remains bounded to Automation Intent / Trigger / Policy architecture and may not introduce Preference Memory production authority, System One/Laya/Jev runtime integration, hidden personalization or autonomous mutation authority.
 
 ## PM-02A Automation Intent Foundation activation
 
@@ -103,14 +103,14 @@ Frozen first-slice direction:
 - automatic Runs suppress duplicate plan creation while an earlier Plan still requires review;
 - PM-03, Cleanup automation, autonomous mutation, Preference Memory production, System One and Laya/Jev remain gated.
 
-Owner activation review has passed. Implementation remains **NOT ACTIVE** until the PM-02B activation PR merges.
+Activation PR #316 is merged at the exact implementation base `91589a89974324e821b4963b062c3070949252a8`. Implementation is **OWNER REVIEW PENDING**; native Windows acceptance remains pending. See [PM-02B result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md) and [Schema 37 contract](SCHEMA_37_AUTOMATION_TRIGGERS.md). PM-03 remains **NOT ACTIVE**.
 
 ## Release, schema and platform truth
 
 - W6-10A result: [Release Candidate Freeze — Result](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md).
 - Package version: `0.1.40`.
 - W6-10A RC1: **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION** at source `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`; Full Validation `35702434460` and Release Build `35704683429` are **SUCCESS**. PR #246 is **MERGED** and merge-after CI [35709481851](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35709481851) is **SUCCESS**.
-- Database schema: merged baseline **`36`** after PM-02A. PM-02B activation proposes exactly **Schema 37** for Trigger V2/recovery state only; Schema 37 is not active until PM-02B implementation is separately completed and merged. Package version remains `0.1.40`.
+- Database schema: merged baseline **`36`** after PM-02A. This PM-02B implementation proposes exactly **Schema 37** for Trigger V2, bounded publication/recovery state and sanitized Run context; production Schema 37 activates only after implementation review and merge. Package version remains `0.1.40`.
 - Public publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED / DO NOT PUBLISH**.
 - No published GitHub release or tag.
 - Supported product targets: Windows and macOS 13 or later on Apple Silicon.

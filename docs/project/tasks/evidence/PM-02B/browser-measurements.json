@@ -1,0 +1,51 @@
+{
+  "evidenceBoundary": "Browser mock presentation; not native or provider acceptance",
+  "results": [
+    {
+      "name": "desktop-blocked",
+      "width": 1440,
+      "height": 960,
+      "language": "en",
+      "query": "",
+      "trigger": "schedule",
+      "pass": true,
+      "expected": "Needs attention",
+      "horizontalOverflow": false,
+      "planHandoff": true,
+      "advancedRules": true,
+      "focusRestored": true
+    },
+    {
+      "name": "narrow-pending",
+      "width": 760,
+      "height": 900,
+      "language": "en",
+      "query": "pm02a-analysis=queued",
+      "trigger": "managed_scope_change",
+      "pass": true,
+      "expected": "Analysis requested",
+      "horizontalOverflow": false,
+      "planHandoff": true,
+      "advancedRules": true,
+      "focusRestored": true
+    },
+    {
+      "name": "desktop-current-zh",
+      "width": 1440,
+      "height": 960,
+      "language": "zh",
+      "query": "pm01-organize=ready",
+      "trigger": "schedule",
+      "pass": true,
+      "expected": "计划已生成",
+      "horizontalOverflow": false,
+      "planHandoff": true,
+      "advancedRules": true,
+      "focusRestored": true
+    }
+  ],
+  "pageErrors": [],
+  "browserAvailability": "Browser plugin not available; existing Playwright used",
+  "pageIdentity": "http://127.0.0.1:5173/",
+  "noFrameworkOverlay": true
+}

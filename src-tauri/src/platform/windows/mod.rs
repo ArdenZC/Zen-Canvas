@@ -2,3 +2,5 @@
 
 pub mod power;
 pub mod qos;
+
+pub(crate) mod automation_resume;

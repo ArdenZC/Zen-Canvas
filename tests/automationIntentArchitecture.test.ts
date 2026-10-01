@@ -23,7 +23,7 @@ describe("manual Automation has no execution or idle authority", () => {
     expect(production).not.toMatch(/std::(?:fs|process|thread)|tokio::|execute_organization_plan|get_organization_plan_dry_run|update_organization_plan_decision|executeMoves|execute_cleanup|Command::new|\.spawn\(|interval\(/);
     const service = read("src-tauri/src/db/automation/service.rs");
     const databaseCalls = [...service.matchAll(/self\s*\.\s*([a-z_]+)\s*\(/g)].map((match) => match[1]);
-    expect(new Set(databaseCalls)).toEqual(new Set(["conn", "admit_automation_analysis", "get_organization_plan", "list_managed_scopes", "analyze_organization_plan_items"]));
+    expect(new Set(databaseCalls)).toEqual(new Set(["conn", "run_automation_intent", "admit_automation_analysis", "get_organization_plan", "list_managed_scopes", "analyze_organization_plan_items"]));
     expect(service).toContain("LibrarySelectionV1::AllMatching");
     expect(service).toContain("request_id: run.id.clone()");
     expect(service).toContain("eligible.chunks(100)");

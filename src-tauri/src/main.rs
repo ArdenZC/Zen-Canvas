@@ -5,7 +5,7 @@
 
 use std::io;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
     dedupe::DedupeJobManager,
@@ -225,6 +225,12 @@ fn main() {
             }
             qualification_startup_checkpoint("watcher_setup_complete");
 
+            let automation_app = app.handle().clone();
+            let automation = zen_canvas_tauri::db::AutomationTriggerCoordinator::start(
+                db.clone(),
+                move || { let _ = automation_app.emit("automation-updated", ()); },
+            ).map_err(io::Error::other)?;
+            app.manage(automation);
             let lifecycle_coordinator = global_index_coordinator.clone();
             let lifecycle_app = app.handle().clone();
             let lifecycle_db = db.clone();
@@ -242,6 +248,9 @@ fn main() {
                                 Ok(())
                             }
                             MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
+                                app_handle
+                                    .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                                    .pause();
                                 lifecycle_coordinator
                                     .pause()
                                     .map_err(|error| error.to_string())?;
@@ -305,7 +314,11 @@ fn main() {
                                 .map_err(|error| error.to_string())?;
                                 lifecycle_coordinator
                                     .resume()
-                                    .map_err(|error| error.to_string())
+                                    .map_err(|error| error.to_string())?;
+                                app_handle
+                                    .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                                    .resume();
+                                Ok(())
                             }
                         }
                     },
@@ -559,6 +572,11 @@ fn main() {
                         code,
                         || api.prevent_exit(),
                         || {
+                            if let Some(automation) = app.try_state::<
+                                zen_canvas_tauri::db::AutomationTriggerCoordinator,
+                            >() {
+                                automation.shutdown();
+                            }
                             if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
                                 if let Err(error) = coordinator.shutdown() {
                                     eprintln!("Global index shutdown failed (non-fatal): {error}");

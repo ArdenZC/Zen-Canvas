@@ -310,6 +310,7 @@ impl Database {
                 }
                 let admission = load_admission_tx(&tx, &session_id, false)?;
                 tx.commit()?;
+                self.wake_automation_triggers();
                 return Ok(admission);
             }
         }
@@ -468,6 +469,7 @@ impl Database {
 
         let admission = load_admission_tx(&tx, &session_id, true)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(admission)
     }
 
@@ -762,6 +764,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(())
     }
 
@@ -809,6 +812,7 @@ impl Database {
         )?;
         if changed == 0 {
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(None);
         }
         // A new watcher revision makes the previously published global
@@ -824,6 +828,7 @@ impl Database {
             },
         )?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(Some(result))
     }
 
@@ -863,6 +868,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -899,6 +905,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -934,6 +941,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -974,6 +982,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -1040,20 +1049,26 @@ impl Database {
             }
         }
 
-        upsert_file_rows_tx(&tx, &files, observed_at)?;
+        let mut filesystem_changed = upsert_file_rows_tx(&tx, &files, observed_at)?;
         for path in &stale_paths {
             for candidate in path_lookup_candidates(path, path) {
-                tx.execute(
+                filesystem_changed |= tx.execute(
                     "UPDATE files SET is_stale = 1 WHERE is_stale = 0 AND (id = ?1 OR path = ?1)",
                     params![candidate],
-                )?;
+                )? > 0;
             }
         }
         invalidate_stale_files_in_transaction(&tx)?;
         if !files.is_empty() || !stale_paths.is_empty() {
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
+        if filesystem_changed {
+            bump_root_change_revision(&tx, root_id)?;
+        }
         tx.commit()?;
+        if filesystem_changed {
+            self.wake_automation_triggers();
+        }
         Ok(WatcherMutationResult {
             upserted_paths,
             reconciliation_required,
@@ -1155,6 +1170,7 @@ impl Database {
 
         let claimed = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(claimed)
     }
 
@@ -1179,7 +1195,7 @@ impl Database {
         )?;
 
         let observed_at = current_unix_seconds();
-        upsert_scan_files_tx(&tx, run_id, batch.entries, observed_at)?;
+        let filesystem_changed = upsert_scan_files_tx(&tx, run_id, batch.entries, observed_at)?;
         insert_scan_errors_tx(&tx, run_id, batch.errors, observed_at)?;
 
         let metadata_errors = batch
@@ -1274,8 +1290,14 @@ impl Database {
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
 
+        if filesystem_changed {
+            bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
+        }
         let updated = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
+        if filesystem_changed {
+            self.wake_automation_triggers();
+        }
         Ok(updated)
     }
 
@@ -1357,6 +1379,7 @@ impl Database {
         };
         let now = current_unix_seconds();
         if changed > 0 {
+            bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
             invalidate_stale_files_in_transaction(&tx)?;
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
@@ -1404,6 +1427,7 @@ impl Database {
         let updated = load_scan_run_record(&tx, run_id)?;
         let _ = changed;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(updated)
     }
 
@@ -1569,6 +1593,7 @@ impl Database {
             })?;
             let session = load_session(&tx, session_id)?;
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(ScanFinalization {
                 run: record,
                 dedupe_pending: session.dedupe_dispatch_state == "pending",
@@ -1822,6 +1847,7 @@ impl Database {
         let session = load_session(&tx, session_id)?;
         let dedupe_pending = projection.dedupe_pending;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(ScanFinalization {
             run: updated,
             session,
@@ -1904,6 +1930,7 @@ impl Database {
         let record = load_scan_run_record(&tx, run_id)?;
         if is_terminal_status(&record.dto.status) {
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(record);
         }
         if !record.dto.cancel_requested
@@ -1915,6 +1942,7 @@ impl Database {
             // Once stale reconciliation has committed, cancellation must not
             // turn a run that already changed stale state into a cancelled run.
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(record);
         }
         let session_id =
@@ -1995,6 +2023,7 @@ impl Database {
         let _ = update_session_projection_tx(&tx, session_id, session_revision, now)?;
         let updated = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(updated)
     }
 
@@ -2053,6 +2082,7 @@ impl Database {
             params![now],
         )?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(recovered)
     }
 
@@ -2512,9 +2542,9 @@ fn upsert_file_rows_tx(
     tx: &Transaction<'_>,
     files: &[InsertFileRequest],
     observed_at: i64,
-) -> Result<(), DbError> {
+) -> Result<bool, DbError> {
     if files.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
     let mut statement = tx.prepare(
         r#"
@@ -2551,10 +2581,11 @@ fn upsert_file_rows_tx(
         "#,
     )?;
     let mut invalidations = Vec::new();
+    let mut filesystem_changed = false;
     for file in files {
         let previous = tx
             .query_row(
-                "SELECT path, size, mtime, is_dir, is_stale FROM files WHERE id = ?1",
+                "SELECT path, size, mtime, is_dir, is_stale, ctime, filesystem_observation_key FROM files WHERE id = ?1",
                 params![file.id],
                 |row| {
                     Ok((
@@ -2563,10 +2594,46 @@ fn upsert_file_rows_tx(
                         row.get::<_, i64>(2)?,
                         row.get::<_, i64>(3)?,
                         row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, Option<String>>(6)?,
                     ))
                 },
             )
             .optional()?;
+        // Observe identity only inside the existing filesystem publication
+        // owner. This is read-only and never feeds trigger-state file IDs.
+        let physical =
+            crate::fs_safety::capture_physical_identity(std::path::Path::new(&file.path)).ok();
+        let identity = if file.is_dir || physical.is_some() {
+            // Retain the last filesystem publication independently of metadata
+            // rows later updated by existing user operation owners. Only this
+            // owner can compare/publish the root change clock.
+            let bytes = serde_json::to_vec(&(
+                &file.path,
+                file.size,
+                file.mtime,
+                file.ctime,
+                file.is_dir,
+                physical.map(|identity| (identity.physical_key, identity.modified_ns)),
+            ))?;
+            Some(blake3::hash(&bytes).to_hex().to_string())
+        } else {
+            None
+        };
+        filesystem_changed |= previous.as_ref().is_some_and(|previous| {
+            matches!((&previous.6, &identity), (Some(before), Some(after)) if before != after)
+        });
+        filesystem_changed |=
+            previous
+                .as_ref()
+                .is_none_or(|(path, size, mtime, is_dir, stale, ctime, _identity)| {
+                    path != &file.path
+                        || *size != file.size
+                        || *mtime != file.mtime
+                        || *is_dir != bool_to_i64(file.is_dir)
+                        || *stale != 0
+                        || *ctime != file.ctime
+                });
         statement.execute(params![
             file.id,
             file.path,
@@ -2582,7 +2649,22 @@ fn upsert_file_rows_tx(
             CLASSIFICATION_STATUS_UNCLASSIFIED,
             observed_at,
         ])?;
-        if let Some((old_path, old_size, old_mtime, old_is_dir, old_is_stale)) = previous {
+        if let Some(identity) = identity {
+            tx.execute(
+                "UPDATE files SET filesystem_observation_key=?2 WHERE id=?1 AND filesystem_observation_key IS NOT ?2",
+                params![file.id, identity],
+            )?;
+        }
+        if let Some((
+            old_path,
+            old_size,
+            old_mtime,
+            old_is_dir,
+            old_is_stale,
+            _old_ctime,
+            _old_identity,
+        )) = previous
+        {
             if old_path != file.path
                 || old_size != file.size
                 || old_mtime != file.mtime
@@ -2603,7 +2685,7 @@ fn upsert_file_rows_tx(
     for (file_id, stale_status) in invalidations {
         invalidate_file_in_transaction(tx, &file_id, stale_status)?;
     }
-    Ok(())
+    Ok(filesystem_changed)
 }
 
 fn upsert_scan_files_tx(
@@ -2611,11 +2693,11 @@ fn upsert_scan_files_tx(
     run_id: &str,
     files: &[InsertFileRequest],
     observed_at: i64,
-) -> Result<(), DbError> {
+) -> Result<bool, DbError> {
     if files.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
-    upsert_file_rows_tx(tx, files, observed_at)?;
+    let filesystem_changed = upsert_file_rows_tx(tx, files, observed_at)?;
 
     let mut seen_statement = tx.prepare(
         r#"
@@ -2629,7 +2711,7 @@ fn upsert_scan_files_tx(
     for file in files {
         seen_statement.execute(params![run_id, file.id, file.path, observed_at])?;
     }
-    Ok(())
+    Ok(filesystem_changed)
 }
 
 fn insert_scan_errors_tx(
@@ -3701,6 +3783,61 @@ mod tests {
     }
 
     #[test]
+    fn scanner_publication_clock_ignores_same_filesystem_state_and_counts_size_mtime() {
+        let db = test_db("automation-publication-clock");
+        let root = format!("/tmp/zen-canvas-trigger-scan-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "automation-clock"))
+            .unwrap();
+        let mut claimed = db.claim_queued_scan_run(&admission.runs[0].id).unwrap();
+        let mut entry = InsertFileRequest {
+            id: format!("{root}/file.txt"),
+            path: format!("{root}/file.txt"),
+            name: "file.txt".into(),
+            extension: "txt".into(),
+            size: 4,
+            mtime: 4,
+            ctime: 4,
+            is_dir: false,
+            state_code: 0,
+        };
+        for expected in [1, 1, 2] {
+            if expected == 2 {
+                entry.size = 8;
+                entry.mtime = 5;
+            }
+            claimed = db
+                .persist_scan_batch(
+                    &claimed.dto.id,
+                    claimed.dto.revision,
+                    claimed.root_revision,
+                    claimed.session_revision,
+                    &ScanBatchInput {
+                        entries: std::slice::from_ref(&entry),
+                        errors: &[],
+                        scanned_files: 1,
+                        scanned_directories: 0,
+                        processed_bytes: entry.size,
+                        warnings: 0,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                db.conn()
+                    .unwrap()
+                    .query_row(
+                        "SELECT library_change_revision FROM scan_roots WHERE id=?1",
+                        [&claimed.dto.scan_root_id],
+                        |r| r.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                expected
+            );
+            entry.state_code = 1; // Classification alone is not filesystem truth.
+        }
+    }
+
+    #[test]
     fn successful_metadata_and_scan_seen_commit_together_and_old_worker_cas_is_rejected() {
         let db = test_db("batch-cas");
         let root = format!("/tmp/zen-canvas-scan-batch-{}", new_job_id("root"));
@@ -3746,6 +3883,15 @@ mod tests {
             )
             .expect("scan seen row");
         assert_eq!(seen, 1);
+        assert_eq!(
+            conn.query_row(
+                "SELECT library_change_revision FROM scan_roots WHERE id=?1",
+                [&claimed.dto.scan_root_id],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
         drop(conn);
 
         let late_entry = InsertFileRequest {
@@ -4918,7 +5064,7 @@ mod tests {
             DROP TABLE scan_runs;
             DROP TABLE scan_sessions;
             DROP TABLE scan_roots;
-            PRAGMA user_version = 26;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; PRAGMA user_version = 26;
             "#,
         )
         .expect("downgrade ledger tables for schema 26 fixture");
@@ -4946,9 +5092,17 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 36);
+        assert_eq!(version, 37);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));
     }
+}
+
+fn bump_root_change_revision(conn: &Connection, root_id: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE scan_roots SET library_change_revision=library_change_revision+1 WHERE id=?1",
+        [root_id],
+    )?;
+    Ok(())
 }

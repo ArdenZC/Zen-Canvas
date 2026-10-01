@@ -380,7 +380,7 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
         DROP INDEX idx_library_files_name;
         DROP INDEX idx_library_files_size;
         DROP INDEX idx_library_files_confidence;
-        PRAGMA user_version = 30;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 30;
         "#,
     )
     .expect("create schema 30 file-library fixture");
@@ -405,7 +405,7 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
             |row| row.get(0),
         )
         .expect("read migrated file library indexes");
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
     assert_eq!(file_count, row_count as i64);
     assert_eq!(index_count, 5);
     println!(
@@ -433,7 +433,7 @@ fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
         ALTER TABLE rules DROP COLUMN origin_proposal_id;
         ALTER TABLE rules DROP COLUMN revision;
         ALTER TABLE rules DROP COLUMN ast_version;
-        PRAGMA user_version = 32;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 32;
         PRAGMA wal_checkpoint(TRUNCATE);
         "#,
     )
@@ -473,7 +473,7 @@ fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
         .expect("read catalog revision");
     let size_after = fs::metadata(&path).expect("schema34 size").len();
     let size_delta = size_after.saturating_sub(size_before);
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
     for table in [
         "content_scope_policies",
         "content_runs",

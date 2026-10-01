@@ -1,5 +1,6 @@
 mod automation;
 mod schema_automation;
+mod schema_automation_triggers;
 pub use automation::*;
 mod classification;
 mod commands;

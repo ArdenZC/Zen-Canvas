@@ -16,9 +16,7 @@ pub(super) fn validate_contract(draft: &AutomationIntentDraftV1) -> Result<(), D
     if draft.workflow_kind != "organize_plan" {
         return Err(invalid("automation_workflow_invalid"));
     }
-    if draft.trigger.version != 1 || draft.trigger.kind != "manual" {
-        return Err(invalid("automation_trigger_invalid"));
-    }
+    super::calendar::normalize_trigger(&mut draft.trigger.clone())?;
     if draft.policy.version != 1 || draft.policy.review != "required" || draft.policy.auto_execute {
         return Err(invalid("automation_policy_invalid"));
     }
@@ -53,8 +51,8 @@ pub(super) fn canonical_scope(
     }
     Ok(canonical)
 }
-const INTENT_COLUMNS: &str = "id,revision,title,workflow_kind,scope_query_json,scope_fingerprint,trigger_json,policy_json,enabled,created_at,updated_at,archived_at";
-pub(super) const RUN_COLUMNS: &str = "id,request_key,intent_id,intent_revision,trigger_kind,scope_fingerprint,library_snapshot_revision,status,result_plan_id,queued_analysis_count,requires_plan_refresh,analysis_blocker_code,error_code,created_at,completed_at";
+const INTENT_COLUMNS: &str = "id,revision,title,workflow_kind,scope_query_json,scope_fingerprint,trigger_json,policy_json,enabled,created_at,updated_at,archived_at,(SELECT next_due_at FROM automation_trigger_state WHERE intent_id=automation_intents.id),(SELECT pending_event_due_at FROM automation_trigger_state WHERE intent_id=automation_intents.id),(SELECT last_error_code FROM automation_trigger_state WHERE intent_id=automation_intents.id)";
+pub(super) const RUN_COLUMNS: &str = "id,request_key,intent_id,intent_revision,trigger_kind,scope_fingerprint,library_snapshot_revision,status,result_plan_id,queued_analysis_count,requires_plan_refresh,analysis_blocker_code,error_code,created_at,completed_at,trigger_context_json";
 fn decode<T: serde::de::DeserializeOwned>(row: &Row<'_>, index: usize) -> rusqlite::Result<T> {
     let text: String = row.get(index)?;
     serde_json::from_str(&text).map_err(|e| {
@@ -62,6 +60,8 @@ fn decode<T: serde::de::DeserializeOwned>(row: &Row<'_>, index: usize) -> rusqli
     })
 }
 fn intent_row(row: &Row<'_>) -> rusqlite::Result<AutomationIntentV1> {
+    let trigger: AutomationTriggerV2 = decode(row, 6)?;
+    let automatic = trigger.kind != "manual";
     Ok(AutomationIntentV1 {
         id: row.get(0)?,
         revision: row.get(1)?,
@@ -69,12 +69,17 @@ fn intent_row(row: &Row<'_>) -> rusqlite::Result<AutomationIntentV1> {
         workflow_kind: row.get(3)?,
         scope_query: decode(row, 4)?,
         scope_fingerprint: row.get(5)?,
-        trigger: decode(row, 6)?,
+        trigger,
         policy: decode(row, 7)?,
         enabled: row.get::<_, i64>(8)? != 0,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
         archived_at: row.get(11)?,
+        trigger_state: automatic.then_some(AutomationTriggerStatusV1 {
+            next_due_at: row.get(12)?,
+            pending_event_due_at: row.get(13)?,
+            last_error_code: row.get(14)?,
+        }),
     })
 }
 pub(super) fn run_row(row: &Row<'_>) -> rusqlite::Result<AutomationRunV1> {
@@ -94,6 +99,7 @@ pub(super) fn run_row(row: &Row<'_>) -> rusqlite::Result<AutomationRunV1> {
         error_code: row.get(12)?,
         created_at: row.get(13)?,
         completed_at: row.get(14)?,
+        trigger_context: decode(row, 15)?,
     })
 }
 pub(super) fn load_intent(conn: &Connection, id: &str) -> Result<AutomationIntentV1, DbError> {
@@ -140,8 +146,9 @@ impl Database {
     }
     pub fn create_automation_intent(
         &self,
-        draft: AutomationIntentDraftV1,
+        mut draft: AutomationIntentDraftV1,
     ) -> Result<AutomationIntentV1, DbError> {
+        super::calendar::normalize_trigger(&mut draft.trigger)?;
         validate_contract(&draft)?;
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -149,14 +156,17 @@ impl Database {
         let id = format!("automation-intent-{}", uuid::Uuid::new_v4());
         let now = current_unix_seconds();
         tx.execute("INSERT INTO automation_intents (id,revision,title,workflow_kind,scope_query_json,scope_fingerprint,trigger_json,policy_json,enabled,created_at,updated_at) VALUES (?1,1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",params![id,draft.title.trim(),draft.workflow_kind,json,fingerprint,serde_json::to_string(&draft.trigger)?,serde_json::to_string(&draft.policy)?,i64::from(draft.enabled),now])?;
+        super::trigger_state::rebuild(&tx, &load_intent(&tx, &id)?, now)?;
         let result = load_intent(&tx, &id)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(result)
     }
     pub fn update_automation_intent(
         &self,
-        request: AutomationIntentUpdateV1,
+        mut request: AutomationIntentUpdateV1,
     ) -> Result<AutomationIntentV1, DbError> {
+        super::calendar::normalize_trigger(&mut request.draft.trigger)?;
         validate_contract(&request.draft)?;
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -167,8 +177,14 @@ impl Database {
         let (_, json, fingerprint) = canonical_scope(&tx, request.draft.scope_query.clone())?;
         let draft = request.draft;
         tx.execute("UPDATE automation_intents SET revision=revision+1,title=?2,scope_query_json=?3,scope_fingerprint=?4,trigger_json=?5,policy_json=?6,enabled=?7,updated_at=?8 WHERE id=?1 AND revision=?9",params![request.intent_id,draft.title.trim(),json,fingerprint,serde_json::to_string(&draft.trigger)?,serde_json::to_string(&draft.policy)?,i64::from(draft.enabled),current_unix_seconds(),request.expected_revision])?;
+        super::trigger_state::rebuild(
+            &tx,
+            &load_intent(&tx, &request.intent_id)?,
+            current_unix_seconds(),
+        )?;
         let result = load_intent(&tx, &request.intent_id)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(result)
     }
     pub fn set_automation_intent_enabled(
@@ -198,8 +214,10 @@ impl Database {
         require_revision(&load_intent(&tx, id)?, expected)?;
         let now = current_unix_seconds();
         tx.execute("UPDATE automation_intents SET revision=revision+1,enabled=?2,archived_at=?3,updated_at=?4 WHERE id=?1 AND revision=?5",params![id,i64::from(enabled.unwrap_or(false)),if enabled.is_none(){Some(now)}else{None},now,expected])?;
+        super::trigger_state::rebuild(&tx, &load_intent(&tx, id)?, now)?;
         let result = load_intent(&tx, id)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(result)
     }
 }
