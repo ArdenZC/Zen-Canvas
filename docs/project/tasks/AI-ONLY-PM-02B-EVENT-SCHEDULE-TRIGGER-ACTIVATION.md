@@ -759,11 +759,30 @@ On wake/mount recovery:
 
 ### Windows
 
-Do not introduce a separate periodic power monitor.
+Do not introduce a periodic power monitor.
 
-Existing scheduler/resource-policy behavior and the coordinator's deadline wait remain the first-slice authority.
+The implementation must first prove, with an injected/runtime test and native Windows evidence, whether the selected coordinator deadline-wait primitive returns promptly enough after system resume to re-evaluate an overdue schedule.
 
-After resume/next wake, current wall-clock/durable state is revalidated before delivery.
+If that cannot be proven reliably, PM-02B is explicitly authorized to add one **narrow event-driven Windows suspend/resume adapter** under the existing platform lifecycle boundary.
+
+That adapter may only:
+
+- observe native suspend/resume notification;
+- wake the Automation Trigger Coordinator;
+- notify existing WorkScheduler resource-policy reevaluation where appropriate.
+
+It must own:
+
+- no durable state;
+- no queue;
+- no recurrence math;
+- no Automation decision;
+- no polling timer;
+- no separate worker pool.
+
+It is not a second scheduler or power monitor.
+
+After resume, current wall-clock and durable trigger state are revalidated before delivery.
 
 ---
 
@@ -985,6 +1004,7 @@ Mandatory:
 - foreground/interactive work remains prioritized by existing scheduler;
 - coordinator shutdown joins;
 - sleep/wake recovery does not duplicate delivery;
+- Windows overdue-schedule recovery after real/fake resume is proven; if a native resume adapter is required, it is event-driven and has no poll/durable authority;
 - background launch does not open main window.
 
 ---
@@ -1148,6 +1168,7 @@ STOP and return to Owner if implementation appears to require:
 - another scheduler/resource governor;
 - a periodic polling loop;
 - an OS service/daemon/task scheduler;
+- a broad Windows power-monitor subsystem beyond the narrowly authorized event-driven resume wake seam;
 - automatic filesystem execution;
 - startup-trigger user behavior;
 - broad Rule redesign;
