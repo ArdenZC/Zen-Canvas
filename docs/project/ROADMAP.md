@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE / MERGED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS. PM-02B and PM-03 remain NOT ACTIVE.**
+Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 and PM-02A COMPLETE / MERGED; PM-02B Event / Schedule Trigger activation under Owner review. PM-02B implementation and PM-03 remain NOT ACTIVE until separately authorized.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md), and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -102,7 +102,7 @@ Current production / research sequence:
 3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
 4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
 5. **PM-02A Automation Intent Foundation — COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** [Result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md): Schema 36, reusable Query V2 scope, manual Intent-to-Plan handoff and existing Managed AI admission; Windows native + restart acceptance PASS; no automatic execution.
-6. PM-02B event/schedule triggers — **NOT ACTIVE**.
+6. **PM-02B Event / Schedule Triggers — ACTIVATION UNDER OWNER REVIEW.** The taskbook freezes schedule + managed-scope-change triggers, durable recovery/coalescing and existing WorkScheduler admission; implementation remains NOT ACTIVE until activation merge.
 7. PM-03 migration closeout — **NOT ACTIVE**.
 8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
 
