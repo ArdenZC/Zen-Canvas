@@ -10,6 +10,7 @@ mod queries;
 mod schema;
 mod types;
 
+pub(crate) use automation::apply_watcher_root_transitions;
 pub(crate) fn app_setting_value_fingerprint(value: Option<&str>) -> String {
     let mut hasher = blake3::Hasher::new();
     match value {

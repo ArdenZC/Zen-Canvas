@@ -1734,6 +1734,70 @@ mod tests {
         ));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn persisted_watcher_scope_avoids_unwatched_nested_ambiguity_and_keeps_watched_overlap() {
+        let temp =
+            std::env::temp_dir().join(format!("pm02b-watcher-routing-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).expect("create isolated watcher routing database root");
+        let db = Database::open(temp.join("test.sqlite3")).expect("open watcher routing database");
+        let conn = db.conn().expect("open fixture connection");
+        conn.execute("INSERT INTO scan_roots(id,normalized_path,display_name,source_kind,enabled,health_status,created_at,updated_at) VALUES('parent','C:/Fixture/Root','Parent','file_library',1,'healthy',1,1)", []).expect("insert parent root");
+        conn.execute("INSERT INTO scan_roots(id,normalized_path,display_name,source_kind,enabled,health_status,created_at,updated_at) VALUES('child','C:/Fixture/Root/child','Child','file_library',1,'healthy',1,1)", []).expect("insert nested ad-hoc root");
+        drop(conn);
+
+        let parent_setting = scan_root("parent-setting", "c:\\fixture\\root", true);
+        let mut settings = AppSettings {
+            default_scan_folders: vec![parent_setting.clone()],
+            ..AppSettings::default()
+        };
+        crate::settings::save_app_settings(&db, &settings).expect("persist parent watcher scope");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("sync parent watcher scope");
+
+        let path = "C:/Fixture/Root/child/file.txt";
+        let parent_only = db
+            .list_watcher_root_configs()
+            .expect("parent watcher roots");
+        let matches = parent_only
+            .iter()
+            .filter(|root| path_within_root(&root.path, path))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "unwatched nested scan roots must not create route ambiguity"
+        );
+        assert_eq!(matches[0].id, "parent");
+
+        settings.default_scan_folders.push(scan_root(
+            "child-setting",
+            "c:\\fixture\\root\\child",
+            true,
+        ));
+        crate::settings::save_app_settings(&db, &settings)
+            .expect("persist overlapping watcher scope");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("sync overlapping watcher scope");
+        let both_watched = db
+            .list_watcher_root_configs()
+            .expect("overlapping watcher roots");
+        let matches = both_watched
+            .iter()
+            .filter(|root| path_within_root(&root.path, path))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            2,
+            "genuine watched overlaps must remain ambiguous"
+        );
+        assert!(matches.iter().any(|root| root.id == "parent"));
+        assert!(matches.iter().any(|root| root.id == "child"));
+
+        drop(db);
+        std::fs::remove_dir_all(temp).expect("remove isolated watcher routing database root");
+    }
+
     #[test]
     fn overflow_signal_is_once_per_burst() {
         let burst_active = AtomicBool::new(false);

@@ -41,14 +41,94 @@ fn state(conn: &Connection, id: &str) -> Result<State, DbError> {
         claim: claim.map(|s| serde_json::from_str(&s)).transpose()?,
     })
 }
-fn roots(conn: &Connection, intent: &AutomationIntentV1) -> Result<(Revisions, bool), DbError> {
+
+pub(super) fn apply_watcher_root_transitions(
+    conn: &Connection,
+    transitions: &[(String, Option<i64>)],
+    now: i64,
+) -> Result<(), DbError> {
+    if transitions.is_empty() {
+        return Ok(());
+    }
+    let states = {
+        let mut statement = conn.prepare(
+            "SELECT state.intent_id, state.pending_event_due_at_ms, state.pending_root_revisions_json, state.consumed_root_revisions_json, state.claimed_cause_json FROM automation_trigger_state AS state JOIN automation_intents AS intent ON intent.id=state.intent_id AND intent.revision=state.intent_revision WHERE json_extract(intent.trigger_json,'$.kind')='managed_scope_change'",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    for (intent_id, due, pending_json, consumed_json, claim_json) in states {
+        let mut pending: Revisions = serde_json::from_str(&pending_json)?;
+        let mut consumed: Revisions = serde_json::from_str(&consumed_json)?;
+        let mut claim: Option<TriggerCause> = claim_json
+            .map(|value| serde_json::from_str(&value))
+            .transpose()?;
+        let mut changed = false;
+        for (root_id, baseline) in transitions {
+            changed |= pending.remove(root_id).is_some();
+            match baseline {
+                Some(revision) => {
+                    changed |= consumed.insert(root_id.clone(), *revision) != Some(*revision);
+                }
+                None => changed |= consumed.remove(root_id).is_some(),
+            }
+            if claim
+                .as_ref()
+                .is_some_and(|cause| cause.root_revisions.contains_key(root_id))
+            {
+                claim = None;
+                changed = true;
+            }
+        }
+        if !changed {
+            continue;
+        }
+        let next_due = if pending.is_empty() { None } else { due };
+        conn.execute(
+            "UPDATE automation_trigger_state SET pending_event_due_at_ms=?2, pending_root_revisions_json=?3, consumed_root_revisions_json=?4, claimed_cause_json=?5, updated_at=?6 WHERE intent_id=?1",
+            params![
+                intent_id,
+                next_due,
+                serde_json::to_string(&pending)?,
+                serde_json::to_string(&consumed)?,
+                claim.map(|cause| serde_json::to_string(&cause)).transpose()?,
+                now,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn roots(
+    conn: &Connection,
+    intent: &AutomationIntentV1,
+) -> Result<(Revisions, bool, Option<&'static str>), DbError> {
     let scope = resolve_scope(conn, &intent.scope_query.scope)?;
     if scope.health.roots.len() > 128 {
         return Err(invalid("automation_trigger_scope_too_large"));
     }
+    let watched = crate::db::queries::scan::settings_owned_watcher_roots(conn)?
+        .into_iter()
+        .map(|root| root.id)
+        .collect::<std::collections::HashSet<_>>();
+    let includes_unwatched_root = scope
+        .health
+        .roots
+        .iter()
+        .any(|root| !watched.contains(&root.id));
     let mut revisions = Revisions::new();
     for root in &scope.health.roots {
-        if root.enabled {
+        if root.enabled && watched.contains(&root.id) {
             let revision = conn.query_row(
                 "SELECT library_change_revision FROM scan_roots WHERE id=?1",
                 [&root.id],
@@ -57,7 +137,14 @@ fn roots(conn: &Connection, intent: &AutomationIntentV1) -> Result<(Revisions, b
             revisions.insert(root.id.clone(), revision);
         }
     }
-    Ok((revisions, scope.health.state == "healthy"))
+    let error_code = if includes_unwatched_root {
+        Some("automation_event_root_not_watched")
+    } else if scope.health.state != "healthy" {
+        Some("automation_scope_unavailable")
+    } else {
+        None
+    };
+    Ok((revisions, error_code.is_none(), error_code))
 }
 pub(super) fn rebuild(
     conn: &Connection,
@@ -76,12 +163,13 @@ pub(super) fn rebuild(
     } else {
         None
     };
-    let baseline = if intent.trigger.kind == "managed_scope_change" {
-        roots(conn, intent)?.0
+    let (baseline, last_error_code) = if intent.trigger.kind == "managed_scope_change" {
+        let (revisions, _, error_code) = roots(conn, intent)?;
+        (revisions, error_code)
     } else {
-        Revisions::new()
+        (Revisions::new(), None)
     };
-    conn.execute("INSERT INTO automation_trigger_state(intent_id,intent_revision,next_due_at,consumed_root_revisions_json,updated_at) VALUES(?1,?2,?3,?4,?5)",params![intent.id,intent.revision,next,serde_json::to_string(&baseline)?,now])?;
+    conn.execute("INSERT INTO automation_trigger_state(intent_id,intent_revision,next_due_at,consumed_root_revisions_json,last_error_code,updated_at) VALUES(?1,?2,?3,?4,?5,?6)",params![intent.id,intent.revision,next,serde_json::to_string(&baseline)?,last_error_code,now])?;
     Ok(())
 }
 fn save_event(
@@ -89,9 +177,9 @@ fn save_event(
     id: &str,
     s: &State,
     now: i64,
-    healthy: bool,
+    error_code: Option<&str>,
 ) -> Result<(), DbError> {
-    conn.execute("UPDATE automation_trigger_state SET pending_event_due_at_ms=?2,pending_root_revisions_json=?3,consumed_root_revisions_json=?4,last_error_code=?5,updated_at=?6 WHERE intent_id=?1",params![id,s.due,serde_json::to_string(&s.pending)?,serde_json::to_string(&s.consumed)?,if healthy{None}else{Some("automation_scope_unavailable")},now])?;
+    conn.execute("UPDATE automation_trigger_state SET pending_event_due_at_ms=?2,pending_root_revisions_json=?3,consumed_root_revisions_json=?4,last_error_code=?5,updated_at=?6 WHERE intent_id=?1",params![id,s.due,serde_json::to_string(&s.pending)?,serde_json::to_string(&s.consumed)?,error_code,now])?;
     Ok(())
 }
 fn request_key(intent: &AutomationIntentV1, identity: &str) -> String {
@@ -140,10 +228,10 @@ impl Database {
         for id in ids {
             let intent = load_intent(&tx, &id)?;
             let mut s = state(&tx, &id)?;
-            let mut healthy = true;
+            let mut error_code = None;
             if intent.trigger.kind == "managed_scope_change" {
-                let (observed, current) = roots(&tx, &intent)?;
-                healthy = current;
+                let (observed, _, current_error) = roots(&tx, &intent)?;
+                error_code = current_error;
                 s.consumed.retain(|id, _| observed.contains_key(id));
                 s.pending.retain(|id, _| observed.contains_key(id));
                 for (root, revision) in observed {
@@ -164,9 +252,16 @@ impl Database {
                 if s.pending.is_empty() {
                     s.due = None;
                 }
-                save_event(&tx, &id, &s, now, healthy)?;
+                if error_code == Some("automation_event_root_not_watched") {
+                    s.claim = None;
+                    tx.execute(
+                        "UPDATE automation_trigger_state SET claimed_cause_json=NULL WHERE intent_id=?1",
+                        [&id],
+                    )?;
+                }
+                save_event(&tx, &id, &s, now, error_code)?;
             }
-            if !healthy {
+            if error_code.is_some() {
                 continue;
             }
             if let Some(claim) = s.claim {
@@ -243,8 +338,11 @@ impl Database {
         if stored.request_key != cause.request_key {
             return Err(invalid("automation_trigger_obsolete"));
         }
-        if cause.kind == "managed_scope_change" && !roots(conn, &intent)?.1 {
-            return Err(invalid("automation_scope_unavailable"));
+        if cause.kind == "managed_scope_change" {
+            let (_, _, error_code) = roots(conn, &intent)?;
+            if let Some(error_code) = error_code {
+                return Err(invalid(error_code));
+            }
         }
         Ok(())
     }

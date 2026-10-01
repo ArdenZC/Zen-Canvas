@@ -163,6 +163,7 @@ fn actual_tag_and_semantic_metadata_publication_do_not_trigger() {
     };
     let f = Fixture::new();
     f.file();
+    f.set_watcher_roots(vec![watcher_root_setting("settings-root", "/tmp")]);
     intent(
         &f,
         trigger(json!({"version":2,"kind":"managed_scope_change"})),

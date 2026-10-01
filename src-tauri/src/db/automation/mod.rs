@@ -10,6 +10,14 @@ mod trigger_state;
 mod types;
 pub use commands::*;
 pub use types::*;
+
+pub(crate) fn apply_watcher_root_transitions(
+    conn: &rusqlite::Connection,
+    transitions: &[(String, Option<i64>)],
+    now: i64,
+) -> Result<(), crate::db::DbError> {
+    trigger_state::apply_watcher_root_transitions(conn, transitions, now)
+}
 #[cfg(test)]
 mod tests;
 

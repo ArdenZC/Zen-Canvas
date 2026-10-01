@@ -1,5 +1,6 @@
 use super::*;
 use crate::db::{Database, InsertFileRequest};
+use crate::settings::ScanRootSetting;
 use rusqlite::params;
 use serde_json::json;
 
@@ -17,6 +18,17 @@ impl Fixture {
     }
     pub(super) fn db(&self) -> &Database {
         self.db.as_ref().unwrap()
+    }
+    pub(super) fn set_watcher_roots(&self, roots: Vec<ScanRootSetting>) {
+        self.persist_watcher_settings(roots.clone());
+        self.db()
+            .sync_file_library_watcher_roots(&roots)
+            .expect("sync watcher roots");
+    }
+    pub(super) fn persist_watcher_settings(&self, roots: Vec<ScanRootSetting>) {
+        let mut settings = crate::settings::get_app_settings(self.db()).expect("read settings");
+        settings.default_scan_folders = roots;
+        crate::settings::save_app_settings(self.db(), &settings).expect("persist watcher roots");
     }
     pub(super) fn file(&self) {
         self.db()
@@ -38,6 +50,15 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         drop(self.db.take());
         let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+pub(super) fn watcher_root_setting(id: &str, path: &str) -> ScanRootSetting {
+    ScanRootSetting {
+        id: id.to_string(),
+        path: path.to_string(),
+        label: id.to_string(),
+        enabled: true,
+        created_at: "2026-10-01T00:00:00.000Z".to_string(),
     }
 }
 pub(super) fn draft() -> AutomationIntentDraftV1 {

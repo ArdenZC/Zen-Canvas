@@ -201,6 +201,50 @@ pub(crate) struct WatcherRootConfig {
     pub path: String,
 }
 
+pub(crate) fn settings_owned_watcher_roots(
+    conn: &Connection,
+) -> Result<Vec<WatcherRootConfig>, DbError> {
+    let settings_json = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            [crate::settings::APP_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let settings = settings_json
+        .map(|value| serde_json::from_str::<crate::settings::AppSettings>(&value))
+        .transpose()?
+        .unwrap_or_default();
+    let configured_paths =
+        crate::watcher::watch_paths_from_default_scan_folders(&settings.default_scan_folders)
+            .into_iter()
+            .map(|path| normalize_scan_root_path(&path.to_string_lossy()))
+            .filter(|path| !path.is_empty())
+            .map(|path| root_identity_key(&path))
+            .collect::<HashSet<_>>();
+    if configured_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut statement = conn.prepare(
+        "SELECT id, normalized_path FROM scan_roots WHERE enabled = 1 AND source_kind = 'file_library' ORDER BY length(normalized_path) DESC, normalized_path",
+    )?;
+    let roots = statement
+        .query_map([], |row| {
+            Ok(WatcherRootConfig {
+                id: row.get(0)?,
+                path: row.get(1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|root| {
+            configured_paths.contains(&root_identity_key(&normalize_scan_root_path(&root.path)))
+        })
+        .collect();
+    Ok(roots)
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct WatcherRevisionStart {
     pub watcher_revision: i64,
@@ -680,18 +724,32 @@ impl Database {
             .iter()
             .map(|(path, _, _)| root_identity_key(path))
             .collect::<HashSet<_>>();
+        let mut previous_enabled = HashMap::<String, bool>::new();
+        let mut root_cursor_transitions = HashMap::<String, Option<i64>>::new();
 
         {
             let mut statement = tx.prepare(
-                "SELECT id, normalized_path FROM scan_roots WHERE source_kind = 'file_library'",
+                "SELECT id, normalized_path, enabled FROM scan_roots WHERE source_kind = 'file_library'",
             )?;
             let existing = statement
                 .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)? != 0,
+                    ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
-            for (id, path) in existing {
-                if !desired_keys.contains(&root_identity_key(&path)) {
+            for (id, path, enabled) in existing {
+                let key = root_identity_key(&normalize_scan_root_path(&path));
+                previous_enabled
+                    .entry(key.clone())
+                    .and_modify(|was_enabled| *was_enabled |= enabled)
+                    .or_insert(enabled);
+                if !desired_keys.contains(&key) {
+                    if enabled {
+                        root_cursor_transitions.insert(id.clone(), None);
+                    }
                     tx.execute(
                         "UPDATE scan_roots SET enabled = 0, updated_at = ?1 WHERE id = ?2",
                         params![current_unix_seconds(), id],
@@ -702,6 +760,18 @@ impl Database {
 
         for (path, enabled, label) in desired {
             let seed = ensure_scan_root_tx(&tx, &path)?;
+            let key = root_identity_key(&path);
+            let was_enabled = previous_enabled.get(&key).copied().unwrap_or(false);
+            if enabled && !was_enabled {
+                let revision = tx.query_row(
+                    "SELECT library_change_revision FROM scan_roots WHERE id = ?1",
+                    [&seed.id],
+                    |row| row.get(0),
+                )?;
+                root_cursor_transitions.insert(seed.id.clone(), Some(revision));
+            } else if !enabled && was_enabled {
+                root_cursor_transitions.insert(seed.id.clone(), None);
+            }
             let display_name = if label.is_empty() {
                 scan_root_display_name(&path)
             } else {
@@ -763,6 +833,12 @@ impl Database {
         if !disabled_roots.is_empty() {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
+        let root_cursor_transitions = root_cursor_transitions.into_iter().collect::<Vec<_>>();
+        crate::db::apply_watcher_root_transitions(
+            &tx,
+            &root_cursor_transitions,
+            current_unix_seconds(),
+        )?;
         tx.commit()?;
         self.wake_automation_triggers();
         Ok(())
@@ -770,24 +846,7 @@ impl Database {
 
     pub(crate) fn list_watcher_root_configs(&self) -> Result<Vec<WatcherRootConfig>, DbError> {
         let conn = self.conn()?;
-        let mut statement = conn.prepare(
-            r#"
-            SELECT id, normalized_path
-            FROM scan_roots
-            WHERE enabled = 1 AND source_kind = 'file_library'
-            ORDER BY length(normalized_path) DESC, normalized_path
-            "#,
-        )?;
-        let result = statement
-            .query_map([], |row| {
-                Ok(WatcherRootConfig {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::from);
-        result
+        settings_owned_watcher_roots(&conn)
     }
 
     pub(crate) fn begin_watcher_revision(
@@ -3291,6 +3350,122 @@ mod tests {
         }
     }
 
+    fn persist_default_scan_folders(db: &Database, roots: Vec<crate::settings::ScanRootSetting>) {
+        let mut settings = crate::settings::get_app_settings(db).expect("read app settings");
+        settings.default_scan_folders = roots;
+        crate::settings::save_app_settings(db, &settings).expect("persist app settings");
+    }
+
+    #[test]
+    fn ad_hoc_scan_admission_does_not_join_settings_watcher_roots() {
+        let db = test_db("ad-hoc-watcher-authority");
+        let mut settings = crate::settings::get_app_settings(&db).expect("default settings");
+        settings.default_scan_folders.clear();
+        crate::settings::save_app_settings(&db, &settings).expect("persist empty watcher settings");
+
+        let path = std::env::temp_dir().join(format!("zen-canvas-ad-hoc-{}", new_job_id("root")));
+        fs::create_dir_all(&path).expect("create ad-hoc scan root");
+        let normalized = normalize_scan_root_path(&path.to_string_lossy());
+        db.admit_managed_scan(&request(&normalized, "ad-hoc-watcher-authority"))
+            .expect("admit ordinary managed scan");
+
+        let watcher_roots = db
+            .list_watcher_root_configs()
+            .expect("read settings-owned watcher roots");
+        assert!(
+            watcher_roots.iter().all(|root| root.path != normalized),
+            "ordinary scan admission must not grant watcher ownership"
+        );
+
+        drop(db);
+        fs::remove_dir_all(path).expect("remove ad-hoc scan root");
+    }
+
+    #[test]
+    fn watcher_membership_uses_enabled_default_folders_only() {
+        let fixture = std::env::temp_dir().join(format!(
+            "zen-canvas-watcher-membership-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let enabled_path = fixture.join("enabled-default");
+        let disabled_path = fixture.join("disabled-default");
+        let custom_search_path = fixture.join("custom-search");
+        let global_scope_path = fixture.join("global-index-scope");
+        for path in [
+            &enabled_path,
+            &disabled_path,
+            &custom_search_path,
+            &global_scope_path,
+        ] {
+            fs::create_dir_all(path).expect("create isolated watcher-membership root");
+        }
+
+        let setting =
+            |id: &str, path: &std::path::Path, enabled| crate::settings::ScanRootSetting {
+                id: id.to_string(),
+                path: path.to_string_lossy().into_owned(),
+                label: id.to_string(),
+                enabled,
+                created_at: "2026-10-02T00:00:00.000Z".to_string(),
+            };
+        let enabled_default = setting("enabled-default", &enabled_path, true);
+        let disabled_default = setting("disabled-default", &disabled_path, false);
+        let db = Database::open(fixture.join("state.sqlite3")).expect("open isolated database");
+        let mut settings = crate::settings::get_app_settings(&db).expect("default settings");
+        settings.default_scan_folders = vec![enabled_default.clone(), disabled_default.clone()];
+        settings.custom_search_roots = vec![crate::settings::SearchRootSetting {
+            id: "custom-search".to_string(),
+            path: custom_search_path.to_string_lossy().into_owned(),
+            label: "Custom search only".to_string(),
+            enabled: true,
+            created_at: "2026-10-02T00:00:00.000Z".to_string(),
+        }];
+        crate::settings::save_app_settings(&db, &settings).expect("persist scoped settings");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("sync default File Library roots");
+
+        db.admit_managed_scan(&request(
+            &normalize_scan_root_path(&custom_search_path.to_string_lossy()),
+            "custom-search-ad-hoc-scan",
+        ))
+        .expect("create durable root under custom-search-only path");
+        db.add_managed_scope(crate::global_index::AddManagedScopeRequest {
+            path: global_scope_path.to_string_lossy().into_owned(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add independent Global Index managed scope");
+        db.admit_managed_scan(&request(
+            &normalize_scan_root_path(&global_scope_path.to_string_lossy()),
+            "global-scope-ad-hoc-scan",
+        ))
+        .expect("create separate ad-hoc File Library root under Global Index path");
+
+        let watcher_roots = db
+            .list_watcher_root_configs()
+            .expect("read settings-owned watcher roots");
+        let watcher_paths = watcher_roots
+            .iter()
+            .map(|root| normalize_scan_root_path(&root.path))
+            .collect::<HashSet<_>>();
+        assert_eq!(watcher_paths.len(), 1);
+        assert!(watcher_paths.contains(&normalize_scan_root_path(&enabled_path.to_string_lossy())));
+        assert!(
+            !watcher_paths.contains(&normalize_scan_root_path(&disabled_path.to_string_lossy()))
+        );
+        assert!(!watcher_paths.contains(&normalize_scan_root_path(
+            &custom_search_path.to_string_lossy()
+        )));
+        assert!(!watcher_paths.contains(&normalize_scan_root_path(
+            &global_scope_path.to_string_lossy()
+        )));
+
+        drop(db);
+        fs::remove_dir_all(fixture).expect("remove isolated watcher-membership fixture");
+    }
+
     #[test]
     fn requested_root_resolution_preserves_order_and_distinguishes_duplicates_and_nested_roots() {
         let resolved = resolve_requested_roots(&[
@@ -4656,14 +4831,16 @@ mod tests {
         let file_path = root_path.join("new.txt");
         fs::write(&file_path, b"watcher").expect("create watcher file");
         let root = root_path.to_string_lossy().into_owned();
-        db.sync_file_library_watcher_roots(&[crate::settings::ScanRootSetting {
+        let watcher_roots = vec![crate::settings::ScanRootSetting {
             id: "settings-root".to_string(),
             path: root.clone(),
             label: "Watcher root".to_string(),
             enabled: true,
             created_at: "2026-07-27T00:00:00.000Z".to_string(),
-        }])
-        .expect("sync watcher root");
+        }];
+        persist_default_scan_folders(&db, watcher_roots.clone());
+        db.sync_file_library_watcher_roots(&watcher_roots)
+            .expect("sync watcher root");
         let root_id = db
             .list_watcher_root_configs()
             .expect("watcher configs")
@@ -4753,7 +4930,7 @@ mod tests {
         )
         .expect("age old descendant before reconciliation");
         drop(conn);
-        db.sync_file_library_watcher_roots(&[
+        let watcher_roots = vec![
             crate::settings::ScanRootSetting {
                 id: "cross-root-old".to_string(),
                 path: old_root.clone(),
@@ -4768,8 +4945,10 @@ mod tests {
                 enabled: true,
                 created_at: "2026-07-27T00:00:00.000Z".to_string(),
             },
-        ])
-        .expect("sync cross-root watcher roots");
+        ];
+        persist_default_scan_folders(&db, watcher_roots.clone());
+        db.sync_file_library_watcher_roots(&watcher_roots)
+            .expect("sync cross-root watcher roots");
         fs::remove_dir_all(&old_directory).expect("simulate move out of old root");
 
         let old_root_id = db

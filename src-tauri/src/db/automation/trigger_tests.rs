@@ -1,6 +1,6 @@
 use super::{
     calendar::*,
-    tests::{draft, request, Fixture},
+    tests::{draft, request, watcher_root_setting, Fixture},
     trigger_state::*,
     *,
 };
