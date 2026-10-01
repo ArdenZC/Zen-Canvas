@@ -1,6 +1,6 @@
 # PM-02A Windows native qualification
 
-Status: **PASS — WINDOWS NATIVE + RESTART ACCEPTANCE COMPLETE — READY FOR OWNER FINAL REVIEW.**
+Status: **PASS — WINDOWS NATIVE + RESTART ACCEPTANCE OWNER ACCEPTED.**
 
 The final qualification below is the current result. The earlier startup-only attempt is retained afterward as historical evidence and is superseded by the final stage.
 
@@ -126,4 +126,4 @@ Manifest paths: F:/CargoTarget/pm-02a-windows-native-20261001-01a0f3f8/filesyste
 
 ### Historical disposition at stage 1
 
-At this initial stage only, the native checklist remained outstanding because no targetable native window was available. The later final stage above completed the checklist. PM-02A remains **OWNER REVIEW PENDING**; PM-02B and PM-03 remain **NOT ACTIVE**.
+At this initial stage only, the native checklist remained outstanding because no targetable native window was available. The later final stage above completed the checklist and was accepted in Owner final review. PM-02B and PM-03 remain **NOT ACTIVE**.
