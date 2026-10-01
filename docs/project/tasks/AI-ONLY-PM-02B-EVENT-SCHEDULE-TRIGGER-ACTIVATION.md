@@ -684,6 +684,15 @@ the automatic trigger must:
 - create **no new Organization Plan**;
 - consume that trigger cause.
 
+This is an intentional **skip**, not a deferred backlog:
+
+- the suppressed cause is not replayed automatically after the user later finishes the existing Plan;
+- Run history must say that the automatic occurrence/change was skipped because review was already pending;
+- the UI should direct the user to the existing Plan and may explain that **Run now** can be used later to prepare a fresh current Plan;
+- only a later distinct schedule occurrence or later managed-file change may create another automatic cause.
+
+This prevents hidden catch-up bursts after review completion.
+
 No background trigger may refresh/overwrite the user's existing Plan decisions.
 
 Manual Run now retains existing PM-02A behavior and is not changed by this suppression rule.
@@ -1021,6 +1030,7 @@ Mandatory:
 - crash after Run persistence / before cursor advance reuses same Run;
 - automatic reserved key namespace cannot be spoofed by manual request;
 - existing live review Plan suppresses a second auto Plan;
+- suppressed cause is consumed as an explicit skip and is not replayed when review later completes;
 - blocked receipt links existing Plan when appropriate;
 - no automatic Run calls Dry Run or execution;
 - zero filesystem mutation.
