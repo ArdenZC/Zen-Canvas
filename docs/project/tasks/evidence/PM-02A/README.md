@@ -8,8 +8,8 @@ Captured with the existing browser mock using `node scripts/runPm02aBrowserEvide
 - [Chinese current assessment](desktop-current-zh.png)
 - [Measurements](measurements.json)
 
-These images are presentation evidence only. They do not prove real Tauri persistence, provider admission, Windows/macOS native behavior or filesystem mutation safety. Backend Rust tests cover database contracts; supported native user-flow review remains pending.
+These images are presentation evidence only. They do not prove real Tauri persistence, provider admission, native behavior or filesystem mutation safety. Windows native and restart acceptance is documented separately in the qualification record below; the browser images remain presentation-only.
 
 ## Windows native qualification
 
-- [Windows native qualification record](windows-native-qualification.md) documents the 2026-10-01 Windows Tauri startup attempt and its blocker. The current CUA session exposed no native app window, so the Intent, Generate-plan, Organize handoff, restart, layout and keyboard/focus flows remain **NOT PERFORMED**. This record is not a Windows native PASS.
+- [Windows native qualification record](windows-native-qualification.md) preserves the initial blocked startup-only attempt and records the completed 2026-10-01 native Intent, single Run, Organize handoff, zero-mutation, narrow-layout, keyboard/focus, Advanced Rules, pause, and exact-binary restart acceptance. Result: **PASS — READY FOR OWNER FINAL REVIEW**. Raw native screenshots were not committed.
