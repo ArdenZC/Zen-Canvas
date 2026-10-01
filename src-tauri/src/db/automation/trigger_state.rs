@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 type Revisions = BTreeMap<String, i64>;
-pub(super) const SETTLE_SECONDS: i64 = 5;
+pub(super) const SETTLE_MILLISECONDS: i64 = 5_000;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct TriggerCause {
@@ -31,7 +31,7 @@ struct State {
 }
 fn state(conn: &Connection, id: &str) -> Result<State, DbError> {
     let (next,due,pending,consumed,claim):(Option<i64>,Option<i64>,String,String,Option<String>)=conn.query_row(
-        "SELECT next_due_at,pending_event_due_at,pending_root_revisions_json,consumed_root_revisions_json,claimed_cause_json FROM automation_trigger_state WHERE intent_id=?1",[id],
+        "SELECT next_due_at,pending_event_due_at_ms,pending_root_revisions_json,consumed_root_revisions_json,claimed_cause_json FROM automation_trigger_state WHERE intent_id=?1",[id],
         |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
     Ok(State {
         next,
@@ -91,7 +91,7 @@ fn save_event(
     now: i64,
     healthy: bool,
 ) -> Result<(), DbError> {
-    conn.execute("UPDATE automation_trigger_state SET pending_event_due_at=?2,pending_root_revisions_json=?3,consumed_root_revisions_json=?4,last_error_code=?5,updated_at=?6 WHERE intent_id=?1",params![id,s.due,serde_json::to_string(&s.pending)?,serde_json::to_string(&s.consumed)?,if healthy{None}else{Some("automation_scope_unavailable")},now])?;
+    conn.execute("UPDATE automation_trigger_state SET pending_event_due_at_ms=?2,pending_root_revisions_json=?3,consumed_root_revisions_json=?4,last_error_code=?5,updated_at=?6 WHERE intent_id=?1",params![id,s.due,serde_json::to_string(&s.pending)?,serde_json::to_string(&s.consumed)?,if healthy{None}else{Some("automation_scope_unavailable")},now])?;
     Ok(())
 }
 fn request_key(intent: &AutomationIntentV1, identity: &str) -> String {
@@ -106,10 +106,26 @@ fn request_key(intent: &AutomationIntentV1, identity: &str) -> String {
 impl Database {
     /// Called only on startup, explicit publication/configuration/lifecycle
     /// hints, or a nearest-deadline completion. Never a periodic DB poll.
+    #[cfg(test)]
     pub(super) fn select_automation_trigger(
         &self,
         now: i64,
     ) -> Result<(Option<TriggerCause>, Option<i64>), DbError> {
+        let (cause, deadline) = self.select_automation_trigger_at(
+            jiff::Timestamp::from_second(now).map_err(|_| invalid("automation_schedule_range"))?,
+        )?;
+        Ok((cause, deadline.map(|ms| ms / 1000)))
+    }
+    pub(super) fn select_automation_trigger_at(
+        &self,
+        clock: jiff::Timestamp,
+    ) -> Result<(Option<TriggerCause>, Option<i64>), DbError> {
+        let now = clock.as_second();
+        let now_ms = clock.as_millisecond();
+        // Round the observed event instant upward, so sub-millisecond precision
+        // cannot shorten the fixed five-second settle interval.
+        let observed_ms =
+            now_ms.saturating_add(i64::from(clock.subsec_nanosecond() % 1_000_000 != 0));
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let ids = {
@@ -140,7 +156,7 @@ impl Database {
                                 && revision > s.pending.get(&root).copied().unwrap_or(consumed) =>
                         {
                             s.pending.insert(root, revision);
-                            s.due = Some(now.saturating_add(SETTLE_SECONDS));
+                            s.due = Some(observed_ms.saturating_add(SETTLE_MILLISECONDS));
                         }
                         _ => {}
                     }
@@ -160,12 +176,12 @@ impl Database {
                 continue;
             }
             let due = if intent.trigger.kind == "schedule" {
-                s.next
+                s.next.map(|seconds| seconds.saturating_mul(1000))
             } else {
                 s.due
             };
             if let Some(due) = due {
-                if due > now {
+                if due > now_ms {
                     nearest = Some(nearest.map_or(due, |n| n.min(due)));
                     continue;
                 }
@@ -174,7 +190,7 @@ impl Database {
                 }
                 let (identity, context, next, root_revisions) = if intent.trigger.kind == "schedule"
                 {
-                    let latest = newest_due(&intent.trigger, now, due)?;
+                    let latest = newest_due(&intent.trigger, now, due / 1000)?;
                     let next = next_occurrence(&intent.trigger, now)?.instant;
                     (
                         latest.logical_local.clone(),
@@ -256,7 +272,7 @@ impl Database {
         if s.pending.is_empty() {
             s.due = None;
         }
-        tx.execute("UPDATE automation_trigger_state SET next_due_at=?2,pending_event_due_at=?3,pending_root_revisions_json=?4,consumed_root_revisions_json=?5,last_trigger_key=?6,last_triggered_at=?7,last_error_code=NULL,claimed_cause_json=NULL,updated_at=?7 WHERE intent_id=?1 AND intent_revision=?8",params![cause.intent_id,cause.next_due_at,s.due,serde_json::to_string(&s.pending)?,serde_json::to_string(&s.consumed)?,cause.request_key,now,cause.intent_revision])?;
+        tx.execute("UPDATE automation_trigger_state SET next_due_at=?2,pending_event_due_at_ms=?3,pending_root_revisions_json=?4,consumed_root_revisions_json=?5,last_trigger_key=?6,last_triggered_at=?7,last_error_code=NULL,claimed_cause_json=NULL,updated_at=?7 WHERE intent_id=?1 AND intent_revision=?8",params![cause.intent_id,cause.next_due_at,s.due,serde_json::to_string(&s.pending)?,serde_json::to_string(&s.consumed)?,cause.request_key,now,cause.intent_revision])?;
         tx.commit()?;
         Ok(())
     }

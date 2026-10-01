@@ -68,14 +68,14 @@ pub(super) fn migrate_automation_triggers(conn: &Connection) -> Result<(), DbErr
         CREATE TABLE automation_trigger_state (
             intent_id TEXT PRIMARY KEY REFERENCES automation_intents(id) ON DELETE RESTRICT,
             intent_revision INTEGER NOT NULL CHECK(intent_revision>=1),
-            next_due_at INTEGER, pending_event_due_at INTEGER,
+            next_due_at INTEGER, pending_event_due_at_ms INTEGER,
             pending_root_revisions_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(pending_root_revisions_json)),
             consumed_root_revisions_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(consumed_root_revisions_json)),
             last_trigger_key TEXT, last_triggered_at INTEGER, last_error_code TEXT, updated_at INTEGER NOT NULL,
             claimed_cause_json TEXT CHECK(claimed_cause_json IS NULL OR json_valid(claimed_cause_json))
         );
         CREATE INDEX idx_automation_trigger_schedule_due ON automation_trigger_state(next_due_at) WHERE next_due_at IS NOT NULL;
-        CREATE INDEX idx_automation_trigger_event_due ON automation_trigger_state(pending_event_due_at) WHERE pending_event_due_at IS NOT NULL;
+        CREATE INDEX idx_automation_trigger_event_due ON automation_trigger_state(pending_event_due_at_ms) WHERE pending_event_due_at_ms IS NOT NULL;
     "#)?;
     Ok(())
 }

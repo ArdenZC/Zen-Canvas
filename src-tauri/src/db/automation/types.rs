@@ -147,6 +147,6 @@ pub struct AutomationRunV1 {
 #[serde(rename_all = "camelCase")]
 pub struct AutomationTriggerStatusV1 {
     pub next_due_at: Option<i64>,
-    pub pending_event_due_at: Option<i64>,
+    pub pending_event_due_at: Option<f64>,
     pub last_error_code: Option<String>,
 }

@@ -202,3 +202,38 @@ fn event_claim_survives_newer_root_revision_without_consuming_new_cause() {
         Some("automation_review_pending")
     );
 }
+
+#[test]
+fn event_settle_waits_five_complete_seconds_from_subsecond_observation() {
+    let f = Fixture::new();
+    intent(
+        &f,
+        trigger(json!({"version":2,"kind":"managed_scope_change"})),
+    );
+    revise_root(f.db(), "root", 1);
+    let clock = |ms| jiff::Timestamp::from_millisecond(ms).unwrap();
+    let observed = jiff::Timestamp::new(100, 999_999_999).unwrap();
+    let (cause, due) = f.db().select_automation_trigger_at(observed).unwrap();
+    assert!(cause.is_none());
+    assert_eq!(due, Some(106_000));
+    assert_eq!(
+        f.db().list_automation_intents().unwrap()[0]
+            .trigger_state
+            .as_ref()
+            .unwrap()
+            .pending_event_due_at,
+        Some(106.0)
+    );
+    assert!(f
+        .db()
+        .select_automation_trigger_at(clock(105_999))
+        .unwrap()
+        .0
+        .is_none());
+    assert!(f
+        .db()
+        .select_automation_trigger_at(clock(106_000))
+        .unwrap()
+        .0
+        .is_some());
+}

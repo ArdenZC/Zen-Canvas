@@ -51,8 +51,11 @@ impl AutomationWake {
             return;
         }
         if let Some(deadline) = deadline {
-            let duration =
-                Duration::from_secs(deadline.saturating_sub(current_unix_seconds()).max(0) as u64);
+            let duration = Duration::from_millis(
+                deadline
+                    .saturating_sub(jiff::Timestamp::now().as_millisecond())
+                    .max(0) as u64,
+            );
             drop(
                 self.changed
                     .wait_timeout_while(state, duration, |s| s.epoch == epoch && !s.stopping),
@@ -108,14 +111,15 @@ impl AutomationTriggerCoordinator {
                     wake.wait(epoch, None);
                     continue;
                 }
-                let (cause, deadline) = match db.select_automation_trigger(current_unix_seconds()) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        eprintln!("Automation trigger recovery deferred: {error}");
-                        wake.wait(epoch, None);
-                        continue;
-                    }
-                };
+                let (cause, deadline) =
+                    match db.select_automation_trigger_at(jiff::Timestamp::now()) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            eprintln!("Automation trigger recovery deferred: {error}");
+                            wake.wait(epoch, None);
+                            continue;
+                        }
+                    };
                 let Some(cause) = cause else {
                     wake.wait(epoch, deadline);
                     continue;

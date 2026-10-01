@@ -51,7 +51,7 @@ pub(super) fn canonical_scope(
     }
     Ok(canonical)
 }
-const INTENT_COLUMNS: &str = "id,revision,title,workflow_kind,scope_query_json,scope_fingerprint,trigger_json,policy_json,enabled,created_at,updated_at,archived_at,(SELECT next_due_at FROM automation_trigger_state WHERE intent_id=automation_intents.id),(SELECT pending_event_due_at FROM automation_trigger_state WHERE intent_id=automation_intents.id),(SELECT last_error_code FROM automation_trigger_state WHERE intent_id=automation_intents.id)";
+const INTENT_COLUMNS: &str = "id,revision,title,workflow_kind,scope_query_json,scope_fingerprint,trigger_json,policy_json,enabled,created_at,updated_at,archived_at,(SELECT next_due_at FROM automation_trigger_state WHERE intent_id=automation_intents.id),(SELECT CAST(pending_event_due_at_ms AS REAL)/1000.0 FROM automation_trigger_state WHERE intent_id=automation_intents.id),(SELECT last_error_code FROM automation_trigger_state WHERE intent_id=automation_intents.id)";
 pub(super) const RUN_COLUMNS: &str = "id,request_key,intent_id,intent_revision,trigger_kind,scope_fingerprint,library_snapshot_revision,status,result_plan_id,queued_analysis_count,requires_plan_refresh,analysis_blocker_code,error_code,created_at,completed_at,trigger_context_json";
 fn decode<T: serde::de::DeserializeOwned>(row: &Row<'_>, index: usize) -> rusqlite::Result<T> {
     let text: String = row.get(index)?;
