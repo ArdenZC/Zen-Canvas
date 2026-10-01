@@ -223,7 +223,7 @@ Contract:
 
 This means:
 
-> after query-visible file state in one of the Intent's managed roots changes and the owning root becomes current/healthy, prepare one new review plan after the fixed settle/coalescing window.
+> after scanner/watcher-owned **filesystem state** in one of the Intent's managed roots changes and the owning root becomes current/healthy, prepare one new review plan after the fixed settle/coalescing window.
 
 The fixed settle window is backend policy, not a user-tunable timing DSL.
 
@@ -283,6 +283,17 @@ Existing watcher/scanner owners remain authoritative.
 
 To make event-trigger recovery durable without storing raw watcher paths, PM-02B may add one monotonic field to the existing managed root authority, conceptually:
 
+The PM-02B event meaning is deliberately narrower than the global File Library query revision:
+
+- included: scanner/watcher publication of filesystem membership or filesystem-backed identity/state such as create, remove, rename, size/mtime/identity/stale transitions;
+- excluded: tag-only edits, Rule/classification-only edits, AI purpose/lifecycle/risk/suggestion publication, saved-view edits, and other semantic/presentation metadata changes that do not represent a filesystem change.
+
+Those excluded owners may continue to bump the global `library_query_state.revision`; that global revision is **not** the PM-02B managed-file-change trigger.
+
+This keeps event delivery owned by the existing scanner/watcher lifecycle instead of turning every Query V2 metadata writer into an Automation trigger publisher.
+
+Conceptual root field:
+
 ```text
 scan_roots.library_change_revision
 ```
@@ -292,7 +303,7 @@ Rules:
 - starts at 0;
 - monotonic;
 - increments at most once per root-owned business transaction;
-- increments only when query-visible file state under that root actually changes;
+- increments only when scanner/watcher publication proves filesystem membership or filesystem-backed state under that root actually changed;
 - watcher exact mutation and scan/reconciliation publication update it through their existing transactions;
 - no increment for access-only events;
 - no increment solely because a watcher callback occurred;
@@ -944,7 +955,7 @@ Do not sleep real minutes in unit tests.
 
 Mandatory:
 
-- real watcher mutation advances root change clock only after durable query-visible mutation;
+- real watcher mutation advances root change clock only after durable filesystem-state publication;
 - access-only event does not advance;
 - repeated low-level save events coalesce;
 - 5-second settle represented through fake clock, not wall sleep;
