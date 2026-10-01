@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-01
 
-Status: **OWNER REVIEW PENDING — MERGE ACTIVATES PM-02B IMPLEMENTATION ONLY**
+Status: **OWNER REVIEW PASSED — MERGE ACTIVATES PM-02B IMPLEMENTATION ONLY**
 
 Initiative: AI-only Product Migration / issue #273
 
@@ -1259,7 +1259,7 @@ Do not start PM-03.
 
 ## Activation disposition
 
-Owner review is pending.
+Owner activation review: **PASS** at reviewed head `523b1a2a78a26fd65e428a7bc13d2843019deb4d` with exact-head CI `36826469737 — SUCCESS`.
 
 Merge of this activation taskbook may activate only:
 
