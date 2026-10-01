@@ -12,4 +12,4 @@ These images are presentation evidence only. They do not prove real Tauri persis
 
 ## Windows native qualification
 
-- [Windows native qualification record](windows-native-qualification.md) preserves the initial blocked startup-only attempt and records the completed 2026-10-01 native Intent, single Run, Organize handoff, zero-mutation, narrow-layout, keyboard/focus, Advanced Rules, pause, and exact-binary restart acceptance. Result: **PASS — READY FOR OWNER FINAL REVIEW**. Raw native screenshots were not committed.
+- [Windows native qualification record](windows-native-qualification.md) preserves the initial blocked startup-only attempt and records the completed 2026-10-01 native Intent, single Run, Organize handoff, zero-mutation, narrow-layout, keyboard/focus, Advanced Rules, pause, and exact-binary restart acceptance. Result: **PASS — OWNER FINAL REVIEW ACCEPTED**. Raw native screenshots were not committed.
