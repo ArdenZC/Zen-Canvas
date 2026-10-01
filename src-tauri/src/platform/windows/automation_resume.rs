@@ -10,7 +10,7 @@ use windows_sys::Win32::{
 };
 
 pub(crate) struct AutomationResumeWake {
-    handle: usize,
+    handle: isize,
     context: Option<Box<Arc<AutomationWake>>>,
 }
 impl AutomationResumeWake {
@@ -36,7 +36,7 @@ impl AutomationResumeWake {
             ));
         }
         Ok(Self {
-            handle: handle as usize,
+            handle: handle as isize,
             context: Some(context),
         })
     }
@@ -59,9 +59,7 @@ unsafe extern "system" fn receive(
 }
 impl Drop for AutomationResumeWake {
     fn drop(&mut self) {
-        let status = unsafe {
-            PowerUnregisterSuspendResumeNotification(self.handle as *mut core::ffi::c_void)
-        };
+        let status = unsafe { PowerUnregisterSuspendResumeNotification(self.handle) };
         if status != 0 {
             // A failed unregister may leave the OS callback live. Preserve its
             // context rather than free memory still reachable by native code.
