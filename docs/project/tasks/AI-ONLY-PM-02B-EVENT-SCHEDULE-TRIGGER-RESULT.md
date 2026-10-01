@@ -1,6 +1,6 @@
 # PM-02B — Event / Schedule Trigger Result
 
-Status: **IMPLEMENTATION COMPLETE — READY FOR OWNER REVIEW / NATIVE ACCEPTANCE PENDING**. PM-03 remains **NOT ACTIVE**. Draft implementation [PR #317](https://github.com/ArdenZC/Zen-Canvas/pull/317) references initiative #273 and merged activation #316; no merge or auto-merge is authorized.
+Status: **EVENT-ROOT AUTHORITY REMEDIATION IMPLEMENTED — EXACT-HEAD HOSTED CI PENDING; WINDOWS NATIVE REQUALIFICATION REQUIRED**. PM-03 remains **NOT ACTIVE**. Draft implementation [PR #317](https://github.com/ArdenZC/Zen-Canvas/pull/317) references initiative #273 and merged activation #316; no merge or auto-merge is authorized.
 
 Exact implementation base: `master@91589a89974324e821b4963b062c3070949252a8`. Branch: `product/pm-02b-event-schedule-triggers`, isolated worktree. Schema exactly 37; package remains 0.1.40. Accepted PM-02A result and frozen research history are unchanged.
 
@@ -18,7 +18,21 @@ Exact implementation base: `master@91589a89974324e821b4963b062c3070949252a8`. Br
 - macOS pauses through existing lifecycle ownership and recovers before resume. Windows narrow event-driven native power callback provides suspend/resume hints because relative Condvar behavior cannot be proven here. No Windows timer/power polling. Teardown cancels admission, joins coordinator before AI shutdown, unregisters callbacks; failed unregister retains context safely. [ADR-0011](../DECISIONS/0011-automation-trigger-boundary.md) records ownership/decomposition.
 - Bilingual editor supports daily/weekdays/custom, explicit zone/time, backend next due, actual Run source, resource-deferred and review-pending skip states. One backend event subscription refreshes projections; no UI polling. Plan handoff/Advanced Rules remain existing owners. Eight renderer commands retain main-window permission classification; no new automatic renderer command.
 
+## Owner-authorized event-root authority remediation
+
+The native event blocker was first observed at implementation source `e91f27ed278bc80a0cc92fe79e8b83748fa8f812` / tree `c3a74d38380b716af6242c71f7f0f088dcd514b5`. A managed scan could create an enabled durable File Library root that was not enrolled in the persistent watcher configured from `default_scan_folders`; the event resolver treated that scan-root row as event-capable. The original Windows failure remains preserved in the [native qualification record](evidence/PM-02B/windows-native-qualification.md).
+
+The Owner-authorized remediation source is commit `97a42ed2df9c9e460e349a5ebe62be10cddad507`, tree `8433ebfbef2eb5aceecb21dc5cce19cd0be0d958`. One backend helper now derives watcher-owned roots from persisted `app_settings_v1.defaultScanFolders`, the existing watcher path selector and normalized durable File Library roots. Both `Database::list_watcher_root_configs()` and PM-02B event eligibility consume this authority. Explicit and all-enabled scopes that include an unwatched root fail closed with sanitized `automation_event_root_not_watched`; removal clears pending/claimed event debt, and re-enrollment baselines the current root revision so historical changes do not replay.
+
+Production files changed: `src-tauri/src/db/queries/scan.rs`, `src-tauri/src/db/automation/trigger_state.rs`, `src-tauri/src/db/automation/mod.rs`, `src-tauri/src/db/mod.rs`, and `src-tauri/src/watcher.rs`. Regression coverage includes ad-hoc admission exclusion; enabled/disabled default folders; Custom Search and Global Index managed-scope exclusion; Windows path-case normalization; an unwatched nested root beneath a watched parent; preservation of genuine overlapping watched-root ambiguity; explicit/all-enabled unwatched event scopes; Settings removal/re-enrollment; and existing event settle, coalescing, claim, publication, review and metadata behavior.
+
+No watcher ownership was broadened. No schema, migration, package, Cargo dependency/lockfile, frontend, Tauri command, permission, queue, scheduler, poller or filesystem-execution change was added. Schema remains 37 and package remains 0.1.40.
+
 ## Validation and evidence
+
+For source commit `97a42ed2df9c9e460e349a5ebe62be10cddad507`, Windows focused checks in `desktop-runtime` mode: scan/root **28 passed / 1 intentional performance ignore**; watcher **25 passed**, including the Windows case-normalization/routing regression; PM-02B trigger suite **20 passed / 1 failed**; automation database suite **13 passed / 2 failed**. The three automation failures are unchanged manual/stale-readiness assertions and were reproduced on pristine `e91f27e` with the same `desktop-runtime` feature set. Recovery **8/8** and publication **3/3** focused suites passed; Rust format and strict desktop-runtime Clippy (`--all-targets -- -D warnings`) passed.
+
+The complete local `npm run verify:rust` test phase ran **1,115 passed / 24 ignored / 4 failed**. Its failures were the three baseline-reproduced automation assertions above and `content::tests::pdf_cmap_preflight_is_structured_bounded_and_cancellable`, which timed out under the parallel full-suite load and passed when rerun alone (**1/1**). The required local full Rust gate is therefore **NOT GREEN**. This is recorded; no tests or thresholds were weakened. Exact-head hosted CI is **PENDING** and remains the required cross-platform gate before native requalification.
 
 Local frontend: typecheck PASS; final full Vitest **172 files / 1780 tests PASS**, including fixture reset/spoof and event-unsubscribe checks. Production frontend build and performance architecture (28 tests) PASS. Browser mock at desktop 1440×960 and narrow 760×900 PASS: schedule/event/custom editing, manual generation on configured automatic trigger, focus restore, no horizontal overflow, Plan handoff and Advanced Rules. Browser plugin is unavailable; existing Playwright used. [Measurements](evidence/PM-02B/browser-measurements.json) are presentation evidence only.
 
@@ -28,7 +42,7 @@ Focused backend Automation tests: **34 PASS**. Core database tests: **129 PASS /
 
 The Linux harness temporarily supplies the baseline's Linux keyring dependency and existing extracted GTK/WebKit sysroot; this workaround is not committed and does not qualify native Windows/macOS builds. Last full Linux suite: **959 PASS / 25 unsupported native Browse/preview/execution failures / 23 intentional benchmark ignores**, before the final schema constraint/tag-observation tests, which pass in focused validation. No tests were weakened or skipped for this implementation; supported Windows/macOS CI must provide the mandatory platform lanes. Exact-head/tree CI evidence is tracked by the [PR checks](https://github.com/ArdenZC/Zen-Canvas/pull/317/checks) and will be pinned in the final PR handoff. The CI source-evidence artifact is authoritative for the final committed source identity.
 
-[Windows native qualification](evidence/PM-02B/windows-native-qualification.md): **NOT RUN / OWNER VERIFICATION PENDING**. Real suspend/resume **UNVERIFIED**. No native PASS claim is made. Native Owner evidence is required for acceptance; Linux/browser checks do not replace it.
+[Windows native qualification](evidence/PM-02B/windows-native-qualification.md): the original e91 qualification **FAILED** on managed-scope-change event delivery; its exact failure record is retained. Fresh Windows requalification against the repaired candidate is **PENDING exact-head hosted CI**. Suspend/resume and the remaining stopped rows are still **UNVERIFIED**; no repaired native PASS is claimed.
 
 ## Preserved boundaries
 

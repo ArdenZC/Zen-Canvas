@@ -1,6 +1,6 @@
 # PM-02B Windows native qualification
 
-Status: **STOPPED — FAIL: the native managed-scope-change event did not advance durable root change truth or create an automatic Run. Return to Owner; do not promote PM-02B.** This record contains only observed partial evidence. The remaining native gates, including real suspend/resume, were not attempted after the failure.
+Status: **ORIGINAL QUALIFICATION FAILED at e91f27e; Owner-authorized remediation is committed at `97a42ed2df9c9e460e349a5ebe62be10cddad507`; exact-head hosted CI and fresh Windows native requalification are pending.** The original failure record below remains intact and is not superseded. No repaired native PASS is claimed.
 
 ## Identity and isolation
 
@@ -56,8 +56,16 @@ Only `event-a.txt` changed, as the manually authored qualification input above. 
 | `event-b.txt` | 32 / `9E99D8A9183AE25E222B127756C547CAB6E4A4017CC91564786021F718DD4385` | 32 / `9E99D8A9183AE25E222B127756C547CAB6E4A4017CC91564786021F718DD4385` |
 | `metadata-a.txt` | 35 / `0B064B6492B03E630C5D2A3B76C7BDA9CBC8BD967510F949697F0566D29A8C5D` | 35 / `0B064B6492B03E630C5D2A3B76C7BDA9CBC8BD967510F949697F0566D29A8C5D` |
 
-## Not run after STOP
+## Not run after the original STOP
 
-The following remain unqualified: create/rename/remove coverage beyond the single content edit; five-second burst coalescing; metadata-only exclusion; review-pending suppression; pause/edit/re-enable debt reset; background/tray delivery; resource-admission deferral; Advanced Rules separation; keyboard/focus and narrow-layout checks; later general restart recovery; and real Windows suspend/resume. `powercfg /a` had shown S0 Low Power Idle (Network Connected) and Hibernate, with S1/S2/S3 unavailable; no suspend cycle was attempted after the event-path STOP.
+The following remained unqualified in that original run: create/rename/remove coverage beyond the single content edit; five-second burst coalescing; metadata-only exclusion; review-pending suppression; pause/edit/re-enable debt reset; background/tray delivery; resource-admission deferral; Advanced Rules separation; keyboard/focus and narrow-layout checks; later general restart recovery; and real Windows suspend/resume. `powercfg /a` had shown S0 Low Power Idle (Network Connected) and Hibernate, with S1/S2/S3 unavailable; no suspend cycle was attempted after the event-path STOP.
 
-PM-02B result and project `STATUS.md` were not changed. PR `#317` was not changed, merged, or set to auto-merge. No evidence commit or push was made. PM-02B remains **OWNER REVIEW PENDING**; PM-03 remains **NOT ACTIVE**. The prior permissive suspend wording has been removed; suspend/resume remains explicitly unverified in this partial failure record.
+## Owner-authorized remediation source — fresh native qualification pending
+
+- Repaired implementation commit: `97a42ed2df9c9e460e349a5ebe62be10cddad507`; tree `8433ebfbef2eb5aceecb21dc5cce19cd0be0d958`.
+- The repaired invariant uses persisted enabled `default_scan_folders` plus normalized, enabled durable File Library roots as the single watcher-owned-root authority for watcher routing and PM-02B event eligibility. Unwatched explicit/all-enabled scopes fail closed; Settings removal clears cursor/claim debt; re-enrollment baselines the current revision. Watcher ownership was not broadened; Schema remains 37.
+- Local `desktop-runtime` scan/root tests passed **28/28** plus one intentional performance ignore. Windows watcher tests passed **25/25**, including case-normalized membership, an unwatched nested root and preserved genuine overlap. PM-02B trigger tests passed **20/21**; automation DB tests passed **13/15**. The three failing readiness assertions were reproduced on pristine e91 with the same feature set. Strict desktop-runtime Clippy and Rust format passed.
+- Full local Rust validation reported **1,115 passed / 24 ignored / 4 failed**. The fourth failure was a PDF CMap timeout under parallel load and passed in isolation (**1/1**). Hosted exact-head CI is still pending.
+- No fresh native fixture was enrolled and no post-repair event, schedule, restart, layout/focus, background/tray or suspend/resume row has been run. Requalification must start from a fresh isolated profile/root after hosted CI succeeds, enroll the event root through native Settings, and verify the configured watcher plus durable revision movement before the file mutation.
+
+The original native attempt did not update the PM-02B result or `STATUS.md`, nor change or push PR `#317`; the failure was later preserved in evidence checkpoint `ef0095ddc1b47d158de4aa9a73575dac034e5e14`. The Owner-authorized remediation is now committed on the existing branch. PR `#317` remains OPEN / Draft / unmerged, no auto-merge is enabled, PM-02B remains **OWNER REVIEW PENDING**, and PM-03 remains **NOT ACTIVE**. Suspend/resume remains explicitly unverified.
