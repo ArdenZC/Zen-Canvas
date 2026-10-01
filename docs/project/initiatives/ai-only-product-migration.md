@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE; PM-02A IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING; PM-02B AND PM-03 NOT ACTIVE**
+Status: **ACTIVE INITIATIVE / IMPLEMENTATION — PM-01 COMPLETE / MERGED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; PM-02B AND PM-03 NOT ACTIVE**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -100,7 +100,7 @@ PM-02 separately owns Automation Intent / Trigger / Policy architecture.
 
 PM-02 is now decomposed into separately gated slices:
 
-- **PM-02A — Automation Intent Foundation:** durable Organize-plan intent, manual trigger, fixed review-required / never-auto-execute policy, durable run receipt, fresh Query V2 snapshot resolution and Organization Plan handoff. Activation PR #312 has merged. The [bounded implementation result](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md) remains OWNER REVIEW PENDING.
+- **PM-02A — Automation Intent Foundation:** **COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** Durable Organize-plan intent, manual trigger, fixed review-required / never-auto-execute policy, durable run receipt, fresh Query V2 snapshot resolution and Organization Plan handoff. Windows native + restart acceptance is PASS. See the [bounded implementation result](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md).
 - **PM-02B — Event / Schedule Triggers:** watcher/schedule/startup lifecycle and runtime admission. **NOT ACTIVE**.
 - Any additional workflow kinds or richer planner semantics require another bounded activation.
 
@@ -128,6 +128,6 @@ Activation taskbook:
 
 `docs/project/tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-ACTIVATION.md`
 
-Owner activation review passed and PR #312 merged. PM-02A is **IMPLEMENTED FOR REVIEW / OWNER REVIEW PENDING**, on its isolated implementation branch. No merge or PM-02B/PM-03 activation is authorized.
+Owner activation review passed and PR #312 merged. PM-02A implementation PR #313 is **COMPLETE / MERGED** at `master@195e3b18b4bfa718276829f9ed35414714689a7f`; final closeout CI `36820155950` and merge-after master CI `36821813846` are **SUCCESS**. PM-02B/PM-03 activation remains unauthorized.
 
-Merge of the activation taskbook authorizes only PM-02A. PM-02B, PM-03, Preference Memory production, System One and Laya/Jev remain separately gated.
+Completion of PM-02A does not activate the next slice. PM-02B, PM-03, Preference Memory production, System One and Laya/Jev remain separately gated.
