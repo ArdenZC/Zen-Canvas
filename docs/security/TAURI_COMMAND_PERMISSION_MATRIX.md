@@ -4,6 +4,14 @@
 
 | Rust command | Category | Window | Side effect | Capability | Internal main-window guard | Test |
 | --- | --- | --- | --- | --- | --- | --- |
+| `list_automation_intents` | `read_only` | main | PM-02A read durable Intents/Runs | default | no | PM-02A + command permission tests |
+| `get_automation_intent` | `read_only` | main | PM-02A read durable Intents/Runs | default | no | PM-02A + command permission tests |
+| `list_automation_runs` | `read_only` | main | PM-02A read durable Intents/Runs | default | no | PM-02A + command permission tests |
+| `create_automation_intent` | `main_state_mutation` | main | PM-02A review-only Intent state/plan generation; no filesystem execution | default | no | PM-02A + command permission tests |
+| `update_automation_intent` | `main_state_mutation` | main | PM-02A review-only Intent state/plan generation; no filesystem execution | default | no | PM-02A + command permission tests |
+| `set_automation_intent_enabled` | `main_state_mutation` | main | PM-02A review-only Intent state/plan generation; no filesystem execution | default | no | PM-02A + command permission tests |
+| `archive_automation_intent` | `main_state_mutation` | main | PM-02A review-only Intent state/plan generation; no filesystem execution | default | no | PM-02A + command permission tests |
+| `run_automation_intent_manual` | `main_state_mutation` | main | PM-02A review-only Intent state/plan generation; no filesystem execution | default | no | PM-02A + command permission tests |
 | `init_db` | `main_state_mutation` | main | Initialize database | default | yes | command permission contract |
 | `insert_file` | `main_state_mutation` | main | Write indexed file | default | yes | command permission contract |
 | `remove_files_by_paths` | `main_state_mutation` | main | Remove index rows | default | yes | command permission contract |

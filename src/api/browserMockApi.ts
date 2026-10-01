@@ -1,3 +1,4 @@
+import { createAutomationMock } from "./automationMock";
 import type {
   AIConnectionTestResult,
   AIDebugClassificationResult,
@@ -982,6 +983,15 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     }
     case "list_scan_runs":
       return (mockManagedScanState?.start.runs ?? []) as T;
+    case "list_automation_intents":
+    case "get_automation_intent":
+    case "list_automation_runs":
+    case "create_automation_intent":
+    case "update_automation_intent":
+    case "set_automation_intent_enabled":
+    case "archive_automation_intent":
+    case "run_automation_intent_manual":
+      return automationMock(command, args) as T;
     case "list_scan_roots":
       return (mockManagedScanRoots()) as T;
     case "get_scan_root_health":
@@ -2667,7 +2677,7 @@ interface MockOrganizationDecisionRequest {
   }>;
 }
 
-function createMockOrganizationPlan(request?: { title?: string; source?: LibrarySelectionV1; expectedCount?: number }): OrganizationPlan {
+function createMockOrganizationPlan(request?: { title?: string; source?: LibrarySelectionV1; expectedCount?: number }, automationRunId?: string): OrganizationPlan {
   if (!request?.source) throw new Error("organization_plan_request_invalid");
   const source = request.source;
   const summary = getMockFileLibrarySelectionSummary(source);
@@ -2675,7 +2685,7 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
   if (summary.count > 10_000) throw new Error("organization_plan_too_large");
   const timestamp = Math.floor(Date.now() / 1000);
   const presentationOnly = new URLSearchParams(globalThis.location?.search ?? "").has("pm01-organize");
-  const id = `${presentationOnly ? "browser-presentation-organization-plan" : "browser-organization-plan"}-${Date.now()}`;
+  const id = `${presentationOnly ? "browser-presentation-organization-plan" : "browser-organization-plan"}-${automationRunId ?? Date.now()}`;
   const plan: OrganizationPlan = {
     id,
     title: request.title?.trim() || "Organization plan",
@@ -4617,3 +4627,10 @@ function countBy<T extends keyof FileRecord>(files: FileRecord[], key: T): Recor
     return counts;
   }, {});
 }
+
+const automationMock = createAutomationMock({
+  roots: mockManagedScanRoots,
+  fingerprint: mockLibraryFingerprint,
+  snapshotRevision: () => mockLibraryRevision,
+  createPlan: (intent, revision, runId) => createMockOrganizationPlan({ title: intent.title, source: { kind: "all_matching", query: intent.scopeQuery, queryFingerprint: intent.scopeFingerprint, snapshotRevision: revision, excludedFileIds: [] } }, runId)
+});

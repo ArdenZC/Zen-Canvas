@@ -46,7 +46,7 @@ const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupVie
 const OrganizeSuggestionsView = lazy(() => import("../views/organize/OrganizeSuggestionsView").then((module) => ({ default: module.OrganizeSuggestionsView })));
 const FileLibraryWorkspace = lazy(() => import("../views/fileLibrary/FileLibraryWorkspace").then((module) => ({ default: module.FileLibraryWorkspace })));
 const TimelineView = lazy(() => import("../views/timeline/TimelineView").then((module) => ({ default: module.TimelineView })));
-const RulesView = lazy(() => import("../views/rules/RulesView").then((module) => ({ default: module.RulesView })));
+const AutomationWorkspace = lazy(() => import("../views/automation/AutomationWorkspace").then((module) => ({ default: module.AutomationWorkspace })));
 const RestoreView = lazy(() => import("../views/restore/RestoreView").then((module) => ({ default: module.RestoreView })));
 const SettingsView = lazy(() => import("../views/settings/SettingsView").then((module) => ({ default: module.SettingsView })));
 
@@ -112,7 +112,7 @@ export function AppShell() {
 
   const groups = useMemo(() => navGroups(t), [t]);
   const activeLabel = view === "rules"
-    ? t("automationWorkspaceTitle")
+    ? t("automationIntentWorkspaceTitle")
     : groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
@@ -399,7 +399,7 @@ const AppViewContent = memo(function AppViewContent() {
   else if (view === "organize") content = <OrganizeSuggestionsView />;
   else if (view === "library") content = <FileLibraryWorkspace />;
   else if (view === "preview") content = <TimelineView />;
-  else if (view === "rules") content = <RulesView />;
+  else if (view === "rules") content = <AutomationWorkspace />;
   else if (view === "restore") content = <RestoreView />;
   else content = <SettingsView />;
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
@@ -488,7 +488,7 @@ function viewDescription(
         ? `${previewActionCount.toLocaleString()} ${t("items")} · ${t("viewDescPreview")}`
         : t("viewDescPreview");
     case "rules":
-      return t("viewDescRules");
+      return t("automationIntentDescription");
     case "restore":
       return t("viewDescRestore");
     case "settings":

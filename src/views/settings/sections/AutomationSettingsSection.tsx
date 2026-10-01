@@ -11,10 +11,10 @@ export interface AutomationSettingsSectionProps {
 export function AutomationSettingsSection({ t, onOpenRules }: AutomationSettingsSectionProps) {
   return (
     <SettingsSection id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
-      <p className={quietText}>{t("automationSafetyBoundary")}</p>
-      <SettingsRow label={t("automationManualRuleSet")} description={t("automationSettingsDescription")}>
+      <p className={quietText}>{t("automationFixedPolicy")}</p>
+      <SettingsRow label={t("automationIntents")} description={t("automationIntentDescription")}>
         <button className={buttonSecondary} onClick={onOpenRules}>
-          {t("automationRules")}
+          {t("automationIntentWorkspaceTitle")}
         </button>
       </SettingsRow>
     </SettingsSection>

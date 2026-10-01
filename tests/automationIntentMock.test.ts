@@ -1,0 +1,23 @@
+import { describe, expect, it, vi } from "vitest";
+import { createAutomationMock } from "../src/api/automationMock";
+import { defaultFileLibraryQuerySpec } from "../src/store/useFileLibraryV2Store";
+import type { AutomationIntent, AutomationIntentDraft, AutomationRun } from "../src/types/automation";
+import type { OrganizationPlan } from "../src/types/domain";
+const draft: AutomationIntentDraft = { title: "Review", workflowKind: "organize_plan", scopeQuery: { ...defaultFileLibraryQuerySpec, scope: { kind: "all_enabled_roots" } }, trigger: { version: 1, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false }, enabled: true };
+it("keeps presentation receipts idempotent, CAS-protected and bound to fresh snapshots", () => {
+  let revision = 1;
+  const createPlan = vi.fn(() => ({ id: "plan", summary: { needsAnalysis: 1 } } as OrganizationPlan));
+  const mock = createAutomationMock({ roots: () => [], fingerprint: () => "fp", snapshotRevision: () => revision, createPlan });
+  const intent = mock("create_automation_intent", { draft }) as AutomationIntent;
+  const request = { version: 1, intentId: intent.id, expectedIntentRevision: 1, requestKey: "key" };
+  const first = mock("run_automation_intent_manual", { request }) as AutomationRun;
+  expect(first.status).toBe("blocked"); expect(first.analysisBlockerCode).toBeTruthy(); expect(first.resultPlanId).toBe("plan");
+  expect(mock("run_automation_intent_manual", { request })).toEqual(first); expect(createPlan).toHaveBeenCalledTimes(1);
+  revision = 2;
+  expect((mock("run_automation_intent_manual", { request: { ...request, requestKey: "new" } }) as AutomationRun).librarySnapshotRevision).toBe(2);
+  const other = mock("create_automation_intent", { draft }) as AutomationIntent;
+  expect(() => mock("run_automation_intent_manual", { request: { ...request, intentId: other.id } })).toThrow("key_conflict");
+  mock("set_automation_intent_enabled", { request: { intentId: intent.id, expectedRevision: 1, enabled: false } });
+  expect(() => mock("run_automation_intent_manual", { request })).toThrow("revision_conflict");
+  expect(() => mock("create_automation_intent", { draft: { ...draft, scopeQuery: { ...draft.scopeQuery, scope: { kind: "current_scan", scanSessionId: "temporary" } } } })).toThrow("scope_invalid");
+});

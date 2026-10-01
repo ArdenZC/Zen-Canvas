@@ -1,3 +1,4 @@
+import { automationApi } from "./automationApi";
 import { aiApi } from "./aiApi";
 import { analysisApi } from "./analysisApi";
 import { cleanupApi } from "./cleanupApi";
@@ -36,6 +37,7 @@ export type {
 } from "./types";
 
 export const tauriApi = {
+  ...automationApi,
   ...libraryApi,
   ...organizationApi,
   ...globalSearchApi,

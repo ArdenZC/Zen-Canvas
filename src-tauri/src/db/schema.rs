@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 35;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 36;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -723,6 +723,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         if version < 35 {
             migrate_cleanup_identity_encoding(conn)?;
             set_schema_version(conn, 35)?;
+        }
+        if version < 36 {
+            super::schema_automation::ensure_automation_schema(conn)?;
+            set_schema_version(conn, 36)?;
         }
         Ok(())
     })();
