@@ -287,6 +287,9 @@ fn main() {
                             | MacLifecycleEvent::DidMount
                             | MacLifecycleEvent::DidUnmount
                             | MacLifecycleEvent::VolumeChanged => {
+                                app_handle
+                                    .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                                    .pause();
                                 db.recover_dedupe_runs().map_err(|error| error.to_string())?;
                                 db.recover_analysis_runs().map_err(|error| error.to_string())?;
                                 db.recover_content_runs().map_err(|error| error.to_string())?;
