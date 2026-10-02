@@ -3410,7 +3410,7 @@ mod tests {
             };
         let enabled_default = setting("enabled-default", &enabled_path, true);
         let disabled_default = setting("disabled-default", &disabled_path, false);
-        let db = Database::open(fixture.join("state.sqlite3")).expect("open isolated database");
+        let db = test_db("watcher-membership");
         let mut settings = crate::settings::get_app_settings(&db).expect("default settings");
         settings.default_scan_folders = vec![enabled_default.clone(), disabled_default.clone()];
         settings.custom_search_roots = vec![crate::settings::SearchRootSetting {
