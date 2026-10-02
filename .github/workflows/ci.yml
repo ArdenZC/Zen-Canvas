@@ -453,10 +453,31 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
+      - name: Windows watcher durable event regression
+        env:
+          ZC_NATIVE_QA_WATCHER_TRACE: "1"
+          ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
+          ZC_NATIVE_QA_WATCHER_TRACE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "performance-test-tauri native-qa" --lib watcher::tests::windows_recommended_watcher_publishes_real_file_create_and_append -- --exact --nocapture --test-threads=1
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Native filesystem hardening smoke
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
+      - name: Setup Node for resident lifecycle assets
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Build exact-candidate resident lifecycle assets
+        run: |
+          npm ci
+          npm run build:frontend
+      - name: Build real Windows resident lifecycle candidate
+        env:
+          TAURI_CONFIG: '{"build":{"devUrl":null}}'
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas
+      - name: Real Windows Main background and resident delivery regression
+        shell: pwsh
+        run: ./scripts/runWindowsResidentLifecycleQa.ps1 -Executable ./src-tauri/target/debug/zen-canvas.exe -EvidenceRoot "${{ runner.temp }}/pm02b-resident-lifecycle"
 
   windows-native-preview-handler:
     name: Windows native Preview Handler (${{ matrix.validation_lane }})

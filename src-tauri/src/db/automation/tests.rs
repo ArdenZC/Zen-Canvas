@@ -1,24 +1,36 @@
 use super::*;
 use crate::db::{Database, InsertFileRequest};
+use crate::settings::ScanRootSetting;
 use rusqlite::params;
 use serde_json::json;
 
-struct Fixture {
+pub(super) struct Fixture {
     db: Option<Database>,
     root: std::path::PathBuf,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let root = std::env::temp_dir().join(format!("pm02a-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let db = Database::open(root.join("test.sqlite3")).unwrap();
         db.conn().unwrap().execute("INSERT INTO scan_roots(id,normalized_path,display_name,source_kind,enabled,health_status,current_generation,needs_reconciliation,created_at,updated_at) VALUES ('root','/tmp','Test','file_library',1,'healthy',1,0,1,1)",[]).unwrap();
         Self { db: Some(db), root }
     }
-    fn db(&self) -> &Database {
+    pub(super) fn db(&self) -> &Database {
         self.db.as_ref().unwrap()
     }
-    fn file(&self) {
+    pub(super) fn set_watcher_roots(&self, roots: Vec<ScanRootSetting>) {
+        self.persist_watcher_settings(roots.clone());
+        self.db()
+            .sync_file_library_watcher_roots(&roots)
+            .expect("sync watcher roots");
+    }
+    pub(super) fn persist_watcher_settings(&self, roots: Vec<ScanRootSetting>) {
+        let mut settings = crate::settings::get_app_settings(self.db()).expect("read settings");
+        settings.default_scan_folders = roots;
+        crate::settings::save_app_settings(self.db(), &settings).expect("persist watcher roots");
+    }
+    pub(super) fn file(&self) {
         self.db()
             .insert_file(InsertFileRequest {
                 id: "file".into(),
@@ -40,10 +52,19 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
-fn draft() -> AutomationIntentDraftV1 {
-    serde_json::from_value(json!({"title":"Prepare review","workflowKind":"organize_plan","scopeQuery":{"scope":{"kind":"all_enabled_roots"},"text":"  "},"trigger":{"version":1,"kind":"manual"},"policy":{"version":1,"review":"required","autoExecute":false},"enabled":true})).unwrap()
+pub(super) fn watcher_root_setting(id: &str, path: &str) -> ScanRootSetting {
+    ScanRootSetting {
+        id: id.to_string(),
+        path: path.to_string(),
+        label: id.to_string(),
+        enabled: true,
+        created_at: "2026-10-01T00:00:00.000Z".to_string(),
+    }
 }
-fn request(i: &AutomationIntentV1, key: &str) -> RunAutomationIntentV1 {
+pub(super) fn draft() -> AutomationIntentDraftV1 {
+    serde_json::from_value(json!({"title":"Prepare review","workflowKind":"organize_plan","scopeQuery":{"scope":{"kind":"all_enabled_roots"},"text":"  "},"trigger":{"version":2,"kind":"manual"},"policy":{"version":1,"review":"required","autoExecute":false},"enabled":true})).unwrap()
+}
+pub(super) fn request(i: &AutomationIntentV1, key: &str) -> RunAutomationIntentV1 {
     RunAutomationIntentV1 {
         version: 1,
         intent_id: i.id.clone(),
@@ -321,7 +342,7 @@ fn schema36_migration_preserves_populated35_and_constraints() {
     )
     .unwrap();
     conn.execute_batch(
-        "DROP TABLE automation_runs; DROP TABLE automation_intents; PRAGMA user_version=35;",
+        "DROP TABLE automation_trigger_state; DROP TABLE automation_runs; DROP TABLE automation_intents; ALTER TABLE scan_roots DROP COLUMN library_change_revision; ALTER TABLE files DROP COLUMN filesystem_observation_key; PRAGMA user_version=35;",
     )
     .unwrap();
     drop(conn);
@@ -331,7 +352,7 @@ fn schema36_migration_preserves_populated35_and_constraints() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        36
+        37
     );
     assert_eq!(
         conn.query_row(
@@ -468,13 +489,15 @@ fn fresh_schema_and_exact_indexes_are_idempotent() {
         vec![
             "idx_automation_intents_active",
             "idx_automation_runs_intent",
-            "idx_automation_runs_recent"
+            "idx_automation_runs_recent",
+            "idx_automation_trigger_event_due",
+            "idx_automation_trigger_schedule_due"
         ]
     );
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        36
+        37
     );
 }
 
@@ -570,7 +593,7 @@ fn empty_schema35_upgrades_without_history_or_extra_automation_tables() {
     db.conn()
         .unwrap()
         .execute_batch(
-            "DROP TABLE automation_runs; DROP TABLE automation_intents; PRAGMA user_version=35;",
+            "DROP TABLE automation_trigger_state; DROP TABLE automation_runs; DROP TABLE automation_intents; ALTER TABLE scan_roots DROP COLUMN library_change_revision; ALTER TABLE files DROP COLUMN filesystem_observation_key; PRAGMA user_version=35;",
         )
         .unwrap();
     drop(db);
@@ -579,7 +602,7 @@ fn empty_schema35_upgrades_without_history_or_extra_automation_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        36
+        37
     );
     assert_eq!(
         conn.query_row(
@@ -588,7 +611,7 @@ fn empty_schema35_upgrades_without_history_or_extra_automation_tables() {
             |r| r.get::<_, i64>(0)
         )
         .unwrap(),
-        2
+        3
     );
     assert_eq!(db.list_automation_runs(None).unwrap().len(), 0);
 }

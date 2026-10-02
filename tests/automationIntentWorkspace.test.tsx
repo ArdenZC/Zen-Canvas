@@ -16,9 +16,9 @@ vi.mock("../src/contexts/AppContexts", async () => {
 });
 vi.mock("../src/views/rules/RulesView", () => ({ RulesView: () => <div>Existing Rules workspace</div> }));
 vi.mock("../src/store/useOrganizationPlanStore", () => ({ useOrganizationPlanStore: { getState: () => ({ ...mocks.owner, openPlan: mocks.openPlan }) } }));
-vi.mock("../src/api/automationApi", () => ({ automationApi: Object.fromEntries(["listAutomationIntents", "listAutomationRuns", "createAutomationIntent", "updateAutomationIntent", "setAutomationIntentEnabled", "archiveAutomationIntent", "runAutomationIntentManual"].map((name) => [name, vi.fn()])) }));
+vi.mock("../src/api/automationApi", () => ({ automationApi: Object.fromEntries(["listAutomationIntents", "listAutomationRuns", "createAutomationIntent", "updateAutomationIntent", "setAutomationIntentEnabled", "archiveAutomationIntent", "runAutomationIntentManual", "onAutomationUpdated"].map((name) => [name, vi.fn()])) }));
 
-const intent: AutomationIntent = { id: "intent", revision: 1, title: "Review documents", workflowKind: "organize_plan", scopeQuery: { ...defaultFileLibraryQuerySpec, scope: { kind: "all_enabled_roots" } }, scopeFingerprint: "fingerprint", trigger: { version: 1, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false }, enabled: true, createdAt: 1, updatedAt: 1, archivedAt: null };
+const intent: AutomationIntent = { id: "intent", revision: 1, title: "Review documents", workflowKind: "organize_plan", scopeQuery: { ...defaultFileLibraryQuerySpec, scope: { kind: "all_enabled_roots" } }, scopeFingerprint: "fingerprint", trigger: { version: 2, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false }, enabled: true, createdAt: 1, updatedAt: 1, archivedAt: null };
 const run: AutomationRun = { id: "run", requestKey: "key", intentId: intent.id, intentRevision: 1, triggerKind: "manual", scopeFingerprint: "fingerprint", librarySnapshotRevision: 5, status: "completed", resultPlanId: "plan", queuedAnalysisCount: 0, requiresPlanRefresh: false, analysisBlockerCode: null, errorCode: null, createdAt: 1, completedAt: 1 };
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label)!;
 const click = async (label: string) => { await act(async () => button(label).click()); };
@@ -32,6 +32,7 @@ describe("PM-02A Intent-first workspace", () => {
   let root: Root;
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(automationApi.onAutomationUpdated).mockResolvedValue(() => undefined);
     vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([{ width: 100, height: 40 }] as unknown as DOMRectList);
     mocks.language = "en";
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,7 +53,7 @@ describe("PM-02A Intent-first workspace", () => {
     vi.mocked(automationApi.createAutomationIntent).mockResolvedValue(intent);
     vi.mocked(automationApi.listAutomationIntents).mockResolvedValue([intent]);
     await act(async () => document.querySelector<HTMLFormElement>("form")!.requestSubmit());
-    expect(automationApi.createAutomationIntent).toHaveBeenCalledWith(expect.objectContaining({ title: "Review docs", scopeQuery: expect.objectContaining({ text: "annual", scope: { kind: "all_enabled_roots" } }), trigger: { version: 1, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false } }));
+    expect(automationApi.createAutomationIntent).toHaveBeenCalledWith(expect.objectContaining({ title: "Review docs", scopeQuery: expect.objectContaining({ text: "annual", scope: { kind: "all_enabled_roots" } }), trigger: { version: 2, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false } }));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     expect(document.activeElement).toBe(origin);
@@ -102,10 +103,40 @@ describe("PM-02A Intent-first workspace", () => {
     await click("Advanced Rules"); expect(document.body.textContent).toContain("Existing Rules workspace");
     expect(automationApi.runAutomationIntentManual).not.toHaveBeenCalled();
   });
-  it("renders bilingual fixed-policy copy with no scheduling or automatic-execution controls", async () => {
-    mocks.language = "zh"; await render(); expect(document.body.textContent).toContain("仅手动触发");
+  it("renders bilingual fixed-policy copy with no automatic-execution controls", async () => {
+    mocks.language = "zh"; await render(); expect(document.body.textContent).toContain("自动文件更改：绝不");
     expect(document.body.textContent).toContain("必须审核");
     expect(document.querySelector('input[type="datetime-local"]')).toBeNull();
-    expect(makeTranslator("en")("automationFixedPolicy")).toContain("No automatic execution");
+    expect(makeTranslator("en")("automationFixedPolicy")).toContain("Automatic file changes: Never");
   });
+  it("PM-02B edits a weekday schedule with explicit zone and retains manual Run now", async () => {
+    await render(); await click("Create intent"); await input(0,"Scheduled review");
+    const choose = async (index: number, value: string) => act(async () => {
+      const select=document.querySelectorAll<HTMLSelectElement>("select")[index];
+      select.value=value; select.dispatchEvent(new Event("change",{bubbles:true}));
+    });
+    await choose(0,"schedule"); await choose(1,"weekdays");
+    await input(3,"America/Los_Angeles");
+    const scheduled={...intent,trigger:{version:2 as const,kind:"schedule" as const,timeZone:"America/Los_Angeles",localTime:"09:00",weekdays:[1,2,3,4,5]}};
+    vi.mocked(automationApi.createAutomationIntent).mockResolvedValue(scheduled);
+    vi.mocked(automationApi.listAutomationIntents).mockResolvedValue([scheduled]);
+    await act(async()=>document.querySelector<HTMLFormElement>("form")!.requestSubmit());
+    expect(automationApi.createAutomationIntent).toHaveBeenCalledWith(expect.objectContaining({trigger:scheduled.trigger}));
+    vi.mocked(automationApi.runAutomationIntentManual).mockResolvedValue(run);
+    await click("Generate plan"); expect(automationApi.runAutomationIntentManual).toHaveBeenCalled();
+  });
+  it("PM-02B projects review skip/source and deferred state from backend events", async () => {
+    let changed!:()=>void; const unlisten=vi.fn();
+    vi.mocked(automationApi.onAutomationUpdated).mockImplementation(async handler=>{changed=handler;return unlisten;});
+    const eventIntent={...intent,trigger:{version:2 as const,kind:"managed_scope_change" as const},triggerState:{nextDueAt:null,pendingEventDueAt:100,lastErrorCode:"automation_resource_deferred"}};
+    vi.mocked(automationApi.listAutomationIntents).mockResolvedValue([eventIntent]);
+    await render(); expect(document.body.textContent).toContain("waiting for existing background resource admission");
+    vi.mocked(automationApi.listAutomationRuns).mockResolvedValue([{...run,triggerKind:"managed_scope_change",status:"blocked",errorCode:"automation_review_pending"}]);
+    await act(async()=>changed());
+    expect(document.body.textContent).toContain(makeTranslator("en")("automationReviewPendingSkip"));
+    expect(document.body.textContent).toContain(makeTranslator("en")("automationFilesChanged"));
+    expect(automationApi.runAutomationIntentManual).not.toHaveBeenCalled();
+    await act(async()=>root.render(null)); expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
 });

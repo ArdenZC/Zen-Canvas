@@ -44,6 +44,7 @@ dirs = "5"
 flate2 = "1"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 jwalk = "0.8.1"
+jiff = { version = "=0.2.37", default-features = false, features = ["std", "tz-fat", "tzdb-bundle-always"] }
 notify = "8"
 r2d2 = "0.8"
 r2d2_sqlite = { version = "0.34.0", features = ["bundled"] }
@@ -77,6 +78,7 @@ windows-sys = { version = "0.61.2", features = [
     "Wdk_Foundation",
     "Wdk_Storage_FileSystem",
     "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",

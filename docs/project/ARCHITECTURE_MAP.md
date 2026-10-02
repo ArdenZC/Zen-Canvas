@@ -49,7 +49,7 @@ The normal direction is **durable backend authority → API → replaceable fron
 | Restore | operation/cleanup ledgers plus identity revalidation | Restore intent, confirmation and outcome projection |
 | App settings | persisted versioned settings | Editing/reconciliation projection |
 | AI readiness / consent | existing AI settings + credential store, backend-owned Managed Scope policy, Content Scope Policy and distinct Cleanup local/cloud sharing policy composed by `crate::ai::readiness`; no separate readiness store | Settings/status presentation only; no renderer-created authority |
-| Automation | Schema 36 `automation_intents` and `automation_runs`; CAS Intent revisions, globally unique request keys and atomic Run + existing Organization Plan materialization | Intent editor, one-shot manual request, receipt projection and existing Organize handoff; no scheduler, provider loop or filesystem executor |
+| Automation | PM-02B Schema 37 Intent/Run + trigger state; scanner/watcher root change clock; one wake/deadline coordinator admitted by existing WorkScheduler Background; atomic Run + existing Plan | Trigger editor, manual Run now, backend next due/source/deferred/skip projections and existing Organize handoff; no provider loop or filesystem executor |
 | Managed AI | existing durable managed-AI queue and provider policy; canonical per-file `SemanticAssessmentV1` lives in `ai_analysis_state.classification_json` | Configuration/progress projection |
 
 Preview in the table means **content Quick Preview**, not Operation Preview. File-operation planning remains owned by the existing mutation/operation authorities and is not merged into W3 Preview Platform.
@@ -279,6 +279,26 @@ W4 activation records the native host/process/native-access boundary in ADR-0005
 
 The main-window-only API resolves reusable File Query V2 semantics against healthy enabled roots and a fresh backend library revision on every new request. `current_scan`, Browse paths, renderer-selected IDs/counts and saved snapshot revisions are rejected as Intent authority. Current Managed AI semantics remain owned by Organize; its builder is extracted unchanged into `db/queries/organization/materialize.rs` so one immediate transaction can publish a Plan and Run receipt.
 
-Missing/stale analysis is admitted only after existing backend readiness, provider/credential and managed-scope consent checks, in batches of at most 100 through `analyze_organization_plan_items`. Current valid assessments bypass fresh provider readiness. The existing queue/governor owns subsequent analysis. Automation never accepts decisions, requests Dry Run, executes files, or starts a timer/worker. Crashes after Plan publication retain a terminal blocked receipt and reviewable Plan; retry returns the existing receipt and cannot enqueue again. Organize owns explicit analysis/refresh and all later review/execution.
+Missing/stale analysis is admitted only after existing backend readiness, provider/credential and managed-scope consent checks, in batches of at most 100 through `analyze_organization_plan_items`. Current valid assessments bypass fresh provider readiness. The existing queue/governor owns subsequent analysis. Automation never accepts decisions, requests Dry Run or executes files. The PM-02A manual service starts no timer/worker; the authorized PM-02B coordinator is documented below. Crashes after Plan publication retain a terminal blocked receipt and reviewable Plan; retry returns the existing receipt and cannot enqueue again. Organize owns explicit analysis/refresh and all later review/execution.
 
-[Schema 36 contract](SCHEMA_36_AUTOMATION_INTENTS.md) and [ADR-0010](DECISIONS/0010-manual-automation-intent-boundary.md). PM-02A is Owner review pending; PM-02B and PM-03 remain inactive.
+[Schema 36 contract](SCHEMA_36_AUTOMATION_INTENTS.md) and [ADR-0010](DECISIONS/0010-manual-automation-intent-boundary.md). PM-02A is merged / Owner accepted. Its manual contract remains shared with PM-02B; PM-03 remains inactive.
+
+
+## PM-02B Event / Schedule Trigger boundary
+
+Activation PR #316 is merged; implementation Owner review is pending. [Schema 37](SCHEMA_37_AUTOMATION_TRIGGERS.md), [ADR-0011](DECISIONS/0011-automation-trigger-boundary.md), and [result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md) record the bounded extension.
+
+| Module | Responsibility |
+| --- | --- |
+| `db/schema_automation_triggers.rs` | Atomic 36→37 migration / preserved history / bounded publication and recovery fields |
+| `db/automation/types.rs`, `repository.rs` | Strict Trigger V2 wire types, CAS Intent state/reset and truthful runtime projection |
+| `db/automation/calendar.rs` | Explicit IANA minute/day recurrence, fold/gap and bounded newest-due catch-up through Jiff |
+| `db/automation/trigger_state.rs` | Root map baselines/coalescing, exact revision claim, deterministic key and receipt-before-cursor recovery |
+| `db/automation/runtime.rs` | One condition-variable worker, nearest deadline, hints, cancellation/join and existing Background admission |
+| `db/queries/scan.rs` | Existing scanner/watcher transaction publication; filesystem-only root clock + read-only physical identity observation; postcommit wake |
+| `db/automation/service.rs` | Shared manual/automatic fresh Query V2→existing Plan→existing Managed AI admission→Run; review-pending suppression |
+| `main.rs` / existing macOS lifecycle | Startup recovery precedes coordinator start; sleep/unmount pause; recovery precedes resume; teardown joins Automation before AI shutdown |
+| `platform/windows/automation_resume.rs` | Native suspend/resume hint adapter only; no timer, policy or durable authority |
+| `AutomationTriggerEditor.tsx`, `useAutomationIntents.ts` | Trigger editing and event-driven receipt/status reload; no UI polling |
+
+There are no new renderer commands, watchers, AI queues, provider clients, execution paths or scheduler fairness/governor ownership changes. Windows real native and suspend acceptance remain explicitly pending.

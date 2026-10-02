@@ -19,7 +19,10 @@ export function useAutomationIntents() {
   useEffect(() => {
     mounted.current = true;
     void load().catch(() => { if (mounted.current) setError("load"); }).finally(() => { if (mounted.current) setLoading(false); });
-    return () => { mounted.current = false; };
+    let disposed=false;
+    let unlisten:(()=>void)|undefined;
+    void automationApi.onAutomationUpdated(() => { void load().catch(() => { if (mounted.current) setError("load"); }); }).then((stop)=>{if(disposed)stop();else unlisten=stop;}).catch(()=>{ /* Explicit Reload remains available if event transport is unavailable. */ });
+    return () => { disposed=true; unlisten?.(); mounted.current = false; };
   }, [load]);
   const act = useCallback(async (id: string, operation: () => Promise<unknown>) => {
     if (inFlight.current) return false;

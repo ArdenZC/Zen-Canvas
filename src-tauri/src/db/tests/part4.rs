@@ -8,7 +8,7 @@ fn schema_30_creates_analysis_ledger_without_fabricated_history() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
     for table in [
         "dedupe_authority_state",
         "analysis_runs",
@@ -99,7 +99,7 @@ fn schema_33_to_34_creates_content_ledger_without_rewriting_core_tables() {
         DROP TABLE content_run_items;
         DROP TABLE content_runs;
         DROP TABLE content_scope_policies;
-        PRAGMA user_version = 33;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 33;
         "#,
     )
     .expect("construct schema 33 fixture");
@@ -110,7 +110,7 @@ fn schema_33_to_34_creates_content_ledger_without_rewriting_core_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("schema version"),
-        36
+        37
     );
     for table in [
         "content_scope_policies",
@@ -177,7 +177,7 @@ fn schema_33_to_34_conflict_rolls_back_content_ledger_atomically() {
         DROP TABLE content_runs;
         DROP TABLE content_scope_policies;
         CREATE TABLE content_runs (id TEXT PRIMARY KEY, wrong TEXT);
-        PRAGMA user_version = 33;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 33;
         "#,
     )
     .expect("construct conflicting schema 33 fixture");
@@ -225,7 +225,7 @@ fn schema_29_to_30_conflict_rolls_back_analysis_migration_atomically() {
         DROP TABLE analysis_runs;
         DROP TABLE dedupe_authority_state;
         CREATE TABLE analysis_runs (id TEXT PRIMARY KEY);
-        PRAGMA user_version = 29;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 29;
         "#,
     )
     .expect("create conflicting schema 29 fixture");

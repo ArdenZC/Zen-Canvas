@@ -201,6 +201,50 @@ pub(crate) struct WatcherRootConfig {
     pub path: String,
 }
 
+pub(crate) fn settings_owned_watcher_roots(
+    conn: &Connection,
+) -> Result<Vec<WatcherRootConfig>, DbError> {
+    let settings_json = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            [crate::settings::APP_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let settings = settings_json
+        .map(|value| serde_json::from_str::<crate::settings::AppSettings>(&value))
+        .transpose()?
+        .unwrap_or_default();
+    let configured_paths =
+        crate::watcher::watch_paths_from_default_scan_folders(&settings.default_scan_folders)
+            .into_iter()
+            .map(|path| normalize_scan_root_path(&path.to_string_lossy()))
+            .filter(|path| !path.is_empty())
+            .map(|path| root_identity_key(&path))
+            .collect::<HashSet<_>>();
+    if configured_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut statement = conn.prepare(
+        "SELECT id, normalized_path FROM scan_roots WHERE enabled = 1 AND source_kind = 'file_library' ORDER BY length(normalized_path) DESC, normalized_path",
+    )?;
+    let roots = statement
+        .query_map([], |row| {
+            Ok(WatcherRootConfig {
+                id: row.get(0)?,
+                path: row.get(1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|root| {
+            configured_paths.contains(&root_identity_key(&normalize_scan_root_path(&root.path)))
+        })
+        .collect();
+    Ok(roots)
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct WatcherRevisionStart {
     pub watcher_revision: i64,
@@ -310,6 +354,7 @@ impl Database {
                 }
                 let admission = load_admission_tx(&tx, &session_id, false)?;
                 tx.commit()?;
+                self.wake_automation_triggers();
                 return Ok(admission);
             }
         }
@@ -468,6 +513,7 @@ impl Database {
 
         let admission = load_admission_tx(&tx, &session_id, true)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(admission)
     }
 
@@ -678,18 +724,32 @@ impl Database {
             .iter()
             .map(|(path, _, _)| root_identity_key(path))
             .collect::<HashSet<_>>();
+        let mut previous_enabled = HashMap::<String, bool>::new();
+        let mut root_cursor_transitions = HashMap::<String, Option<i64>>::new();
 
         {
             let mut statement = tx.prepare(
-                "SELECT id, normalized_path FROM scan_roots WHERE source_kind = 'file_library'",
+                "SELECT id, normalized_path, enabled FROM scan_roots WHERE source_kind = 'file_library'",
             )?;
             let existing = statement
                 .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)? != 0,
+                    ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
-            for (id, path) in existing {
-                if !desired_keys.contains(&root_identity_key(&path)) {
+            for (id, path, enabled) in existing {
+                let key = root_identity_key(&normalize_scan_root_path(&path));
+                previous_enabled
+                    .entry(key.clone())
+                    .and_modify(|was_enabled| *was_enabled |= enabled)
+                    .or_insert(enabled);
+                if !desired_keys.contains(&key) {
+                    if enabled {
+                        root_cursor_transitions.insert(id.clone(), None);
+                    }
                     tx.execute(
                         "UPDATE scan_roots SET enabled = 0, updated_at = ?1 WHERE id = ?2",
                         params![current_unix_seconds(), id],
@@ -700,6 +760,18 @@ impl Database {
 
         for (path, enabled, label) in desired {
             let seed = ensure_scan_root_tx(&tx, &path)?;
+            let key = root_identity_key(&path);
+            let was_enabled = previous_enabled.get(&key).copied().unwrap_or(false);
+            if enabled && !was_enabled {
+                let revision = tx.query_row(
+                    "SELECT library_change_revision FROM scan_roots WHERE id = ?1",
+                    [&seed.id],
+                    |row| row.get(0),
+                )?;
+                root_cursor_transitions.insert(seed.id.clone(), Some(revision));
+            } else if !enabled && was_enabled {
+                root_cursor_transitions.insert(seed.id.clone(), None);
+            }
             let display_name = if label.is_empty() {
                 scan_root_display_name(&path)
             } else {
@@ -761,30 +833,20 @@ impl Database {
         if !disabled_roots.is_empty() {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
+        let root_cursor_transitions = root_cursor_transitions.into_iter().collect::<Vec<_>>();
+        crate::db::apply_watcher_root_transitions(
+            &tx,
+            &root_cursor_transitions,
+            current_unix_seconds(),
+        )?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(())
     }
 
     pub(crate) fn list_watcher_root_configs(&self) -> Result<Vec<WatcherRootConfig>, DbError> {
         let conn = self.conn()?;
-        let mut statement = conn.prepare(
-            r#"
-            SELECT id, normalized_path
-            FROM scan_roots
-            WHERE enabled = 1 AND source_kind = 'file_library'
-            ORDER BY length(normalized_path) DESC, normalized_path
-            "#,
-        )?;
-        let result = statement
-            .query_map([], |row| {
-                Ok(WatcherRootConfig {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::from);
-        result
+        settings_owned_watcher_roots(&conn)
     }
 
     pub(crate) fn begin_watcher_revision(
@@ -809,6 +871,7 @@ impl Database {
         )?;
         if changed == 0 {
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(None);
         }
         // A new watcher revision makes the previously published global
@@ -824,6 +887,7 @@ impl Database {
             },
         )?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(Some(result))
     }
 
@@ -863,6 +927,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -899,6 +964,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -934,6 +1000,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -974,6 +1041,7 @@ impl Database {
             bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         }
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(changed == 1)
     }
 
@@ -1040,20 +1108,26 @@ impl Database {
             }
         }
 
-        upsert_file_rows_tx(&tx, &files, observed_at)?;
+        let mut filesystem_changed = upsert_file_rows_tx(&tx, &files, observed_at)?;
         for path in &stale_paths {
             for candidate in path_lookup_candidates(path, path) {
-                tx.execute(
+                filesystem_changed |= tx.execute(
                     "UPDATE files SET is_stale = 1 WHERE is_stale = 0 AND (id = ?1 OR path = ?1)",
                     params![candidate],
-                )?;
+                )? > 0;
             }
         }
         invalidate_stale_files_in_transaction(&tx)?;
         if !files.is_empty() || !stale_paths.is_empty() {
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
+        if filesystem_changed {
+            bump_root_change_revision(&tx, root_id)?;
+        }
         tx.commit()?;
+        if filesystem_changed {
+            self.wake_automation_triggers();
+        }
         Ok(WatcherMutationResult {
             upserted_paths,
             reconciliation_required,
@@ -1155,6 +1229,7 @@ impl Database {
 
         let claimed = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(claimed)
     }
 
@@ -1179,7 +1254,7 @@ impl Database {
         )?;
 
         let observed_at = current_unix_seconds();
-        upsert_scan_files_tx(&tx, run_id, batch.entries, observed_at)?;
+        let filesystem_changed = upsert_scan_files_tx(&tx, run_id, batch.entries, observed_at)?;
         insert_scan_errors_tx(&tx, run_id, batch.errors, observed_at)?;
 
         let metadata_errors = batch
@@ -1274,8 +1349,14 @@ impl Database {
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
 
+        if filesystem_changed {
+            bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
+        }
         let updated = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
+        if filesystem_changed {
+            self.wake_automation_triggers();
+        }
         Ok(updated)
     }
 
@@ -1357,6 +1438,7 @@ impl Database {
         };
         let now = current_unix_seconds();
         if changed > 0 {
+            bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
             invalidate_stale_files_in_transaction(&tx)?;
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
@@ -1404,6 +1486,7 @@ impl Database {
         let updated = load_scan_run_record(&tx, run_id)?;
         let _ = changed;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(updated)
     }
 
@@ -1569,6 +1652,7 @@ impl Database {
             })?;
             let session = load_session(&tx, session_id)?;
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(ScanFinalization {
                 run: record,
                 dedupe_pending: session.dedupe_dispatch_state == "pending",
@@ -1822,6 +1906,7 @@ impl Database {
         let session = load_session(&tx, session_id)?;
         let dedupe_pending = projection.dedupe_pending;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(ScanFinalization {
             run: updated,
             session,
@@ -1904,6 +1989,7 @@ impl Database {
         let record = load_scan_run_record(&tx, run_id)?;
         if is_terminal_status(&record.dto.status) {
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(record);
         }
         if !record.dto.cancel_requested
@@ -1915,6 +2001,7 @@ impl Database {
             // Once stale reconciliation has committed, cancellation must not
             // turn a run that already changed stale state into a cancelled run.
             tx.commit()?;
+            self.wake_automation_triggers();
             return Ok(record);
         }
         let session_id =
@@ -1995,6 +2082,7 @@ impl Database {
         let _ = update_session_projection_tx(&tx, session_id, session_revision, now)?;
         let updated = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(updated)
     }
 
@@ -2053,6 +2141,7 @@ impl Database {
             params![now],
         )?;
         tx.commit()?;
+        self.wake_automation_triggers();
         Ok(recovered)
     }
 
@@ -2512,9 +2601,9 @@ fn upsert_file_rows_tx(
     tx: &Transaction<'_>,
     files: &[InsertFileRequest],
     observed_at: i64,
-) -> Result<(), DbError> {
+) -> Result<bool, DbError> {
     if files.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
     let mut statement = tx.prepare(
         r#"
@@ -2551,10 +2640,11 @@ fn upsert_file_rows_tx(
         "#,
     )?;
     let mut invalidations = Vec::new();
+    let mut filesystem_changed = false;
     for file in files {
         let previous = tx
             .query_row(
-                "SELECT path, size, mtime, is_dir, is_stale FROM files WHERE id = ?1",
+                "SELECT path, size, mtime, is_dir, is_stale, ctime, filesystem_observation_key FROM files WHERE id = ?1",
                 params![file.id],
                 |row| {
                     Ok((
@@ -2563,10 +2653,46 @@ fn upsert_file_rows_tx(
                         row.get::<_, i64>(2)?,
                         row.get::<_, i64>(3)?,
                         row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, Option<String>>(6)?,
                     ))
                 },
             )
             .optional()?;
+        // Observe identity only inside the existing filesystem publication
+        // owner. This is read-only and never feeds trigger-state file IDs.
+        let physical =
+            crate::fs_safety::capture_physical_identity(std::path::Path::new(&file.path)).ok();
+        let identity = if file.is_dir || physical.is_some() {
+            // Retain the last filesystem publication independently of metadata
+            // rows later updated by existing user operation owners. Only this
+            // owner can compare/publish the root change clock.
+            let bytes = serde_json::to_vec(&(
+                &file.path,
+                file.size,
+                file.mtime,
+                file.ctime,
+                file.is_dir,
+                physical.map(|identity| (identity.physical_key, identity.modified_ns)),
+            ))?;
+            Some(blake3::hash(&bytes).to_hex().to_string())
+        } else {
+            None
+        };
+        filesystem_changed |= previous.as_ref().is_some_and(|previous| {
+            matches!((&previous.6, &identity), (Some(before), Some(after)) if before != after)
+        });
+        filesystem_changed |=
+            previous
+                .as_ref()
+                .is_none_or(|(path, size, mtime, is_dir, stale, ctime, _identity)| {
+                    path != &file.path
+                        || *size != file.size
+                        || *mtime != file.mtime
+                        || *is_dir != bool_to_i64(file.is_dir)
+                        || *stale != 0
+                        || *ctime != file.ctime
+                });
         statement.execute(params![
             file.id,
             file.path,
@@ -2582,7 +2708,22 @@ fn upsert_file_rows_tx(
             CLASSIFICATION_STATUS_UNCLASSIFIED,
             observed_at,
         ])?;
-        if let Some((old_path, old_size, old_mtime, old_is_dir, old_is_stale)) = previous {
+        if let Some(identity) = identity {
+            tx.execute(
+                "UPDATE files SET filesystem_observation_key=?2 WHERE id=?1 AND filesystem_observation_key IS NOT ?2",
+                params![file.id, identity],
+            )?;
+        }
+        if let Some((
+            old_path,
+            old_size,
+            old_mtime,
+            old_is_dir,
+            old_is_stale,
+            _old_ctime,
+            _old_identity,
+        )) = previous
+        {
             if old_path != file.path
                 || old_size != file.size
                 || old_mtime != file.mtime
@@ -2603,7 +2744,7 @@ fn upsert_file_rows_tx(
     for (file_id, stale_status) in invalidations {
         invalidate_file_in_transaction(tx, &file_id, stale_status)?;
     }
-    Ok(())
+    Ok(filesystem_changed)
 }
 
 fn upsert_scan_files_tx(
@@ -2611,11 +2752,11 @@ fn upsert_scan_files_tx(
     run_id: &str,
     files: &[InsertFileRequest],
     observed_at: i64,
-) -> Result<(), DbError> {
+) -> Result<bool, DbError> {
     if files.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
-    upsert_file_rows_tx(tx, files, observed_at)?;
+    let filesystem_changed = upsert_file_rows_tx(tx, files, observed_at)?;
 
     let mut seen_statement = tx.prepare(
         r#"
@@ -2629,7 +2770,7 @@ fn upsert_scan_files_tx(
     for file in files {
         seen_statement.execute(params![run_id, file.id, file.path, observed_at])?;
     }
-    Ok(())
+    Ok(filesystem_changed)
 }
 
 fn insert_scan_errors_tx(
@@ -3166,6 +3307,14 @@ fn scan_root_display_name(path: &str) -> String {
         .to_string()
 }
 
+fn bump_root_change_revision(conn: &Connection, root_id: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE scan_roots SET library_change_revision=library_change_revision+1 WHERE id=?1",
+        [root_id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3199,6 +3348,122 @@ mod tests {
             },
             run_id_override: None,
         }
+    }
+
+    fn persist_default_scan_folders(db: &Database, roots: Vec<crate::settings::ScanRootSetting>) {
+        let mut settings = crate::settings::get_app_settings(db).expect("read app settings");
+        settings.default_scan_folders = roots;
+        crate::settings::save_app_settings(db, &settings).expect("persist app settings");
+    }
+
+    #[test]
+    fn ad_hoc_scan_admission_does_not_join_settings_watcher_roots() {
+        let db = test_db("ad-hoc-watcher-authority");
+        let mut settings = crate::settings::get_app_settings(&db).expect("default settings");
+        settings.default_scan_folders.clear();
+        crate::settings::save_app_settings(&db, &settings).expect("persist empty watcher settings");
+
+        let path = std::env::temp_dir().join(format!("zen-canvas-ad-hoc-{}", new_job_id("root")));
+        fs::create_dir_all(&path).expect("create ad-hoc scan root");
+        let normalized = normalize_scan_root_path(&path.to_string_lossy());
+        db.admit_managed_scan(&request(&normalized, "ad-hoc-watcher-authority"))
+            .expect("admit ordinary managed scan");
+
+        let watcher_roots = db
+            .list_watcher_root_configs()
+            .expect("read settings-owned watcher roots");
+        assert!(
+            watcher_roots.iter().all(|root| root.path != normalized),
+            "ordinary scan admission must not grant watcher ownership"
+        );
+
+        drop(db);
+        fs::remove_dir_all(path).expect("remove ad-hoc scan root");
+    }
+
+    #[test]
+    fn watcher_membership_uses_enabled_default_folders_only() {
+        let fixture = std::env::temp_dir().join(format!(
+            "zen-canvas-watcher-membership-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let enabled_path = fixture.join("enabled-default");
+        let disabled_path = fixture.join("disabled-default");
+        let custom_search_path = fixture.join("custom-search");
+        let global_scope_path = fixture.join("global-index-scope");
+        for path in [
+            &enabled_path,
+            &disabled_path,
+            &custom_search_path,
+            &global_scope_path,
+        ] {
+            fs::create_dir_all(path).expect("create isolated watcher-membership root");
+        }
+
+        let setting =
+            |id: &str, path: &std::path::Path, enabled| crate::settings::ScanRootSetting {
+                id: id.to_string(),
+                path: path.to_string_lossy().into_owned(),
+                label: id.to_string(),
+                enabled,
+                created_at: "2026-10-02T00:00:00.000Z".to_string(),
+            };
+        let enabled_default = setting("enabled-default", &enabled_path, true);
+        let disabled_default = setting("disabled-default", &disabled_path, false);
+        let db = test_db("watcher-membership");
+        let mut settings = crate::settings::get_app_settings(&db).expect("default settings");
+        settings.default_scan_folders = vec![enabled_default.clone(), disabled_default.clone()];
+        settings.custom_search_roots = vec![crate::settings::SearchRootSetting {
+            id: "custom-search".to_string(),
+            path: custom_search_path.to_string_lossy().into_owned(),
+            label: "Custom search only".to_string(),
+            enabled: true,
+            created_at: "2026-10-02T00:00:00.000Z".to_string(),
+        }];
+        crate::settings::save_app_settings(&db, &settings).expect("persist scoped settings");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("sync default File Library roots");
+
+        db.admit_managed_scan(&request(
+            &normalize_scan_root_path(&custom_search_path.to_string_lossy()),
+            "custom-search-ad-hoc-scan",
+        ))
+        .expect("create durable root under custom-search-only path");
+        db.add_managed_scope(crate::global_index::AddManagedScopeRequest {
+            path: global_scope_path.to_string_lossy().into_owned(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add independent Global Index managed scope");
+        db.admit_managed_scan(&request(
+            &normalize_scan_root_path(&global_scope_path.to_string_lossy()),
+            "global-scope-ad-hoc-scan",
+        ))
+        .expect("create separate ad-hoc File Library root under Global Index path");
+
+        let watcher_roots = db
+            .list_watcher_root_configs()
+            .expect("read settings-owned watcher roots");
+        let watcher_paths = watcher_roots
+            .iter()
+            .map(|root| normalize_scan_root_path(&root.path))
+            .collect::<HashSet<_>>();
+        assert_eq!(watcher_paths.len(), 1);
+        assert!(watcher_paths.contains(&normalize_scan_root_path(&enabled_path.to_string_lossy())));
+        assert!(
+            !watcher_paths.contains(&normalize_scan_root_path(&disabled_path.to_string_lossy()))
+        );
+        assert!(!watcher_paths.contains(&normalize_scan_root_path(
+            &custom_search_path.to_string_lossy()
+        )));
+        assert!(!watcher_paths.contains(&normalize_scan_root_path(
+            &global_scope_path.to_string_lossy()
+        )));
+
+        drop(db);
+        fs::remove_dir_all(fixture).expect("remove isolated watcher-membership fixture");
     }
 
     #[test]
@@ -3701,6 +3966,61 @@ mod tests {
     }
 
     #[test]
+    fn scanner_publication_clock_ignores_same_filesystem_state_and_counts_size_mtime() {
+        let db = test_db("automation-publication-clock");
+        let root = format!("/tmp/zen-canvas-trigger-scan-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "automation-clock"))
+            .unwrap();
+        let mut claimed = db.claim_queued_scan_run(&admission.runs[0].id).unwrap();
+        let mut entry = InsertFileRequest {
+            id: format!("{root}/file.txt"),
+            path: format!("{root}/file.txt"),
+            name: "file.txt".into(),
+            extension: "txt".into(),
+            size: 4,
+            mtime: 4,
+            ctime: 4,
+            is_dir: false,
+            state_code: 0,
+        };
+        for expected in [1, 1, 2] {
+            if expected == 2 {
+                entry.size = 8;
+                entry.mtime = 5;
+            }
+            claimed = db
+                .persist_scan_batch(
+                    &claimed.dto.id,
+                    claimed.dto.revision,
+                    claimed.root_revision,
+                    claimed.session_revision,
+                    &ScanBatchInput {
+                        entries: std::slice::from_ref(&entry),
+                        errors: &[],
+                        scanned_files: 1,
+                        scanned_directories: 0,
+                        processed_bytes: entry.size,
+                        warnings: 0,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                db.conn()
+                    .unwrap()
+                    .query_row(
+                        "SELECT library_change_revision FROM scan_roots WHERE id=?1",
+                        [&claimed.dto.scan_root_id],
+                        |r| r.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                expected
+            );
+            entry.state_code = 1; // Classification alone is not filesystem truth.
+        }
+    }
+
+    #[test]
     fn successful_metadata_and_scan_seen_commit_together_and_old_worker_cas_is_rejected() {
         let db = test_db("batch-cas");
         let root = format!("/tmp/zen-canvas-scan-batch-{}", new_job_id("root"));
@@ -3746,6 +4066,15 @@ mod tests {
             )
             .expect("scan seen row");
         assert_eq!(seen, 1);
+        assert_eq!(
+            conn.query_row(
+                "SELECT library_change_revision FROM scan_roots WHERE id=?1",
+                [&claimed.dto.scan_root_id],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
         drop(conn);
 
         let late_entry = InsertFileRequest {
@@ -4502,14 +4831,16 @@ mod tests {
         let file_path = root_path.join("new.txt");
         fs::write(&file_path, b"watcher").expect("create watcher file");
         let root = root_path.to_string_lossy().into_owned();
-        db.sync_file_library_watcher_roots(&[crate::settings::ScanRootSetting {
+        let watcher_roots = vec![crate::settings::ScanRootSetting {
             id: "settings-root".to_string(),
             path: root.clone(),
             label: "Watcher root".to_string(),
             enabled: true,
             created_at: "2026-07-27T00:00:00.000Z".to_string(),
-        }])
-        .expect("sync watcher root");
+        }];
+        persist_default_scan_folders(&db, watcher_roots.clone());
+        db.sync_file_library_watcher_roots(&watcher_roots)
+            .expect("sync watcher root");
         let root_id = db
             .list_watcher_root_configs()
             .expect("watcher configs")
@@ -4599,7 +4930,7 @@ mod tests {
         )
         .expect("age old descendant before reconciliation");
         drop(conn);
-        db.sync_file_library_watcher_roots(&[
+        let watcher_roots = vec![
             crate::settings::ScanRootSetting {
                 id: "cross-root-old".to_string(),
                 path: old_root.clone(),
@@ -4614,8 +4945,10 @@ mod tests {
                 enabled: true,
                 created_at: "2026-07-27T00:00:00.000Z".to_string(),
             },
-        ])
-        .expect("sync cross-root watcher roots");
+        ];
+        persist_default_scan_folders(&db, watcher_roots.clone());
+        db.sync_file_library_watcher_roots(&watcher_roots)
+            .expect("sync cross-root watcher roots");
         fs::remove_dir_all(&old_directory).expect("simulate move out of old root");
 
         let old_root_id = db
@@ -4918,7 +5251,7 @@ mod tests {
             DROP TABLE scan_runs;
             DROP TABLE scan_sessions;
             DROP TABLE scan_roots;
-            PRAGMA user_version = 26;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; PRAGMA user_version = 26;
             "#,
         )
         .expect("downgrade ledger tables for schema 26 fixture");
@@ -4946,7 +5279,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 36);
+        assert_eq!(version, 37);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

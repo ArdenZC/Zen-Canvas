@@ -28,7 +28,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_quick_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_full_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN identity_status;
-        PRAGMA user_version = 18;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 18;
         "#,
     )
     .expect("downgrade fixture to schema 18");
@@ -49,7 +49,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()
