@@ -1,6 +1,6 @@
 # PM-02B — Event / Schedule Trigger Result
 
-Status: **EVENT-ROOT AUTHORITY REMEDIATION IMPLEMENTED — FIXTURE REPAIR COMMITTED — EXACT-HEAD HOSTED CI SUCCESS — WINDOWS NATIVE REQUALIFICATION AUTHORIZED / NOT STARTED — OWNER REVIEW PENDING**. PM-03 remains **NOT ACTIVE**. Draft implementation [PR #317](https://github.com/ArdenZC/Zen-Canvas/pull/317) references initiative #273 and merged activation #316; no merge or auto-merge is authorized.
+Status: **EVENT-ROOT AUTHORITY AND WINDOWS EXTENDED-PATH DELIVERY REMEDIATIONS IMPLEMENTED — EXACT-HEAD HOSTED CI SUCCESS AT `68ddd8d7` — FRESH WINDOWS OWNER REQUALIFICATION REQUIRED / NOT RUN — OWNER REVIEW PENDING**. PR #317 remains Draft and unmerged. PM-03 remains **NOT ACTIVE**. The earlier hosted CI failure on `fc5e2b7` is preserved; see the [Windows native qualification record](evidence/PM-02B/windows-native-qualification.md). No repaired native product PASS is claimed.
 
 Exact implementation base: `master@91589a89974324e821b4963b062c3070949252a8`. Branch: `product/pm-02b-event-schedule-triggers`, isolated worktree. Schema exactly 37; package remains 0.1.40. Accepted PM-02A result and frozen research history are unchanged.
 
@@ -38,7 +38,19 @@ On the Windows desktop-runtime host, the formerly failing exact test passed thre
 
 Fresh exact-head hosted CI [36961723813](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36961723813) completed **SUCCESS** on `a3dd9082018185891b536b9d1fb693b5ae27a3cf`. Windows Rust tests, strict Clippy, native filesystem hardening smoke and aggregate Windows Quality passed. The normal macOS Rust/native lifecycle/race/Quick Look lanes, frontend/browser checks, performance shards and aggregate Performance profile also passed. This green run validates the fixture-repair source; it does not replace or erase run 36906218806 and is not Windows native product acceptance.
 
-Schema remains **37**. `src-tauri/Cargo.lock` is unchanged. `src-tauri/Cargo.toml` retains the existing worktree M status anomaly, but its content diff is empty and its worktree object hash equals its index hash (`4eb69ebee444874ba0bedfae4d6dba1591ab0036`); it was not staged or committed. PR #317 remains **OPEN / Draft / unmerged**, PM-02B remains **OWNER REVIEW PENDING**, and PM-03 remains **NOT ACTIVE**. No repaired-head Windows native requalification has been run; that next gate is authorized but must occur in a separate task.
+Schema remains **37**. `src-tauri/Cargo.lock` is unchanged. `src-tauri/Cargo.toml` retains the existing worktree M status anomaly, but its content diff is empty and its worktree object hash equals its index hash (`4eb69ebee444874ba0bedfae4d6dba1591ab0036`); it was not staged or committed. PR #317 remains **OPEN / Draft / unmerged**, PM-02B remains **OWNER REVIEW PENDING**, and PM-03 remains **NOT ACTIVE**. Fresh repaired-head Windows Owner requalification is required and has not been run.
+
+## Windows extended-path event-delivery remediation
+
+The bounded real-Windows backend regression at pre-remediation source `4777e87e6ec86e629538a806df55a7ea7bf34e1f` proved that Windows `RecommendedWatcher` emitted extended-length paths which did not match the existing watcher-root authority. The source fix at `fc5e2b7be00eb29db7629a21e3c640fe1626cf34` delegates watcher path normalization to the existing database normalizer. It does not change watcher ownership, schema, package version or PM-02B trigger semantics.
+
+The first exact-head hosted run for the source fix, [36990307913](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36990307913), is retained as **FAILURE**. Its new Windows regression timed out on the first file create with durable watcher/applied/library revisions `0/0/0`. The run had no native watcher stage tracing, so the reason the default system-temp fixture produced no publication remains unknown.
+
+CI-only follow-up commit `68ddd8d7bf08aa11cecc3ecc07d3bdeb3c480a71` pins that disposable regression root under `${{ runner.temp }}` and enables the existing bounded, root-scoped `native-qa` trace. Fresh exact-head hosted CI [36991861097](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36991861097) completed **SUCCESS** on `68ddd8d7bf08aa11cecc3ecc07d3bdeb3c480a71` / tree `c4951a967f64022c2fc299005edbb1712689bad4`. The Windows Rust suite passed **1,119 / 1,119** with **24 ignored**; the real OS `RecommendedWatcher` create-and-append regression passed **1/1**; strict Clippy and native filesystem hardening smoke passed. The complete fresh exact-head workflow succeeded.
+
+The hosted trace showed a registered active root; actual extended-length `Create(Any)` and `Modify(Any)` callbacks; successful queue and payload conversion; coalesced-path normalization; one matching persisted root; `begin_watcher_revision` results `some` for revisions 1 and 2; successful exact mutation publication; `library_change_revision` advancing `0→1→2`; and `watcher_applied_revision` catching up. The test used explicit harness file create/append; Zen Canvas automatic filesystem mutations remained zero. The new runner-temp fixture path and trace setting distinguish the successful follow-up setup, but the untraced `36990307913` failure does not prove whether its cause was the default temp location or a transient hosted notification miss. Both outcomes remain recorded.
+
+This is real Windows backend regression evidence, not Owner Tauri-window acceptance. Fresh repaired-head Owner requalification, the complete PM-02B native row set, and suspend/resume remain **REQUIRED / NOT RUN**. PR #317 remains **OPEN / Draft / unmerged**; PM-02B remains **OWNER REVIEW PENDING**; PM-03 remains **NOT ACTIVE**.
 
 ## Validation and evidence
 
