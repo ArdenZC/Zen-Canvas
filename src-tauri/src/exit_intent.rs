@@ -20,7 +20,6 @@ struct ExitIntentLedger {
     internal_teardowns_in_flight: usize,
     stay_resident_pending: bool,
     explicit_exit_pending: bool,
-    resident_teardown_accepted: bool,
     shutdown_started: bool,
 }
 
@@ -35,7 +34,6 @@ pub struct ExitIntentState {
 /// Tauri has removed the WebView. An abandoned guard withdraws its prediction.
 pub struct InternalWindowTeardown<'a> {
     state: &'a ExitIntentState,
-    predicted_last: bool,
     active: bool,
 }
 
@@ -75,7 +73,6 @@ impl ExitIntentState {
         ledger.internal_teardowns_in_flight = next_in_flight;
         InternalWindowTeardown {
             state: self,
-            predicted_last,
             active: true,
         }
     }
@@ -88,7 +85,6 @@ impl ExitIntentState {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         ledger.stay_resident_pending = false;
-        ledger.resident_teardown_accepted = false;
     }
 
     /// Mark a user-visible Quit action before asking Tauri to exit.
@@ -147,19 +143,15 @@ impl ExitIntentState {
         action
     }
 
-    fn finish_internal_teardown(&self, accepted: bool, predicted_last: bool) {
+    fn finish_internal_teardown(&self, accepted: bool) {
         let mut ledger = self
             .ledger
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         ledger.internal_teardowns_in_flight = ledger.internal_teardowns_in_flight.saturating_sub(1);
-        if accepted && predicted_last && !ledger.explicit_exit_pending {
-            ledger.resident_teardown_accepted = true;
-        }
-        if !accepted
-            && ledger.internal_teardowns_in_flight == 0
-            && !ledger.resident_teardown_accepted
-        {
+        // An abandoned request invalidates the batch's last-window prediction:
+        // another accepted destroy does not prove the failed window disappeared.
+        if !accepted {
             ledger.stay_resident_pending = false;
         }
     }
@@ -169,8 +161,7 @@ impl InternalWindowTeardown<'_> {
     /// The runtime accepted the destroy request. Keep resident intent until
     /// window recreation or genuine Quit, including delayed/repeated requests.
     pub fn complete(mut self) {
-        self.state
-            .finish_internal_teardown(true, self.predicted_last);
+        self.state.finish_internal_teardown(true);
         self.active = false;
     }
 }
@@ -178,8 +169,7 @@ impl InternalWindowTeardown<'_> {
 impl Drop for InternalWindowTeardown<'_> {
     fn drop(&mut self) {
         if self.active {
-            self.state
-                .finish_internal_teardown(false, self.predicted_last);
+            self.state.finish_internal_teardown(false);
         }
     }
 }
@@ -275,6 +265,23 @@ mod tests {
         state.record_explicit_exit();
         state.record_window_created();
         assert_eq!(state.exit_requested_action(None), ExitRequestedAction::Exit);
+    }
+
+    #[test]
+    fn failed_concurrent_destroy_withdraws_the_batch_prediction_in_either_order() {
+        for failure_first in [false, true] {
+            let state = ExitIntentState::default();
+            let failed = state.begin_internal_window_teardown(2);
+            let accepted = state.begin_internal_window_teardown(2);
+            if failure_first {
+                drop(failed);
+                accepted.complete();
+            } else {
+                accepted.complete();
+                drop(failed);
+            }
+            assert_eq!(state.exit_requested_action(None), ExitRequestedAction::Exit);
+        }
     }
 
     #[test]
