@@ -454,7 +454,11 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Windows watcher durable event regression
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib watcher::tests::windows_recommended_watcher_publishes_real_file_create_and_append -- --exact --nocapture --test-threads=1
+        env:
+          ZC_NATIVE_QA_WATCHER_TRACE: "1"
+          ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
+          ZC_NATIVE_QA_WATCHER_TRACE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "performance-test-tauri native-qa" --lib watcher::tests::windows_recommended_watcher_publishes_real_file_create_and_append -- --exact --nocapture --test-threads=1
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Native filesystem hardening smoke
