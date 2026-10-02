@@ -1,6 +1,14 @@
 # PM-02B Windows native qualification
 
-Status: **ORIGINAL QUALIFICATION FAILED at e91f27e; Owner-authorized remediation is committed at `97a42ed2df9c9e460e349a5ebe62be10cddad507`; exact-head hosted CI and fresh Windows native requalification are pending.** The original failure record below remains intact and is not superseded. No repaired native PASS is claimed.
+Status: **ORIGINAL QUALIFICATION FAILED at e91f27e; root-authority remediation and test-fixture repair are committed; exact-head CI is SUCCESS on `a3dd9082018185891b536b9d1fb693b5ae27a3cf`; fresh Windows native requalification is AUTHORIZED / NOT STARTED.** The original failure record below remains intact and is not superseded. No repaired native PASS is claimed.
+
+## Current CI result and native requalification gate
+
+The original managed-scope-change event failure at `e91f27ed278bc80a0cc92fe79e8b83748fa8f812` remains the historical native result. The root-authority remediation was implemented at `97a42ed2df9c9e460e349a5ebe62be10cddad507`. The first remediation candidate, `b304ea91fb7c1380870629156121c032ea14bc7d` / tree `279f951113cddf3923e0d19ca4e3730d9601bb81`, failed hosted CI [36906218806](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36906218806) only at the Windows watcher-membership test's fixture teardown (OS error 32); its functional assertions had completed.
+
+The test-only ownership repair is `a3dd9082018185891b536b9d1fb693b5ae27a3cf` / tree `1b0fd77ce8d68a041e8d003a7ee711492968def5`. The test now stores its SQLite database outside the disposable filesystem fixture using the existing module helper. No production code changed. The formerly failing Windows exact test passed three consecutive times. Fresh exact-head hosted CI [36961723813](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36961723813) completed **SUCCESS** on that exact SHA, including Windows Rust quality and aggregate Windows Quality. This CI result does not constitute native product acceptance.
+
+No repaired-head Windows native requalification has been performed. It is now authorized as the next gate but was explicitly not started in this closeout. PR #317 remains **OPEN / Draft / unmerged**; PM-02B remains **OWNER REVIEW PENDING**; Schema remains **37**; PM-03 remains **NOT ACTIVE**. The original e91 failure section below is retained verbatim as historical evidence.
 
 ## Identity and isolation
 
@@ -60,12 +68,12 @@ Only `event-a.txt` changed, as the manually authored qualification input above. 
 
 The following remained unqualified in that original run: create/rename/remove coverage beyond the single content edit; five-second burst coalescing; metadata-only exclusion; review-pending suppression; pause/edit/re-enable debt reset; background/tray delivery; resource-admission deferral; Advanced Rules separation; keyboard/focus and narrow-layout checks; later general restart recovery; and real Windows suspend/resume. `powercfg /a` had shown S0 Low Power Idle (Network Connected) and Hibernate, with S1/S2/S3 unavailable; no suspend cycle was attempted after the event-path STOP.
 
-## Owner-authorized remediation source — fresh native qualification pending
+## Owner-authorized root-authority remediation source — implementation commit 97a42ed
 
 - Repaired implementation commit: `97a42ed2df9c9e460e349a5ebe62be10cddad507`; tree `8433ebfbef2eb5aceecb21dc5cce19cd0be0d958`.
 - The repaired invariant uses persisted enabled `default_scan_folders` plus normalized, enabled durable File Library roots as the single watcher-owned-root authority for watcher routing and PM-02B event eligibility. Unwatched explicit/all-enabled scopes fail closed; Settings removal clears cursor/claim debt; re-enrollment baselines the current revision. Watcher ownership was not broadened; Schema remains 37.
 - Local `desktop-runtime` scan/root tests passed **28/28** plus one intentional performance ignore. Windows watcher tests passed **25/25**, including case-normalized membership, an unwatched nested root and preserved genuine overlap. PM-02B trigger tests passed **20/21**; automation DB tests passed **13/15**. The three failing readiness assertions were reproduced on pristine e91 with the same feature set. Strict desktop-runtime Clippy and Rust format passed.
-- Full local Rust validation reported **1,115 passed / 24 ignored / 4 failed**. The fourth failure was a PDF CMap timeout under parallel load and passed in isolation (**1/1**). Hosted exact-head CI is still pending.
-- No fresh native fixture was enrolled and no post-repair event, schedule, restart, layout/focus, background/tray or suspend/resume row has been run. Requalification must start from a fresh isolated profile/root after hosted CI succeeds, enroll the event root through native Settings, and verify the configured watcher plus durable revision movement before the file mutation.
+- Full local Rust validation reported **1,115 passed / 24 ignored / 4 failed**. The fourth failure was a PDF CMap timeout under parallel load and passed in isolation (**1/1**). At that point hosted exact-head CI was still pending; the later fixture repair and successful exact-head run are recorded above.
+- No fresh native fixture has been enrolled after the remediation, and no post-repair event, schedule, restart, layout/focus, background/tray or suspend/resume row has been run. Requalification is authorized after the successful hosted CI and remains unstarted; it must use a fresh isolated profile/root, enroll the event root through native Settings, and verify the configured watcher plus durable revision movement before the file mutation.
 
 The original native attempt did not update the PM-02B result or `STATUS.md`, nor change or push PR `#317`; the failure was later preserved in evidence checkpoint `ef0095ddc1b47d158de4aa9a73575dac034e5e14`. The Owner-authorized remediation is now committed on the existing branch. PR `#317` remains OPEN / Draft / unmerged, no auto-merge is enabled, PM-02B remains **OWNER REVIEW PENDING**, and PM-03 remains **NOT ACTIVE**. Suspend/resume remains explicitly unverified.
