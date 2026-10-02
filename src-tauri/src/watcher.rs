@@ -10,6 +10,8 @@ use notify::{
     recommended_watcher, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use serde::Serialize;
+#[cfg(feature = "native-qa")]
+use std::sync::atomic::AtomicUsize;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -42,6 +44,217 @@ const WATCHER_RETRY_DELAYS: [Duration; 4] = [
 const WATCHER_RULE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
 const WATCHER_COALESCE_WINDOW: Duration = Duration::from_millis(150);
+#[cfg(feature = "native-qa")]
+const NATIVE_QA_WATCHER_TRACE_LIMIT: usize = 256;
+#[cfg(feature = "native-qa")]
+static NATIVE_QA_WATCHER_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+fn native_qa_watcher_trace(event: &'static str, details: impl FnOnce() -> String) {
+    #[cfg(feature = "native-qa")]
+    {
+        if std::env::var("ZC_NATIVE_QA_WATCHER_TRACE").as_deref() != Ok("1") {
+            return;
+        }
+        let sequence = NATIVE_QA_WATCHER_TRACE_COUNT.fetch_add(1, Ordering::Relaxed);
+        if sequence >= NATIVE_QA_WATCHER_TRACE_LIMIT {
+            return;
+        }
+        let details = details().chars().take(900).collect::<String>();
+        eprintln!("native_qa watcher event={event} {details}");
+    }
+    #[cfg(not(feature = "native-qa"))]
+    {
+        let _ = (event, details);
+    }
+}
+
+#[cfg(feature = "native-qa")]
+fn native_qa_watcher_trace_relative_path(path: &Path) -> Option<String> {
+    let configured_root = std::env::var_os("ZC_NATIVE_QA_WATCHER_TRACE_ROOT")?;
+    let configured_root = PathBuf::from(configured_root);
+    if !configured_root.is_absolute() {
+        return None;
+    }
+    let root = configured_root.canonicalize().unwrap_or(configured_root);
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let normalize = |path: &Path| {
+        let value = path.to_string_lossy().replace('\\', "/");
+        value.strip_prefix("//?/").unwrap_or(&value).to_string()
+    };
+    let root = normalize(&root).trim_end_matches('/').to_string();
+    let path = normalize(&path);
+    if path.eq_ignore_ascii_case(&root) {
+        return Some(".".to_string());
+    }
+    let prefix = format!("{root}/");
+    if path
+        .get(..prefix.len())
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(&prefix))
+    {
+        return path
+            .get(prefix.len()..)
+            .map(|relative| format!("<trace-root>/{relative}"));
+    }
+    None
+}
+
+#[cfg(feature = "native-qa")]
+fn native_qa_watcher_trace_path_prefix(path: &Path) -> &'static str {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    if raw.starts_with("//?/UNC/") {
+        "extended_unc"
+    } else if raw.starts_with("//?/") {
+        "extended_length"
+    } else if raw.starts_with("//") {
+        "unc"
+    } else {
+        "ordinary"
+    }
+}
+
+#[cfg(not(feature = "native-qa"))]
+fn native_qa_watcher_trace_relative_path(_path: &Path) -> Option<String> {
+    None
+}
+
+fn trace_native_qa_notify(source: &'static str, event: &notify::Result<Event>) {
+    #[cfg(feature = "native-qa")]
+    match event {
+        Ok(event) => {
+            let paths = event
+                .paths
+                .iter()
+                .filter_map(|path| native_qa_watcher_trace_relative_path(path))
+                .take(8)
+                .collect::<Vec<_>>();
+            let prefixes = event
+                .paths
+                .iter()
+                .filter(|path| native_qa_watcher_trace_relative_path(path).is_some())
+                .map(|path| native_qa_watcher_trace_path_prefix(path))
+                .take(8)
+                .collect::<Vec<_>>();
+            if !paths.is_empty() {
+                native_qa_watcher_trace("notify_callback", || {
+                    format!(
+                        "source={source} kind={:?} raw_paths={} raw_path_prefixes={}",
+                        event.kind,
+                        paths.join("|"),
+                        prefixes.join("|"),
+                    )
+                });
+            }
+        }
+        Err(_) => native_qa_watcher_trace("notify_callback", || {
+            format!("source={source} result=error")
+        }),
+    }
+    #[cfg(not(feature = "native-qa"))]
+    let _ = (source, event);
+}
+
+fn trace_native_qa_notify_queue(
+    source: &'static str,
+    result: &Result<(), TrySendError<WatcherInput>>,
+) {
+    #[cfg(feature = "native-qa")]
+    {
+        let result = match result {
+            Ok(()) => "queued",
+            Err(TrySendError::Full(_)) => "full",
+            Err(TrySendError::Disconnected(_)) => "disconnected",
+        };
+        native_qa_watcher_trace("notify_queue", || {
+            format!("source={source} result={result}")
+        });
+    }
+    #[cfg(not(feature = "native-qa"))]
+    let _ = (source, result);
+}
+
+fn trace_native_qa_active_roots(roots: &[PathBuf]) {
+    #[cfg(feature = "native-qa")]
+    native_qa_watcher_trace("active_session", || {
+        let scoped = roots
+            .iter()
+            .filter_map(|root| native_qa_watcher_trace_relative_path(root))
+            .take(8)
+            .collect::<Vec<_>>();
+        format!(
+            "registered_root_count={} scoped_roots={}",
+            roots.len(),
+            scoped.join("|")
+        )
+    });
+    #[cfg(not(feature = "native-qa"))]
+    let _ = roots;
+}
+
+fn event_to_payload_with_native_qa_trace(
+    source: &'static str,
+    event: Event,
+) -> Option<FileWatchEvent> {
+    #[cfg(not(feature = "native-qa"))]
+    let _ = source;
+
+    #[cfg(feature = "native-qa")]
+    let trace_input = {
+        let paths = event
+            .paths
+            .iter()
+            .filter_map(|path| native_qa_watcher_trace_relative_path(path))
+            .take(8)
+            .collect::<Vec<_>>();
+        let prefixes = event
+            .paths
+            .iter()
+            .filter(|path| native_qa_watcher_trace_relative_path(path).is_some())
+            .map(|path| native_qa_watcher_trace_path_prefix(path))
+            .take(8)
+            .collect::<Vec<_>>();
+        let ignored = event
+            .paths
+            .iter()
+            .filter(|path| is_ignored_path(path))
+            .filter_map(|path| native_qa_watcher_trace_relative_path(path))
+            .take(8)
+            .collect::<Vec<_>>();
+        (!paths.is_empty()).then(|| (format!("{:?}", event.kind), paths, prefixes, ignored))
+    };
+
+    let payload = event_to_payload(event);
+
+    #[cfg(feature = "native-qa")]
+    if let Some((kind, paths, prefixes, ignored)) = trace_input {
+        let normalized = payload
+            .as_ref()
+            .map(|payload| {
+                payload
+                    .paths
+                    .iter()
+                    .filter_map(|path| native_qa_watcher_trace_relative_path(Path::new(path)))
+                    .take(8)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        native_qa_watcher_trace("event_to_payload", || {
+            format!(
+                "source={source} kind={kind} raw_paths={} raw_path_prefixes={} normalized={} ignored={} result={}",
+                paths.join("|"),
+                prefixes.join("|"),
+                normalized.join("|"),
+                ignored.join("|"),
+                if payload.is_some() {
+                    "payload"
+                } else {
+                    "filtered"
+                },
+            )
+        });
+    }
+
+    payload
+}
 
 #[derive(Debug, Error)]
 enum WatcherError {
@@ -342,6 +555,7 @@ impl FileWatcherManager {
             .as_ref()
             .is_some_and(|current| current.roots == roots)
         {
+            trace_native_qa_active_roots(&roots);
             return Ok(false);
         }
         let previous = session.take();
@@ -363,6 +577,7 @@ impl FileWatcherManager {
         let next = match start(roots.clone()) {
             Ok(next) => next,
             Err(error) => {
+                native_qa_watcher_trace("session_install", || "result=failed".to_string());
                 if !had_previous {
                     on_handoff_gap(&previous_roots, &roots);
                 }
@@ -371,6 +586,7 @@ impl FileWatcherManager {
         };
         let mut session = self.session.lock().map_err(|_| WatcherError::StateLock)?;
         *session = Some(next);
+        trace_native_qa_active_roots(&roots);
         Ok(true)
     }
 
@@ -432,7 +648,11 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
 ) -> Result<bool, String> {
     db.sync_file_library_watcher_roots(&settings.default_scan_folders)
         .map_err(|error| error.to_string())?;
-    if backend_watcher_reconciliation_enabled() {
+    let backend_enabled = backend_watcher_reconciliation_enabled();
+    native_qa_watcher_trace("watcher_mode", || {
+        format!("backend_reconciliation_enabled={backend_enabled}")
+    });
+    if backend_enabled {
         manager.cancel_reconciliation_retries();
         let paths = existing_watch_paths_from_default_scan_folders(&settings.default_scan_folders);
         let root_labels = paths
@@ -605,7 +825,10 @@ fn start_legacy_watcher_session<R: Runtime>(
     let overflow_app = app.clone();
 
     let mut watcher = recommended_watcher(move |event| {
-        if let Err(TrySendError::Full(_)) = tx.try_send(WatcherInput::Notify(event)) {
+        trace_native_qa_notify("legacy", &event);
+        let queued = tx.try_send(WatcherInput::Notify(event));
+        trace_native_qa_notify_queue("legacy", &queued);
+        if let Err(TrySendError::Full(_)) = queued {
             if !overflow_for_callback.swap(true, Ordering::AcqRel) {
                 emit_file_watcher_error(
                     &overflow_app,
@@ -616,9 +839,7 @@ fn start_legacy_watcher_session<R: Runtime>(
         }
     })?;
 
-    for root in &roots {
-        watcher.watch(root, RecursiveMode::Recursive)?;
-    }
+    register_native_watcher_roots(&mut watcher, &roots)?;
 
     emit_watcher_ready(&app, root_labels)?;
 
@@ -651,14 +872,15 @@ fn start_backend_watcher_session<R: Runtime>(
     let overflow_burst_for_callback = Arc::clone(&overflow_burst_active);
 
     let mut watcher = recommended_watcher(move |event| {
-        if let Err(TrySendError::Full(_)) = tx.try_send(WatcherInput::Notify(event)) {
+        trace_native_qa_notify("backend", &event);
+        let queued = tx.try_send(WatcherInput::Notify(event));
+        trace_native_qa_notify_queue("backend", &queued);
+        if let Err(TrySendError::Full(_)) = queued {
             signal_overflow(&overflow_burst_for_callback, &overflow_signal_for_callback);
         }
     })?;
 
-    for root in &roots {
-        watcher.watch(root, RecursiveMode::Recursive)?;
-    }
+    register_native_watcher_roots(&mut watcher, &roots)?;
 
     let loop_stop_requested = Arc::clone(&stop_requested);
     let handle = thread::Builder::new()
@@ -681,6 +903,41 @@ fn start_backend_watcher_session<R: Runtime>(
     Ok(WatcherSession::new(roots, move || {
         stop_watcher(stop_tx, stop_requested, handle)
     }))
+}
+
+fn register_native_watcher_roots(
+    watcher: &mut RecommendedWatcher,
+    roots: &[PathBuf],
+) -> Result<(), WatcherError> {
+    for root in roots {
+        let scoped_path = native_qa_watcher_trace_relative_path(root);
+        if let Some(path) = scoped_path.as_deref() {
+            native_qa_watcher_trace("watch_registration_attempt", || {
+                format!("path={path} recursive=true")
+            });
+        }
+        match watcher.watch(root, RecursiveMode::Recursive) {
+            Ok(()) => {
+                if let Some(path) = scoped_path {
+                    native_qa_watcher_trace("watch_registration_result", || {
+                        format!("path={path} result=success")
+                    });
+                }
+            }
+            Err(error) => {
+                if let Some(path) = scoped_path {
+                    native_qa_watcher_trace("watch_registration_result", || {
+                        format!("path={path} result=error")
+                    });
+                }
+                return Err(error.into());
+            }
+        }
+    }
+    native_qa_watcher_trace("watch_registration_complete", || {
+        format!("registered_root_count={}", roots.len())
+    });
+    Ok(())
 }
 
 fn stop_watcher(
@@ -743,7 +1000,9 @@ fn run_legacy_watcher_loop(
             WatcherInput::Stop => break,
             WatcherInput::Notify(event) => match event {
                 Ok(event) => {
-                    let mut payloads = event_to_payload(event).into_iter().collect::<Vec<_>>();
+                    let mut payloads = event_to_payload_with_native_qa_trace("legacy", event)
+                        .into_iter()
+                        .collect::<Vec<_>>();
                     let deadline = Instant::now() + WATCHER_COALESCE_WINDOW;
                     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
                         if stop_requested.load(Ordering::Acquire) {
@@ -751,7 +1010,8 @@ fn run_legacy_watcher_loop(
                         }
                         match rx.recv_timeout(remaining) {
                             Ok(WatcherInput::Notify(Ok(event))) => {
-                                payloads.extend(event_to_payload(event));
+                                payloads
+                                    .extend(event_to_payload_with_native_qa_trace("legacy", event));
                             }
                             Ok(WatcherInput::Notify(Err(error))) => {
                                 emit_file_watcher_error(&app, error.to_string());
@@ -840,7 +1100,9 @@ fn run_backend_watcher_loop<R: Runtime>(
         match input {
             WatcherInput::Stop => break,
             WatcherInput::Notify(Ok(event)) => {
-                let mut payloads = event_to_payload(event).into_iter().collect::<Vec<_>>();
+                let mut payloads = event_to_payload_with_native_qa_trace("backend", event)
+                    .into_iter()
+                    .collect::<Vec<_>>();
                 let deadline = Instant::now() + WATCHER_COALESCE_WINDOW;
                 while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
                     if stop_requested.load(Ordering::Acquire) {
@@ -848,7 +1110,8 @@ fn run_backend_watcher_loop<R: Runtime>(
                     }
                     match rx.recv_timeout(remaining) {
                         Ok(WatcherInput::Notify(Ok(event))) => {
-                            payloads.extend(event_to_payload(event));
+                            payloads
+                                .extend(event_to_payload_with_native_qa_trace("backend", event));
                         }
                         Ok(WatcherInput::Notify(Err(error))) => {
                             mark_all_roots_for_reconciliation(
@@ -905,10 +1168,40 @@ fn process_backend_payload<R: Runtime>(
     dedupe_jobs: &DedupeJobManager,
     payload: FileWatchEvent,
 ) {
+    native_qa_watcher_trace("coalesced_payload", || {
+        let paths = payload
+            .paths
+            .iter()
+            .filter_map(|path| native_qa_watcher_trace_relative_path(Path::new(path)))
+            .take(8)
+            .collect::<Vec<_>>();
+        let extended_prefix_count = payload
+            .paths
+            .iter()
+            .filter(|path| path.starts_with("//?/"))
+            .count();
+        format!(
+            "path_count={} scoped_paths={} extended_prefix_count={}",
+            payload.paths.len(),
+            paths.join("|"),
+            extended_prefix_count,
+        )
+    });
     let Ok(configs) = db.list_watcher_root_configs() else {
         emit_file_watcher_error(app, "Unable to load managed watcher roots.".to_string());
         return;
     };
+    native_qa_watcher_trace("routing_configs", || {
+        let scoped = configs
+            .iter()
+            .filter_map(|root| {
+                native_qa_watcher_trace_relative_path(Path::new(&root.path))
+                    .map(|path| format!("{}:{path}", root.id))
+            })
+            .take(16)
+            .collect::<Vec<_>>();
+        format!("config_count={} scoped={}", configs.len(), scoped.join("|"))
+    });
     let directory_paths = payload
         .reconciliation_paths
         .iter()
@@ -929,6 +1222,19 @@ fn process_backend_payload<R: Runtime>(
             .iter()
             .filter(|root| path_within_root(&root.path, &path))
             .collect::<Vec<_>>();
+        if let Some(relative) = native_qa_watcher_trace_relative_path(Path::new(&path)) {
+            native_qa_watcher_trace("root_route", || {
+                format!(
+                    "path={relative} match_count={} root_ids={}",
+                    matches.len(),
+                    matches
+                        .iter()
+                        .map(|root| root.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join("|"),
+                )
+            });
+        }
         match matches.as_slice() {
             [root] => grouped.entry(root.id.clone()).or_default().push(path),
             [] => {}
@@ -964,11 +1270,23 @@ fn process_backend_payload<R: Runtime>(
         let Some(batch) = begin_watcher_batch(app, db, &root_id) else {
             continue;
         };
+        trace_native_qa_durable_root_state(db, &root_id);
         let mut should_reconcile = false;
+        native_qa_watcher_trace("exact_mutation_attempt", || {
+            format!("root_id={root_id} path_count={}", paths.len())
+        });
         let result =
             apply_watcher_exact_mutations_with_retry(db, &root_id, &paths, &directory_paths);
         match result {
             Ok(result) => {
+                native_qa_watcher_trace("exact_mutation_result", || {
+                    format!(
+                        "root_id={root_id} result=success upserted_count={} reconciliation_required={}",
+                        result.upserted_paths.len(),
+                        result.reconciliation_required,
+                    )
+                });
+                trace_native_qa_durable_root_state(db, &root_id);
                 let mut reconciliation_required = result.reconciliation_required || oversized;
                 let mut rule_warning = None;
                 if let Some(warning) = result.warning.as_deref() {
@@ -1018,6 +1336,9 @@ fn process_backend_payload<R: Runtime>(
                 }
             }
             Err(error) => {
+                native_qa_watcher_trace("exact_mutation_result", || {
+                    format!("root_id={root_id} result=error")
+                });
                 let message = error.to_string();
                 let _ =
                     db.mark_watcher_reconciliation(&root_id, "watcher_mutation_failed", &message);
@@ -1025,6 +1346,7 @@ fn process_backend_payload<R: Runtime>(
                 should_reconcile = true;
             }
         }
+        trace_native_qa_durable_root_state(db, &root_id);
         emit_root_status(app, db, &root_id, Some(batch.watcher_revision));
         if should_reconcile {
             roots_requiring_reconciliation.insert(root_id);
@@ -1042,6 +1364,40 @@ fn process_backend_payload<R: Runtime>(
             emit_file_watcher_error(app, error);
         }
     }
+}
+
+fn trace_native_qa_durable_root_state(db: &Database, root_id: &str) {
+    #[cfg(feature = "native-qa")]
+    {
+        let Ok(conn) = db.conn() else {
+            native_qa_watcher_trace("durable_root_state", || {
+                format!("root_id={root_id} result=read_error")
+            });
+            return;
+        };
+        let state = conn.query_row(
+            "SELECT watcher_revision, watcher_applied_revision, library_change_revision, watcher_last_event_at FROM scan_roots WHERE id=?1",
+            [root_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        );
+        native_qa_watcher_trace("durable_root_state", || {
+            match state {
+            Ok((watcher, applied, library, last_event)) => format!(
+                "root_id={root_id} watcher_revision={watcher} watcher_applied_revision={applied} library_change_revision={library} watcher_last_event_at={last_event:?}"
+            ),
+            Err(_) => format!("root_id={root_id} result=query_error"),
+        }
+        });
+    }
+    #[cfg(not(feature = "native-qa"))]
+    let _ = (db, root_id);
 }
 
 fn apply_watcher_exact_mutations_with_retry(
@@ -1080,9 +1436,25 @@ fn begin_watcher_batch<R: Runtime>(
     root_id: &str,
 ) -> Option<crate::db::scan::WatcherRevisionStart> {
     match db.begin_watcher_revision(root_id) {
-        Ok(Some(batch)) => Some(batch),
-        Ok(None) => None,
+        Ok(Some(batch)) => {
+            native_qa_watcher_trace("begin_watcher_revision", || {
+                format!(
+                    "root_id={root_id} result=some revision={}",
+                    batch.watcher_revision
+                )
+            });
+            Some(batch)
+        }
+        Ok(None) => {
+            native_qa_watcher_trace("begin_watcher_revision", || {
+                format!("root_id={root_id} result=none")
+            });
+            None
+        }
         Err(error) => {
+            native_qa_watcher_trace("begin_watcher_revision", || {
+                format!("root_id={root_id} result=error")
+            });
             emit_file_watcher_error(app, error.to_string());
             None
         }
@@ -1798,6 +2170,171 @@ mod tests {
         std::fs::remove_dir_all(temp).expect("remove isolated watcher routing database root");
     }
 
+    #[cfg(all(windows, feature = "performance-test-tauri"))]
+    #[test]
+    fn windows_recommended_watcher_publishes_real_file_create_and_append() {
+        struct Fixture {
+            root: PathBuf,
+            database_path: PathBuf,
+            remove_parent: bool,
+        }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.root);
+                for suffix in ["", "-wal", "-shm"] {
+                    let _ =
+                        std::fs::remove_file(format!("{}{}", self.database_path.display(), suffix));
+                }
+                if self.remove_parent {
+                    if let Some(parent) = self.root.parent() {
+                        let _ = std::fs::remove_dir(parent);
+                    }
+                }
+            }
+        }
+
+        fn durable_state(db: &Database, root_id: &str) -> (i64, i64, i64, Option<i64>) {
+            db.conn()
+                .expect("open durable-state connection")
+                .query_row(
+                    "SELECT watcher_revision, watcher_applied_revision, library_change_revision, watcher_last_event_at FROM scan_roots WHERE id=?1",
+                    [root_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .expect("read durable watcher state")
+        }
+
+        fn wait_for_publication(
+            db: &Database,
+            root_id: &str,
+            previous: (i64, i64, i64, Option<i64>),
+            file_path: &Path,
+        ) -> (i64, i64, i64, Option<i64>) {
+            let deadline = Instant::now() + Duration::from_secs(12);
+            loop {
+                let current = durable_state(db, root_id);
+                if current.0 > previous.0
+                    && current.1 >= current.0
+                    && current.2 > previous.2
+                    && current.3.is_some()
+                {
+                    let normalized_path =
+                        crate::db::normalize_path_text(&file_path.to_string_lossy());
+                    let persisted_size = db
+                        .conn()
+                        .expect("open file publication connection")
+                        .query_row(
+                            "SELECT size FROM files WHERE path=?1 AND is_stale=0",
+                            [&normalized_path],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .expect("read persisted file size");
+                    assert_eq!(
+                        persisted_size,
+                        std::fs::metadata(file_path).unwrap().len() as i64
+                    );
+                    return current;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "real RecommendedWatcher did not publish within the bounded deadline: current={current:?}, previous={previous:?}"
+                );
+                thread::sleep(Duration::from_millis(25));
+            }
+        }
+
+        let supplied_root =
+            std::env::var_os("ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT").map(PathBuf::from);
+        let remove_parent = supplied_root.is_none();
+        let root = supplied_root.unwrap_or_else(|| {
+            std::env::temp_dir()
+                .join(format!("pm02b-windows-notify-{}", uuid::Uuid::new_v4()))
+                .join("watch-root")
+        });
+        assert!(root.is_absolute(), "watch fixture root must be absolute");
+        assert!(
+            !root.exists(),
+            "watch fixture root must be fresh and disposable: {}",
+            root.display()
+        );
+        let parent = root.parent().expect("fixture root parent").to_path_buf();
+        std::fs::create_dir_all(&parent).expect("create fixture parent");
+        std::fs::create_dir_all(&root).expect("create disposable watched root");
+        let database_path = parent.join(format!("state-{}.sqlite3", uuid::Uuid::new_v4()));
+        let _fixture = Fixture {
+            root: root.clone(),
+            database_path: database_path.clone(),
+            remove_parent,
+        };
+
+        let db = Database::open(&database_path).expect("open isolated watcher database");
+        let setting = scan_root("native-event-root", &root.to_string_lossy(), true);
+        let settings = AppSettings {
+            default_scan_folders: vec![setting.clone()],
+            ..AppSettings::default()
+        };
+        crate::settings::save_app_settings(&db, &settings).expect("persist enabled default root");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("enroll default scan folder as a watcher-owned root");
+        let root_config = db
+            .list_watcher_root_configs()
+            .expect("load settings-owned watcher roots")
+            .into_iter()
+            .find(|root_config| {
+                root_config.path == crate::db::normalize_path_text(&root.to_string_lossy())
+            })
+            .expect("persistent watcher-owned root from default_scan_folders");
+
+        let backend_enabled = backend_watcher_reconciliation_enabled();
+        native_qa_watcher_trace("windows_backend_test", || {
+            format!("backend_reconciliation_enabled={backend_enabled}")
+        });
+        assert!(
+            backend_enabled,
+            "Windows filesystem publication test requires the backend watcher path"
+        );
+
+        let app = tauri::test::mock_app();
+        let app_handle = app.handle().clone();
+        let manager = FileWatcherManager::default();
+        let jobs = ScanJobManager::default();
+        let dedupe_jobs = DedupeJobManager::default();
+        let watch_paths =
+            existing_watch_paths_from_default_scan_folders(&settings.default_scan_folders);
+        assert_eq!(watch_paths.len(), 1);
+        assert!(manager
+            .restart_backend(app_handle, watch_paths, db.clone(), jobs, dedupe_jobs,)
+            .expect("start production backend watcher session"));
+        assert_eq!(
+            manager.active_roots().expect("active watcher roots"),
+            vec![root.canonicalize().expect("canonical watched root")]
+        );
+
+        let before_create = durable_state(&db, &root_config.id);
+        let file_path = root.join("native-event.txt");
+        std::fs::write(&file_path, b"first durable event").expect("create file through std::fs");
+        let after_create = wait_for_publication(&db, &root_config.id, before_create, &file_path);
+
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file_path)
+            .expect("open file for a real append");
+        use std::io::Write as _;
+        file.write_all(b" plus append")
+            .expect("append through std::fs");
+        drop(file);
+        let after_append = wait_for_publication(&db, &root_config.id, after_create, &file_path);
+
+        assert!(after_create.0 > before_create.0);
+        assert!(after_create.1 >= after_create.0);
+        assert!(after_create.2 > before_create.2);
+        assert!(after_create.3.is_some());
+        assert!(after_append.0 > after_create.0);
+        assert!(after_append.1 >= after_append.0);
+        assert!(after_append.2 > after_create.2);
+        assert!(after_append.3.is_some());
+    }
+
     #[test]
     fn overflow_signal_is_once_per_burst() {
         let burst_active = AtomicBool::new(false);
@@ -1891,6 +2428,14 @@ mod tests {
             scan_root("library-a", &first_root_path.to_string_lossy(), true),
             scan_root("library-b", &second_root_path.to_string_lossy(), true),
         ];
+        crate::settings::save_app_settings(
+            &db,
+            &AppSettings {
+                default_scan_folders: roots.to_vec(),
+                ..AppSettings::default()
+            },
+        )
+        .expect("persist settings-owned roots");
         db.sync_file_library_watcher_roots(&roots)
             .expect("sync managed roots");
         let app = tauri::test::mock_app();
@@ -1952,12 +2497,17 @@ mod tests {
         let root_path = fixture.0.join("library");
         fs::create_dir_all(&root_path).expect("create managed root");
         let db = Database::open(fixture.0.join("state.sqlite3")).expect("open watcher test db");
-        db.sync_file_library_watcher_roots(&[scan_root(
-            "library",
-            &root_path.to_string_lossy(),
-            true,
-        )])
-        .expect("sync managed root");
+        let root = scan_root("library", &root_path.to_string_lossy(), true);
+        crate::settings::save_app_settings(
+            &db,
+            &AppSettings {
+                default_scan_folders: vec![root.clone()],
+                ..AppSettings::default()
+            },
+        )
+        .expect("persist settings-owned root");
+        db.sync_file_library_watcher_roots(&[root])
+            .expect("sync managed root");
         let app = tauri::test::mock_app();
         let app_handle = app.handle().clone();
         let before = db
@@ -2223,7 +2773,7 @@ fn normalize_event_paths(paths: &[PathBuf]) -> Vec<String> {
 }
 
 fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    crate::db::normalize_path_text(&path.to_string_lossy())
 }
 
 fn looks_absolute_path(path: &str) -> bool {

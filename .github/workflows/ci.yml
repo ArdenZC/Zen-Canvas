@@ -453,6 +453,8 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
+      - name: Windows watcher durable event regression
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib watcher::tests::windows_recommended_watcher_publishes_real_file_create_and_append -- --exact --nocapture --test-threads=1
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Native filesystem hardening smoke
