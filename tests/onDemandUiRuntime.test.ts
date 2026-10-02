@@ -142,7 +142,12 @@ describe("on-demand UI runtime boundaries", () => {
     expect(dismiss).toContain("lifecycle.hide_with_native(");
     expect(dismiss).toContain("if let Err(error) = window.destroy()");
     expect(dismiss).toContain("return Err(error.to_string())");
-    expect((dismiss.match(/teardown\.complete\(app\.webview_windows\(\)\.len\(\)\)/g) ?? []).length).toBe(2);
+    expect((dismiss.match(/drop\(teardown\)/g) ?? []).length).toBe(1);
+    expect((dismiss.match(/teardown\.complete\(\)/g) ?? []).length).toBe(1);
+    expect(dismiss).not.toContain("teardown.complete(app.webview_windows().len())");
+    expect(dismiss.indexOf("begin_internal_window_teardown")).toBeLessThan(dismiss.indexOf("window.destroy()"));
+    expect(dismiss.indexOf("drop(teardown)")).toBeLessThan(dismiss.indexOf("return Err(error.to_string())"));
+    expect(dismiss.indexOf("return Err(error.to_string())")).toBeLessThan(dismiss.indexOf("teardown.complete()"));
     expect(dismiss.indexOf("window.destroy()")).toBeLessThan(dismiss.indexOf("ui_runtime search_window_destroyed"));
     expect(main).not.toContain("setup_search_window");
   });
@@ -162,11 +167,29 @@ describe("on-demand UI runtime boundaries", () => {
     expect(ensureMain).toContain("if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL)");
     expect(ensureMain).toContain("let generation = lifecycle.next_generation()?");
     expect(ensureMain).toContain("mainGeneration={generation}");
+    expect(ensureMain).toContain("record_window_created()");
     expect(enterBackground.indexOf("session.set_last_view")).toBeLessThan(enterBackground.indexOf("readiness.set_ready(generation, false)"));
     expect(enterBackground.indexOf("readiness.set_ready(generation, false)")).toBeLessThan(enterBackground.indexOf("workspace.dispose_generation(generation)"));
     expect(enterBackground.indexOf("workspace.dispose_generation(generation)")).toBeLessThan(enterBackground.indexOf("window.destroy()"));
     expect(main).toContain("if !background_launch {");
     expect(main).toContain("Some(vec![\"--background\"])");
     expect(main).toContain("tauri_plugin_single_instance::init");
+  });
+
+  it("keeps the real Windows resident lifecycle regression in the hosted gate", () => {
+    const probe = readFileSync(resolve(repositoryRoot, "src-tauri/src/native_resident_lifecycle_qa.rs"), "utf8");
+    const workflow = readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
+    const intent = readFileSync(resolve(repositoryRoot, "src-tauri/src/exit_intent.rs"), "utf8");
+
+    expect(probe).toContain("enter_background(");
+    expect(probe).toContain("qa.assert_resident(app, &owners)?");
+    expect(probe).toContain("show_main_window(app)?");
+    expect(probe).toContain("background_delivery_verified");
+    expect(probe).toContain("filesystem_manifest_verified");
+    expect(probe).toContain("quit_app(");
+    expect(probe).toContain("exit_app(app)");
+    expect(probe).not.toMatch(/mock_app|exit_requested_action/);
+    expect(workflow).toContain("./scripts/runWindowsResidentLifecycleQa.ps1");
+    expect(intent).not.toContain("std::mem::take(&mut ledger.stay_resident_pending)");
   });
 });
