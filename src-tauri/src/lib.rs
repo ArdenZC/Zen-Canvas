@@ -11,6 +11,12 @@ pub mod file_workspace;
 pub mod fs_safety;
 pub mod global_index;
 pub mod ids;
+#[cfg(all(
+    target_os = "windows",
+    feature = "desktop-runtime",
+    feature = "native-qa"
+))]
+pub mod native_resident_lifecycle_qa;
 pub mod path_filter;
 pub mod path_identity;
 pub mod platform;

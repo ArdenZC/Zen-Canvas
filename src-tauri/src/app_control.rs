@@ -793,8 +793,31 @@ pub fn search_window_url() -> &'static str {
     SEARCH_WINDOW_URL
 }
 
+#[cfg(feature = "native-qa")]
+pub fn trace_resident_lifecycle<R: Runtime>(app: &AppHandle<R>, stage: &str, detail: &str) {
+    #[cfg(all(target_os = "windows", feature = "desktop-runtime"))]
+    crate::native_resident_lifecycle_qa::observe(app, stage);
+    let windows = app.webview_windows();
+    let mut labels = windows.keys().map(String::as_str).collect::<Vec<_>>();
+    labels.sort_unstable();
+    let generation = app
+        .try_state::<MainWindowLifecycleState>()
+        .and_then(|s| s.latest_generation().ok())
+        .unwrap_or(0);
+    app.state::<ExitIntentState>().trace(
+        stage,
+        &format!(
+            "generation={generation} webviews={} labels={} {detail}",
+            windows.len(),
+            labels.join(",")
+        ),
+    );
+}
+
 pub fn exit_app<R: Runtime>(app: &AppHandle<R>) {
     app.state::<ExitIntentState>().record_explicit_exit();
+    #[cfg(feature = "native-qa")]
+    trace_resident_lifecycle(app, "explicit_quit", "");
     app.exit(0);
 }
 
@@ -870,6 +893,7 @@ fn ensure_main_window_locked<R: Runtime>(
             }
         };
 
+    app.state::<ExitIntentState>().record_window_created();
     let app_handle = app.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -882,7 +906,6 @@ fn ensure_main_window_locked<R: Runtime>(
             &app.state::<ExitIntentState>(),
             app.webview_windows().len(),
             || window.destroy(),
-            || app.webview_windows().len(),
         ) {
             Ok(()) => {
                 let _ = workspace.abort_generation(generation);
@@ -908,13 +931,12 @@ fn destroy_failed_main_window<E>(
     exit_intent: &ExitIntentState,
     webview_count: usize,
     destroy: impl FnOnce() -> Result<(), E>,
-    remaining_webviews: impl FnOnce() -> usize,
 ) -> Result<(), E> {
     let teardown = exit_intent.begin_internal_window_teardown(webview_count);
     // An error drops the guard, withdrawing the prediction rather than
     // leaving a stale suppression for a later native/system exit.
     destroy()?;
-    teardown.complete(remaining_webviews());
+    teardown.complete();
     Ok(())
 }
 
@@ -934,6 +956,8 @@ pub fn enter_background<R: Runtime>(
 ) -> Result<(), String> {
     require_main_window(&window)?;
     let generation = crate::file_workspace::integration::main_generation_from_window(&window)?;
+    #[cfg(feature = "native-qa")]
+    trace_resident_lifecycle(&app, "enter_background", "");
     let _owner = lifecycle.lock()?;
     session.set_last_view(last_view)?;
     readiness.set_ready(generation, false)?;
@@ -944,13 +968,23 @@ pub fn enter_background<R: Runtime>(
     }
     let exit_intent = app.state::<ExitIntentState>();
     let teardown = exit_intent.begin_internal_window_teardown(app.webview_windows().len());
+    #[cfg(feature = "native-qa")]
+    trace_resident_lifecycle(&app, "teardown_begin", "");
+    #[cfg(feature = "native-qa")]
+    trace_resident_lifecycle(&app, "destroy_start", "");
     if let Err(error) = window.destroy() {
-        teardown.complete(app.webview_windows().len());
+        #[cfg(feature = "native-qa")]
+        trace_resident_lifecycle(&app, "destroy_result", "result=error");
+        drop(teardown);
         let _ = workspace.resume_after_window_destroy_failure(generation);
         let _ = readiness.set_ready(generation, true);
         return Err(format!("main_window_destroy_failed:{error}"));
     }
-    teardown.complete(app.webview_windows().len());
+    #[cfg(feature = "native-qa")]
+    trace_resident_lifecycle(&app, "destroy_result", "result=ok");
+    teardown.complete();
+    #[cfg(feature = "native-qa")]
+    trace_resident_lifecycle(&app, "teardown_complete", "");
     #[cfg(feature = "desktop-runtime")]
     eprintln!(
         "ui_runtime main_window_destroyed generation={generation} webview_count={}",
@@ -1105,6 +1139,10 @@ pub fn mark_main_window_ready<R: Runtime>(
             );
         }
     }
+    #[cfg(feature = "native-qa")]
+    if ready {
+        trace_resident_lifecycle(&app, "main_ready", "");
+    }
     #[cfg(not(feature = "desktop-runtime"))]
     let _ = (&app, &lifecycle);
     Ok(())
@@ -1224,6 +1262,7 @@ fn create_search_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<
     .center()
     .build()
     .map_err(|error| error.to_string())?;
+    app.state::<ExitIntentState>().record_window_created();
     let app_handle = app.clone();
     search_window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -1596,10 +1635,10 @@ fn hide_search_window_with_state<R: Runtime>(
             let exit_intent = app.state::<ExitIntentState>();
             let teardown = exit_intent.begin_internal_window_teardown(app.webview_windows().len());
             if let Err(error) = window.destroy() {
-                teardown.complete(app.webview_windows().len());
+                drop(teardown);
                 return Err(error.to_string());
             }
-            teardown.complete(app.webview_windows().len());
+            teardown.complete();
             eprintln!(
                 "ui_runtime search_window_destroyed webview_count={}",
                 app.webview_windows().len()

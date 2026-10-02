@@ -333,6 +333,8 @@ fn main() {
             zen_canvas_tauri::scheduler::WorkScheduler::global()
                 .set_native_policy_notifications_available(true);
             app.manage(lifecycle);
+            #[cfg(all(target_os = "windows", feature = "native-qa"))]
+            zen_canvas_tauri::native_resident_lifecycle_qa::install(app.handle()).map_err(io::Error::other)?;
             if !background_launch {
                 zen_canvas_tauri::app_control::show_main_window(app.handle())
                     .map_err(io::Error::other)?;
@@ -570,23 +572,47 @@ fn main() {
                     }
                 }
                 tauri::RunEvent::ExitRequested { code, api, .. } => {
+                    #[cfg(feature = "native-qa")]
+                    {
+                        use std::sync::atomic::{AtomicUsize, Ordering};
+                        static REQUESTS: AtomicUsize = AtomicUsize::new(0);
+                        let sequence = REQUESTS.fetch_add(1, Ordering::Relaxed) + 1;
+                        zen_canvas_tauri::app_control::trace_resident_lifecycle(app, "exit_requested", &format!("request_seq={sequence} code={code:?}"));
+                    }
                     let exit_intent = app.state::<zen_canvas_tauri::exit_intent::ExitIntentState>();
-                    exit_intent.dispatch_exit_requested(
+                    #[cfg(feature = "native-qa")]
+                    let shutdown_invoked = std::cell::Cell::new(false);
+                    let action = exit_intent.dispatch_exit_requested(
                         code,
-                        || api.prevent_exit(),
                         || {
+                            api.prevent_exit();
+                            #[cfg(feature = "native-qa")]
+                            zen_canvas_tauri::app_control::trace_resident_lifecycle(app, "exit_action", "action=StayResident prevent_exit=true shutdown=false");
+                        },
+                        || {
+                            #[cfg(feature = "native-qa")]
+                            {
+                                shutdown_invoked.set(true);
+                                zen_canvas_tauri::app_control::trace_resident_lifecycle(app, "exit_action", "action=Exit prevent_exit=false shutdown=true");
+                            }
                             if let Some(automation) = app.try_state::<
                                 zen_canvas_tauri::db::AutomationTriggerCoordinator,
                             >() {
                                 automation.shutdown();
+                                #[cfg(feature = "native-qa")]
+                                zen_canvas_tauri::app_control::trace_resident_lifecycle(app, "automation_shutdown", "");
                             }
                             if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
                                 if let Err(error) = coordinator.shutdown() {
                                     eprintln!("Global index shutdown failed (non-fatal): {error}");
                                 }
                             }
+                            #[cfg(feature = "native-qa")]
+                            zen_canvas_tauri::app_control::trace_resident_lifecycle(app, "global_index_shutdown", "");
                             if let Some(worker) = app.try_state::<ManagedAiWorker>() {
                                 worker.shutdown();
+                                #[cfg(feature = "native-qa")]
+                                zen_canvas_tauri::app_control::trace_resident_lifecycle(app, "managed_ai_shutdown", "");
                             }
                             if let Some(lifecycle) = app.try_state::<
                                 zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController,
@@ -595,6 +621,13 @@ fn main() {
                             }
                         },
                     );
+                    #[cfg(feature = "native-qa")]
+                    zen_canvas_tauri::app_control::trace_resident_lifecycle(app, if action == zen_canvas_tauri::exit_intent::ExitRequestedAction::StayResident { "exit_prevented" } else { "exit_selected" }, &format!("action={action:?} prevent_exit={} shutdown={}", action == zen_canvas_tauri::exit_intent::ExitRequestedAction::StayResident, shutdown_invoked.get()));
+                    let _ = action;
+                }
+                tauri::RunEvent::Exit => {
+                    #[cfg(feature = "native-qa")]
+                    zen_canvas_tauri::app_control::trace_resident_lifecycle(app, "run_event_exit", "");
                 }
                 _ => {}
             }
