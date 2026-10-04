@@ -1,8 +1,10 @@
 # PM-02B — Event / Schedule Trigger Result
 
-Status: **PM-02B BACKGROUND RESIDENT-LIFECYCLE REMEDIATION IMPLEMENTED — WINDOWS OWNER REQUALIFICATION REQUIRED — OWNER REVIEW PENDING**. Remediation source `0c98d5c15c0e93c7513eb4f652afdfe781673acd` / tree `6dc8282a52452e39b531e0c589e81c18ed77b0ad`; fresh exact-head hosted CI [37013892661](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37013892661) **SUCCESS**. PR #317 remains OPEN / Draft / unmerged; PM-03 remains **NOT ACTIVE**. The preserved c823 Owner background failure and the new engineering regressions are recorded in the [resident-lifecycle evidence](evidence/PM-02B/windows-resident-lifecycle-remediation.md). No new Owner acceptance is claimed.
+Status: **PM-02B — OWNER REVIEW PASSED / MERGE READY, SUBJECT TO FRESH EXACT-HEAD CLOSEOUT CI.** Accepted production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37; package 0.1.40. Owner accepted core Windows native behavior with bounded evidence limitations below. PR #317 remains unmerged pending fresh CI on the documentation successor; PM-03 remains NOT ACTIVE.
 
 Exact implementation base: `master@91589a89974324e821b4963b062c3070949252a8`. Branch: `product/pm-02b-event-schedule-triggers`, isolated worktree. Schema exactly 37; package remains 0.1.40. Accepted PM-02A result and frozen research history are unchanged.
+
+Historical note: dated status and gate statements in the sections below preserve their contemporaneous dispositions. The final Owner closeout section at the end of this record is the current PM-02B disposition.
 
 ## Implemented contract
 
@@ -104,3 +106,41 @@ Successful internal destruction now retains resident intent through delayed/repe
 Fresh Windows native engineering regression passed two zero-WebView background cycles, real watcher/Automation delivery, the tray's native show-main owner with fresh generation/readiness and unchanged resident owners, background Quit and visible quit_app. Hosted CI runs this same real Tauri path and passed both modes. Local focused results are 9/9 exit-intent, 30/30 app-control, 25/25 watcher and 6/6 lifecycle source contracts; the trigger suite remains 20/21 with the unchanged known local baseline failure, reproduced on untouched c823. Hosted Windows Rust tests passed 1,122 with 24 ignored. See the [complete trace, identities, CI history and Owner handoff](evidence/PM-02B/windows-resident-lifecycle-remediation.md).
 
 Only lifecycle source, its directly necessary native-QA/tests/hosted gate and this evidence/current truth changed. Watcher routing, trigger/calendar, Schema 37, package 0.1.40, Plan/provider/admission, file execution and research remain unchanged. This documentation-only successor does not change the tested production/native-QA source; final successor identity and CI are reported in the handoff. Fresh exact-binary Windows Owner requalification is required after code/CI review; PM-02B is not complete and PM-03 remains NOT ACTIVE.
+
+## Final Owner disposition — 2026-10-05
+
+Status: **PM-02B — OWNER REVIEW PASSED / MERGE READY, SUBJECT TO FRESH EXACT-HEAD CLOSEOUT CI.** This records Owner acceptance of the core Windows native behavior on the final production candidate. It does not record a merge or activate PM-03.
+
+Accepted production candidate: HEAD 823edc2b87c958f4bfdf7f6ba4211328140ccca2; tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37; package 0.1.40. The retained exact-binary Owner report is F:/CargoTarget/pm02b-owner-final-823edc2b-20261002-01/qualification-report.md; binary SHA-256 is 1BF6AC7866AFD5657757B4996499E41EF382283DD7DFDF0F725F2C61400A2ED1. Report history and append-only corrections remain preserved.
+
+The disposable qualification profile remains in its final recorded test state: Schedule Intent revision 2, Monday 02:04, Asia/Shanghai. Owner accepted this state as qualification evidence; it was not reopened or cosmetically restored, and retained evidence was not cleaned.
+
+### Final native PASS matrix
+
+| Area | Owner disposition |
+| --- | --- |
+| Candidate identity and isolation | PASS: exact HEAD/tree, binary, Schema 37, package 0.1.40, isolated profile/database/root verified. |
+| Settings and watcher authority | PASS: native Settings enrollment, durable enabled root and real watcher registration verified. |
+| Windows filesystem delivery | PASS: extended-length path routed through the existing canonical normalizer; single publication; five-second settling; burst coalescing; native create, rename and remove; watcher/applied/library revision chain. |
+| Schedule and restart | PASS for natural Schedule delivery while awake and while resident; same-binary restart preserved durable state without replaying the delivered Schedule occurrence or consumed event revision. No suspend/resume claim follows from an awake occurrence. |
+| Intent controls | PASS: Run now preserves the configured automatic trigger; toggle/re-enable and edit-revision changes reset trigger debt. |
+| Resident lifecycle | PASS: Main-to-zero-WebView resident transition; watcher and Automation delivery without Main; real tray reopen; fresh Main generations/readiness with resident owners retained; repeated background lifecycle; visible-Main exit and genuine tray Quit with resident-owner shutdown. |
+| Review-pending behavior | PASS per Intent. The event Intent created its Plan; the independent Schedule Intent later created its own Plan as expected. A later cause on the same event Intent returned automation_review_pending, reused the original live Plan, consumed that cause and did not replay it. The cross-Intent Plan was not a defect. |
+| Product boundaries and safety | PASS: Advanced Rules remain separate; same-binary/profile persistence across restart; no Plan execution or Cleanup/trash operation; Zen Canvas automatic filesystem mutations observed = 0. |
+
+### Owner-accepted UNVERIFIED evidence
+
+| Row | Final disposition |
+| --- | --- |
+| Pending-event pre-settle restart recovery | **ACCEPTED UNVERIFIED — NATIVE EXIT TIMING LIMITATION.** Two attempts captured pending state, but each cause settled at the five-second deadline before confirmed process exit. This is not evidence that recovery fails. Deterministic recovery/idempotence tests remain engineering support; no native pending-at-exit PASS is claimed. |
+| Windows suspend/resume | **ACCEPTED UNVERIFIED — HOST POWER-CONTROL LIMITATION.** powercfg /a reported Modern Standby / S0 Low Power Idle and hibernation; no real OS suspend or resume occurred, no resume notification was observed, and no overdue-after-resume claim is made. |
+| Native narrow layout / exact focus return | **ACCEPTED EVIDENCE LIMITATION.** The exact native control limitation is retained; browser/mock evidence is not promoted to native PASS. This is not a merge blocker under Owner disposition. |
+| Native metadata exclusion | **ACCEPTED DETERMINISTIC EVIDENCE.** The publication contract and deterministic tests establish that tag/semantic metadata does not advance the PM-02B managed-file-change clock. No artificial native mutation or native PASS is claimed. |
+| Native resource-admission saturation | **ACCEPTED DETERMINISTIC RUNTIME EVIDENCE.** WorkScheduler / RuntimeResourceGovernor tests cover background admission, deferral, release and shutdown without consuming the cause. No native saturation test or native PASS is claimed. |
+
+### Historical native failures and remediation
+
+- Watcher delivery: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS.** The extended-length Windows path mismatch prevented watcher-root routing. The fix reuses the canonical database path normalizer. The first hosted follow-up failure [36990307913](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36990307913) remains recorded with its cause unknown; the traced runner-temp regression and exact-head CI [36991861097](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36991861097) passed. Final Owner native filesystem delivery passed on 823edc2b.
+- Resident lifecycle: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS.** The earlier Main destruction / resident exit-intent ordering failure is retained. The repair preserves resident intent through accepted asynchronous Main destruction while genuine Quit remains authoritative. Remediation CI [37013892661](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37013892661) passed, followed by final accepted-candidate CI [37016643626](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37016643626) passing on 823edc2b.
+
+At documentation time PR #317 is OPEN / Draft / unmerged. This closeout changes governance/evidence only; it does not change production behavior, Schema 37, or Automation runtime semantics. After the documentation successor is pushed, its own exact-head CI must pass before the PR moves to Ready for review. No merge or auto-merge is authorized here. PM-03 remains **NOT ACTIVE**.

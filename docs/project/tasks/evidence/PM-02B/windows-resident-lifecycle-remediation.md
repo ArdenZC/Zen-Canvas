@@ -1,6 +1,6 @@
 # PM-02B Windows resident-lifecycle remediation evidence
 
-Status: **PM-02B BACKGROUND RESIDENT-LIFECYCLE REMEDIATION IMPLEMENTED — WINDOWS OWNER REQUALIFICATION REQUIRED — OWNER REVIEW PENDING**. This is engineering regression evidence; Windows Owner requalification and Owner review are still required. PM-03 is NOT ACTIVE.
+Status: **HISTORICAL BACKGROUND RESIDENT-LIFECYCLE NATIVE FAIL REMEDIATED; FINAL WINDOWS OWNER REQUALIFICATION PASS ON 823edc2b; PM-02B OWNER REVIEW PASSED / MERGE READY SUBJECT TO FRESH DOCUMENTATION-SUCCESSOR CI.** PM-03 is NOT ACTIVE.
 
 ## Exact identities and preserved qualification
 
@@ -85,6 +85,14 @@ Direct regression/diagnostic gate: `src-tauri/src/app_control_main_failure_tests
 
 Documentation-only closeout: `docs/project/STATUS.md`, `docs/project/tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md`, `docs/project/tasks/evidence/PM-02B/windows-native-qualification.md`, `docs/project/tasks/evidence/PM-02B/windows-resident-lifecycle-remediation.md`.
 
-## Required Owner handoff
+## Historical Owner handoff — superseded by final closeout below
 
 After code/CI review, build a fresh exact candidate binary and requalify identity, Main background/PID/zero WebViews, background append/publication/automatic delivery, tray menu reopen/new generation/readiness, background again, natural resident Schedule delivery, same-binary restart idempotence, explicit Quit and final mutation manifest. Then continue the previously unverified review-suppression completion, Advanced Rules separation, focus/narrow layout, pending-event restart recovery, resource-admission/metadata-exclusion dispositions and real Windows suspend/resume where supported. Prior filesystem variants/debt-reset PASS remains historical unless affected owners change. PR #317 stays OPEN/Draft/unmerged; PM-02B stays Owner Review Pending; PM-03 stays NOT ACTIVE.
+
+## Final Owner requalification disposition — 2026-10-05
+
+The historical c823 background-delivery failure remains preserved and is classified **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS**. The lifecycle repair at 0c98d5c15c0e93c7513eb4f652afdfe781673acd keeps resident intent across accepted asynchronous Main destruction while genuine Quit remains authoritative. Engineering exact-head CI [37013892661](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37013892661) passed; the final accepted candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89 passed exact-candidate CI [37016643626](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37016643626).
+
+Owner native requalification then passed Main-to-zero-WebView residency, delivery without Main, tray reopen and fresh Main readiness with resident owners retained, repeated background lifecycle, natural resident Schedule delivery, same-binary persistence/no replay of delivered causes, visible-Main exit and genuine tray Quit with resident-owner shutdown. Zen Canvas automatic filesystem mutations remained zero.
+
+Pending-event pre-settle restart recovery remains **ACCEPTED UNVERIFIED — NATIVE EXIT TIMING LIMITATION**; suspend/resume remains **ACCEPTED UNVERIFIED — HOST POWER-CONTROL LIMITATION**. Native narrow/focus, metadata exclusion and resource-saturation limitations retain the evidence dispositions recorded in the [final Windows qualification record](windows-native-qualification.md). The earlier Required Owner handoff below is historical and superseded. PR #317 remains unmerged; PM-03 remains **NOT ACTIVE**.

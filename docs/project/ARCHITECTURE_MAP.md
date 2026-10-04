@@ -286,7 +286,7 @@ Missing/stale analysis is admitted only after existing backend readiness, provid
 
 ## PM-02B Event / Schedule Trigger boundary
 
-Activation PR #316 is merged; implementation Owner review is pending. [Schema 37](SCHEMA_37_AUTOMATION_TRIGGERS.md), [ADR-0011](DECISIONS/0011-automation-trigger-boundary.md), and [result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md) record the bounded extension.
+Activation PR #316 is merged; PR #317 has passed Owner review on production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. Merge readiness is subject to fresh exact-head closeout CI. [Schema 37](SCHEMA_37_AUTOMATION_TRIGGERS.md), [ADR-0011](DECISIONS/0011-automation-trigger-boundary.md), and [result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md) record the bounded extension; PM-03 remains NOT ACTIVE.
 
 | Module | Responsibility |
 | --- | --- |
@@ -301,4 +301,4 @@ Activation PR #316 is merged; implementation Owner review is pending. [Schema 37
 | `platform/windows/automation_resume.rs` | Native suspend/resume hint adapter only; no timer, policy or durable authority |
 | `AutomationTriggerEditor.tsx`, `useAutomationIntents.ts` | Trigger editing and event-driven receipt/status reload; no UI polling |
 
-There are no new renderer commands, watchers, AI queues, provider clients, execution paths or scheduler fairness/governor ownership changes. Windows real native and suspend acceptance remain explicitly pending.
+There are no new renderer commands, watchers, AI queues, provider clients, execution paths or scheduler fairness/governor ownership changes. Owner accepted the core Windows native behavior. Pending-at-exit restart recovery and real suspend/resume remain accepted UNVERIFIED evidence limits; the Windows host never entered suspend. No PM-03 activation follows from this closeout.

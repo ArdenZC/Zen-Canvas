@@ -1,6 +1,6 @@
 # PM-02B Windows native qualification
 
-Status: **ORIGINAL AND POST-ROOT-AUTHORITY OWNER QUALIFICATIONS FAILED; WINDOWS EXTENDED-PATH ROOT-ROUTING CAUSE PROVEN AND FIXED; LOCAL AND EXACT-HEAD HOSTED WINDOWS WATCHER REGRESSION PASS; HOSTED CI SUCCESS AT `68ddd8d7`; FRESH WINDOWS OWNER REQUALIFICATION REQUIRED / NOT RUN.** Earlier failure and CI records remain intact. No repaired native PASS is claimed.
+Status: **FINAL OWNER CORE WINDOWS NATIVE QUALIFICATION PASS ON 823edc2b; OWNER-ACCEPTED UNVERIFIED EVIDENCE LIMITATIONS; PM-02B OWNER REVIEW PASSED / MERGE READY SUBJECT TO FRESH DOCUMENTATION-SUCCESSOR CI.** Earlier failures and CI records remain intact. PR #317 is OPEN / Draft / unmerged at this documentation checkpoint; PM-03 is NOT ACTIVE.
 
 ## Previously recorded CI result and native requalification gate
 
@@ -126,3 +126,38 @@ The supplement stopped at **BACKGROUND DELIVERY — FAIL**: the supported native
 Remediation source `0c98d5c15c0e93c7513eb4f652afdfe781673acd` / tree `6dc8282a52452e39b531e0c589e81c18ed77b0ad` passed fresh exact-head hosted CI [37013892661](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37013892661), including both real Windows Tauri regression modes. Engineering proof covers zero-WebView residency, unchanged core owners, real background append/publication/automatic delivery, native show-main owner/fresh readiness, a second background cycle and explicit Quit from background/visible Main. Complete trace, local baseline-test disposition and preserved CI history are in the linked evidence.
 
 **PM-02B BACKGROUND RESIDENT-LIFECYCLE REMEDIATION IMPLEMENTED — WINDOWS OWNER REQUALIFICATION REQUIRED — OWNER REVIEW PENDING**. Schema 37/package 0.1.40 and review-only filesystem safety remain unchanged. No old c823 binary acceptance is promoted. Fresh post-review Owner native UI qualification and the remaining UNVERIFIED rows are still required; PR #317 remains OPEN/Draft/unmerged and PM-03 remains NOT ACTIVE.
+
+## Final Owner closeout — authoritative disposition, 2026-10-05
+
+This section supersedes only the earlier “requalification required / not run” checkpoint statuses above. The original watcher failures, CI outcomes and native STOP history remain intact.
+
+Final accepted production candidate: HEAD 823edc2b87c958f4bfdf7f6ba4211328140ccca2; tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37; package 0.1.40. Exact qualification executable SHA-256: 1BF6AC7866AFD5657757B4996499E41EF382283DD7DFDF0F725F2C61400A2ED1. Full retained Owner report, including append-only corrections, is at F:/CargoTarget/pm02b-owner-final-823edc2b-20261002-01/qualification-report.md.
+The disposable profile remains in its final qualification state (Schedule revision 2, Monday 02:04, Asia/Shanghai); Owner accepted it as evidence. No cosmetic restoration or retained-evidence cleanup was performed.
+
+### Accepted native PASS rows
+
+- Exact candidate/binary/profile/database identity; native Settings enrollment; durable root authority; real watcher registration.
+- Extended-length Windows watcher delivery; one publication; five-second settling and burst coalescing; native create/rename/remove; watcher, applied and library revisions advanced through the retained event trace.
+- Natural Schedule delivery while awake and while Main was absent; same-binary restart did not replay the already-delivered Schedule occurrence or consumed event revision. An awake Schedule occurrence is not resume evidence.
+- Run now preserved the configured automatic trigger; toggle/re-enable and edit-revision debt reset passed.
+- Main-to-zero-WebView residency; watcher and Automation delivery while Main was absent; real tray reopen; fresh Main generations/readiness with resident owners retained; repeated background lifecycle; visible-Main exit and genuine tray Quit with resident-owner shutdown.
+- Same-Intent review-pending suppression: the later event cause returned automation_review_pending, reused the original live Event Plan, consumed the cause, and did not replay it. The Schedule Intent is distinct and its independent Plan was expected.
+- Advanced Rules remained separate; profile state persisted across same-binary restart; no Plan execution, operation batch, Cleanup or trash action was observed.
+
+### Owner-accepted evidence limitations
+
+| Row | Disposition |
+| --- | --- |
+| Pending-event pre-settle restart recovery | **ACCEPTED UNVERIFIED — NATIVE EXIT TIMING LIMITATION.** Two attempts established pending state, but the cause settled before confirmed process exit. No recovery-failure inference and no native pending-at-exit PASS. |
+| Windows suspend/resume | **ACCEPTED UNVERIFIED — HOST POWER-CONTROL LIMITATION.** S0 Modern Standby and hibernation are supported according to powercfg /a; the host never entered OS suspend. No resume notification or overdue-after-resume claim. |
+| Native narrow / exact focus return | **ACCEPTED EVIDENCE LIMITATION.** Preserve the observed native control limitation; browser/mock rows are not native PASS. Not a merge blocker under Owner disposition. |
+| Native metadata exclusion | **ACCEPTED DETERMINISTIC EVIDENCE.** Contract and deterministic tests cover tag/semantic metadata exclusion from the managed-file-change clock. No artificial native mutation or native PASS. |
+| Native resource saturation | **ACCEPTED DETERMINISTIC RUNTIME EVIDENCE.** WorkScheduler / RuntimeResourceGovernor deterministic coverage is accepted; no native saturation test or native PASS. |
+
+### Remediation classification
+
+- Watcher: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS.** Windows extended-length path routing now uses the existing canonical path normalizer. CI 36990307913 remains a failure with an unknown first boundary; traced follow-up CI 36991861097 passed. Final Owner native event delivery passed on the accepted candidate.
+- Resident lifecycle: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS.** The earlier asynchronous Main destruction cleared resident intent before native exit delivery. The repair retains resident intent while keeping genuine Quit authoritative; engineering CI 37013892661 and final-candidate CI 37016643626 passed, followed by Owner native requalification PASS.
+- Zen Canvas automatic filesystem mutations observed: **0**. Operation and cleanup/trash ledgers remained zero; no automatic Plan execution occurred.
+
+The two accepted UNVERIFIED rows above are evidence boundaries, not product failures. They do not reopen qualification under the Owner's final disposition. PR #317 remains unmerged; exact-head CI is required again for the documentation successor. PM-03 remains **NOT ACTIVE**.
