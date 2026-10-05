@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 and PM-02A COMPLETE / MERGED; PM-02B Event / Schedule Trigger Owner activation review PASSED. Merge of the dedicated activation PR activates PM-02B implementation only; PM-03 remains NOT ACTIVE.**
+Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 and PM-02A COMPLETE / MERGED; PM-02B activation PR #316 MERGED; Event / Schedule Trigger implementation OWNER REVIEW PASSED / MERGE READY on PR #317, subject to fresh exact-head closeout CI; PM-03 remains NOT ACTIVE.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), accepted [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md), and current [PM-02B activation taskbook](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md). PM-01 historical authority remains [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md) and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -102,7 +102,7 @@ Current production / research sequence:
 3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
 4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
 5. **PM-02A Automation Intent Foundation — COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** [Result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md): Schema 36, reusable Query V2 scope, manual Intent-to-Plan handoff and existing Managed AI admission; Windows native + restart acceptance PASS; no automatic execution.
-6. **PM-02B Event / Schedule Triggers — OWNER ACTIVATION REVIEW PASSED.** The taskbook freezes schedule + managed-scope-change triggers, durable recovery/coalescing and existing WorkScheduler admission; implementation remains NOT ACTIVE until activation merge.
+6. **PM-02B Event / Schedule Triggers — ACTIVATION MERGED / OWNER REVIEW PASSED / MERGE READY on PR #317, subject to fresh exact-head closeout CI.** [Result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md): accepted production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37, package 0.1.40. Core Windows native evidence is PASS. Pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED evidence limitations. PM-03 remains NOT ACTIVE.
 7. PM-03 migration closeout — **NOT ACTIVE**.
 8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
 

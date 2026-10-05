@@ -107,7 +107,7 @@ fn downgrade_current_fixture_to_schema_16(path: &PathBuf) {
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_file_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_quick_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN identity_status;
-        PRAGMA user_version = 16;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 16;
         "#,
     )
     .expect("downgrade to schema 16");
@@ -179,6 +179,7 @@ fn downgrade_current_fixture_to_schema_20_or_21(path: &PathBuf, version: i32) {
         .expect("remove schema 21 full hash columns");
     }
 
+    conn.execute_batch("DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; ").expect("remove future Automation schema from legacy fixture");
     conn.execute(&format!("PRAGMA user_version = {version}"), [])
         .expect("downgrade journal fixture");
 }
@@ -348,7 +349,7 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
     conn.execute_batch(
         r#"
         ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_volume_id;
-        PRAGMA user_version = 34;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 34;
         "#,
     )
     .expect("downgrade schema 35 cleanup fixture to schema 34");
@@ -401,7 +402,7 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema 35 version");
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
     assert!(column_names(&conn, "cleanup_trash_items")
         .contains(&"source_platform_volume_id".to_string()));
 
@@ -615,7 +616,7 @@ fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
 }
 
 #[test]
-fn schema_36_reopen_is_idempotent_and_future_schema_37_is_rejected() {
+fn schema_37_reopen_is_idempotent_and_future_schema_38_is_rejected() {
     let path = test_db_path("td014-idempotent");
     downgrade_current_fixture_to_schema_34(&path);
     let db = Database::open(&path).expect("migrate schema 34 fixture to schema 35");
@@ -628,7 +629,7 @@ fn schema_36_reopen_is_idempotent_and_future_schema_37_is_rejected() {
     let second = Connection::open(&path).expect("reopen migrated schema 35 fixture");
     assert_eq!(cleanup_identity_snapshot(&second), before);
     second
-        .execute_batch("PRAGMA user_version = 37;")
+        .execute_batch("PRAGMA user_version = 38;")
         .expect("set future schema version");
     drop(second);
     let error = match Database::open(&path) {
@@ -671,7 +672,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -739,7 +740,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 36);
+        assert_eq!(migrated_version, 37);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -783,7 +784,7 @@ fn schema_20_normalizes_invalid_historical_rule_domains_in_transaction() {
         ],
     )
     .expect("seed invalid rule domains");
-    conn.execute_batch("PRAGMA user_version = 19;")
+    conn.execute_batch("DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 19;")
         .expect("downgrade enum fixture");
     drop(conn);
 
@@ -841,7 +842,7 @@ fn performance_100k_files_schema_28_to_29_and_wal_reader() {
         DROP TABLE file_fingerprints;
         DROP TABLE dedupe_runs;
         ALTER TABLE scan_roots DROP COLUMN watcher_rule_recovery_required;
-        PRAGMA user_version = 28;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 28;
         "#,
     )
     .expect("downgrade fixture to schema 28");
@@ -906,7 +907,7 @@ fn performance_100k_files_schema_29_to_30_analysis_and_wal_reader() {
         DROP TABLE analysis_runs;
         DROP TABLE dedupe_authority_state;
         ALTER TABLE dedupe_runs DROP COLUMN publication_mode;
-        PRAGMA user_version = 29;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 29;
         "#,
     )
     .expect("downgrade fixture to schema 29");
@@ -962,7 +963,7 @@ fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
         ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_file_id;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_full_hash;
-        PRAGMA user_version = 22;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 22;
         "#,
     )
     .expect("downgrade to schema 22");
@@ -979,7 +980,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        36
+        37
     );
     assert_schema_23_journal_columns(&conn);
 

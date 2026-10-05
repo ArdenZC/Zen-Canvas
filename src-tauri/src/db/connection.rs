@@ -72,6 +72,7 @@ pub struct Database {
     pool: Pool<SqliteConnectionManager>,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
+    pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
 }
 
 impl Database {
@@ -96,6 +97,7 @@ impl Database {
             pool,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
+            automation_wake: Arc::new(Mutex::new(None)),
         })
     }
 

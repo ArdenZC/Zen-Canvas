@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / MERGED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; PM-02B OWNER ACTIVATION REVIEW PASSED / IMPLEMENTATION NOT ACTIVE UNTIL ACTIVATION MERGE; PM-03 NOT ACTIVE**
+Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / MERGED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; PM-02B ACTIVATION MERGED / IMPLEMENTATION OWNER REVIEW PASSED / MERGE READY ON PR #317 SUBJECT TO FRESH EXACT-HEAD CLOSEOUT CI; PM-03 NOT ACTIVE**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -101,7 +101,7 @@ PM-02 separately owns Automation Intent / Trigger / Policy architecture.
 PM-02 is now decomposed into separately gated slices:
 
 - **PM-02A — Automation Intent Foundation:** **COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** Durable Organize-plan intent, manual trigger, fixed review-required / never-auto-execute policy, durable run receipt, fresh Query V2 snapshot resolution and Organization Plan handoff. Windows native + restart acceptance is PASS. See the [bounded implementation result](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md).
-- **PM-02B — Event / Schedule Triggers:** dedicated [activation taskbook](../tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md) is **OWNER REVIEW PASSED**. It proposes bounded Schedule + Managed-scope-change triggers, startup/wake recovery only, durable coalescing/idempotence and existing WorkScheduler/RuntimeResourceGovernor admission. Implementation remains **NOT ACTIVE** until activation merge.
+- **PM-02B — Event / Schedule Triggers:** dedicated [activation taskbook](../tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md) is **OWNER REVIEW PASSED**. It authorizes bounded Schedule + Managed-scope-change triggers, startup/wake recovery only, durable coalescing/idempotence and existing WorkScheduler/RuntimeResourceGovernor admission. Activation merged through PR #316 at 91589a89974324e821b4963b062c3070949252a8; Owner review passed on production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. PR #317 is merge-ready subject to fresh exact-head closeout CI. Core Windows native evidence is PASS; pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED. PM-03 remains NOT ACTIVE. See [result](../tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md).
 - Any additional workflow kinds or richer planner semantics require another bounded activation.
 
 PM-03 later owns remaining hierarchy/compatibility migration closeout.
@@ -130,6 +130,6 @@ Current activation taskbook:
 
 `docs/project/tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md`
 
-PM-02B activation is **OWNER REVIEW PASSED / SPECIFICATION ONLY**. Production implementation remains **NOT ACTIVE** until the dedicated activation PR merges.
+PM-02B activation PR #316 is **MERGED**, exact implementation base 91589a89974324e821b4963b062c3070949252a8. Owner review of implementation PR #317 passed on production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2; the merged production schema remains 36 until PR #317 merges. Core Windows native evidence is accepted PASS; pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED. PR #317 remains unmerged pending exact-head closeout CI and final Owner merge; PM-03 remains NOT ACTIVE.
 
 Merge of that activation may authorize only PM-02B Event / Schedule Trigger implementation. PM-03, Cleanup automation, startup-as-a-user-trigger, Preference Memory production, System One, Laya/Jev, general agents and autonomous filesystem mutation remain separately gated.

@@ -3,7 +3,7 @@ import { createAutomationMock } from "../src/api/automationMock";
 import { defaultFileLibraryQuerySpec } from "../src/store/useFileLibraryV2Store";
 import type { AutomationIntent, AutomationIntentDraft, AutomationRun } from "../src/types/automation";
 import type { OrganizationPlan } from "../src/types/domain";
-const draft: AutomationIntentDraft = { title: "Review", workflowKind: "organize_plan", scopeQuery: { ...defaultFileLibraryQuerySpec, scope: { kind: "all_enabled_roots" } }, trigger: { version: 1, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false }, enabled: true };
+const draft: AutomationIntentDraft = { title: "Review", workflowKind: "organize_plan", scopeQuery: { ...defaultFileLibraryQuerySpec, scope: { kind: "all_enabled_roots" } }, trigger: { version: 2, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false }, enabled: true };
 it("keeps presentation receipts idempotent, CAS-protected and bound to fresh snapshots", () => {
   let revision = 1;
   const createPlan = vi.fn(() => ({ id: "plan", summary: { needsAnalysis: 1 } } as OrganizationPlan));
@@ -20,4 +20,15 @@ it("keeps presentation receipts idempotent, CAS-protected and bound to fresh sna
   mock("set_automation_intent_enabled", { request: { intentId: intent.id, expectedRevision: 1, enabled: false } });
   expect(() => mock("run_automation_intent_manual", { request })).toThrow("revision_conflict");
   expect(() => mock("create_automation_intent", { draft: { ...draft, scopeQuery: { ...draft.scopeQuery, scope: { kind: "current_scan", scanSessionId: "temporary" } } } })).toThrow("scope_invalid");
+});
+it("PM-02B normalizes schedule fixtures, clears due on pause/edit and rejects automatic spoof",()=>{
+ const mock=createAutomationMock({roots:()=>[],fingerprint:()=>"fp",snapshotRevision:()=>1,createPlan:()=>({id:"plan",summary:{needsAnalysis:0}} as OrganizationPlan)});
+ const scheduled=mock("create_automation_intent",{draft:{...draft,trigger:{version:2,kind:"schedule",timeZone:"UTC",localTime:"09:00",weekdays:[5,1,1]}}}) as AutomationIntent;
+ expect(scheduled.trigger).toEqual({version:2,kind:"schedule",timeZone:"UTC",localTime:"09:00",weekdays:[1,5]});
+ expect(scheduled.triggerState?.nextDueAt).toBeTruthy();
+ expect(()=>mock("run_automation_intent_manual",{request:{version:1,intentId:scheduled.id,expectedIntentRevision:1,requestKey:"auto:schedule:spoof"}})).toThrow("namespace_reserved");
+ const paused=mock("set_automation_intent_enabled",{request:{intentId:scheduled.id,expectedRevision:1,enabled:false}}) as AutomationIntent;
+ expect(paused.triggerState?.nextDueAt).toBeNull();
+ const manual=mock("update_automation_intent",{request:{intentId:paused.id,expectedRevision:2,draft}}) as AutomationIntent;
+ expect(manual.triggerState).toBeNull();
 });

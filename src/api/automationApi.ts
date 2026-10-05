@@ -1,7 +1,8 @@
-import { invokeCommand } from "./core";
+import { invokeCommand, listenTo } from "./core";
 import type { AutomationIntent, AutomationIntentDraft, AutomationRun, RunAutomationIntentRequest } from "../types/automation";
 
 export const automationApi = {
+  onAutomationUpdated: (handler: () => void) => listenTo<null>("automation-updated", handler),
   listAutomationIntents: (): Promise<AutomationIntent[]> => invokeCommand("list_automation_intents"),
   getAutomationIntent: (intentId: string): Promise<AutomationIntent> => invokeCommand("get_automation_intent", { intentId }),
   listAutomationRuns: (intentId?: string): Promise<AutomationRun[]> => invokeCommand("list_automation_runs", { intentId: intentId ?? null }),

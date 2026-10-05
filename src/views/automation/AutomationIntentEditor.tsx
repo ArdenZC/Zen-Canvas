@@ -2,10 +2,12 @@ import { useId, useRef, useState } from "react";
 import type { ScanRootDto } from "../../api/types";
 import { ModalPortal } from "../../components/modal/ModalPortal";
 import { cloneFileQuerySpec, defaultFileLibraryQuerySpec, useFileLibraryQueryStore } from "../../store/useFileLibraryV2Store";
-import type { AutomationIntent, AutomationIntentDraft, AutomationScopeQuery } from "../../types/automation";
+import type { AutomationIntent, AutomationIntentDraft, AutomationScopeQuery, AutomationTrigger } from "../../types/automation";
 import type { Translator } from "../../types/ui";
 import { inputSurface } from "../../utils/tw";
 import { Button, panelSurface } from "../shared/ui";
+
+import { AutomationTriggerEditor, validAutomationTrigger } from "./AutomationTriggerEditor";
 
 export function AutomationIntentEditor({ intent, roots, t, busy, onSave, onClose }: {
   intent?: AutomationIntent; roots: ScanRootDto[]; t: Translator; busy: boolean;
@@ -14,6 +16,7 @@ export function AutomationIntentEditor({ intent, roots, t, busy, onSave, onClose
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState(intent?.title ?? "");
+  const [trigger, setTrigger] = useState<AutomationTrigger>(intent?.trigger ?? { version: 2, kind: "manual" });
   const [enabled, setEnabled] = useState(intent?.enabled ?? true);
   const [query, setQuery] = useState<AutomationScopeQuery>(() => cloneFileQuerySpec(intent?.scopeQuery ?? defaultFileLibraryQuerySpec) as AutomationScopeQuery);
   const [invalidScope, setInvalidScope] = useState(false);
@@ -22,12 +25,12 @@ export function AutomationIntentEditor({ intent, roots, t, busy, onSave, onClose
     if (current.scope.kind === "current_scan") { setInvalidScope(true); return; }
     setQuery(cloneFileQuerySpec(current) as AutomationScopeQuery); setInvalidScope(false);
   };
-  const canSave = title.trim().length > 0 && title.trim().length <= 120 && (query.scope.kind !== "roots" || query.scope.scanRootIds.length > 0);
+  const canSave = validAutomationTrigger(trigger) && title.trim().length > 0 && title.trim().length <= 120 && (query.scope.kind !== "roots" || query.scope.scanRootIds.length > 0);
   return <ModalPortal initialFocusRef={titleRef} onEscape={() => { if (!busy) onClose(); }}>
     <div className="fixed inset-0 flex items-center justify-center bg-black/35 p-4">
       <form role="dialog" aria-modal="true" aria-labelledby={`${id}-heading`} className={`${panelSurface} max-h-[90vh] w-full max-w-xl overflow-y-auto p-6 space-y-4`} onSubmit={(event) => {
         event.preventDefault();
-        if (canSave && !busy) void onSave({ title: title.trim(), workflowKind: "organize_plan", scopeQuery: query, trigger: { version: 1, kind: "manual" }, policy: { version: 1, review: "required", autoExecute: false }, enabled }).then((saved) => { if (saved) onClose(); });
+        if (canSave && !busy) void onSave({ title: title.trim(), workflowKind: "organize_plan", scopeQuery: query, trigger, policy: { version: 1, review: "required", autoExecute: false }, enabled }).then((saved) => { if (saved) onClose(); });
       }}>
         <h2 id={`${id}-heading`} className="text-xl font-semibold">{t(intent ? "automationEditIntent" : "automationCreateIntent")}</h2>
         <label className="block space-y-1">{t("automationIntentTitle")}<input ref={titleRef} value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required disabled={busy} className={`${inputSurface} block w-full`} /></label>
@@ -46,6 +49,7 @@ export function AutomationIntentEditor({ intent, roots, t, busy, onSave, onClose
             }} />{root.displayName}</label>;
           })}{query.scope.scanRootIds.filter((rootId) => !roots.some((root) => root.id === rootId)).map((rootId) => <p key={rootId}>{t("automationUnavailableRoot")}</p>)}{roots.length === 0 && <p>{t("automationNoRoots")}</p>}</div>}
         </fieldset>
+        <AutomationTriggerEditor trigger={trigger} onChange={setTrigger} disabled={busy} t={t} />
         <label className="flex gap-2"><input type="checkbox" checked={enabled} disabled={busy} onChange={(event) => setEnabled(event.target.checked)} />{t("automationIntentEnabled")}</label>
         <p className="text-sm opacity-70">{t("automationFixedPolicy")}</p>
         <div className="flex flex-wrap justify-end gap-2"><Button type="button" disabled={busy} onClick={onClose}>{t("cancel")}</Button><Button type="submit" variant="primary" disabled={!canSave || busy}>{t(busy ? "automationIntentSaving" : "save")}</Button></div>

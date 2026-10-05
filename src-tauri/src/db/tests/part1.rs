@@ -346,7 +346,7 @@
                             INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
                         END;
 
-                        PRAGMA user_version = 11;
+                        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 11;
                         "#,
                 )
                 .expect("simulate v11 non-trigram fts");
@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            36
+            37
         );
         assert_eq!(
             conn.query_row(
@@ -470,7 +470,7 @@
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 37;")
+        conn.execute_batch("PRAGMA user_version = 38;")
             .expect("set future version");
         drop(conn);
 
@@ -512,7 +512,7 @@
             DROP INDEX idx_library_files_name;
             DROP INDEX idx_library_files_size;
             DROP INDEX idx_library_files_confidence;
-            PRAGMA user_version = 30;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 30;
             "#,
         )
         .expect("create real schema 30 fixture");
@@ -523,7 +523,7 @@
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("schema version");
-        assert_eq!(version, 36);
+        assert_eq!(version, 37);
         for table in [
             "user_tags",
             "file_user_tags",
@@ -605,7 +605,7 @@
             DROP TABLE organization_plans;
             ALTER TABLE user_tags DROP COLUMN revision;
             ALTER TABLE library_saved_views DROP COLUMN revision;
-            PRAGMA user_version = 31;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 31;
             "#,
         )
         .expect("construct real schema 31 fixture");
@@ -616,7 +616,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            36
+            37
         );
         for table in ["organization_plans", "organization_plan_items"] {
             assert_eq!(
@@ -662,7 +662,7 @@
             DROP TABLE organization_plan_items;
             DROP TABLE organization_plans;
             CREATE TABLE idx_organization_plans_status_updated (conflict TEXT);
-            PRAGMA user_version = 31;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 31;
             "#,
         )
         .expect("construct conflicting schema 31 fixture");
@@ -745,7 +745,7 @@
             ALTER TABLE rules DROP COLUMN origin_proposal_id;
             ALTER TABLE rules DROP COLUMN revision;
             ALTER TABLE rules DROP COLUMN ast_version;
-            PRAGMA user_version = 32;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 32;
             "#,
         )
         .expect("construct real schema 32 fixture");
@@ -756,7 +756,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            36
+            37
         );
         assert_eq!(
             conn.query_row(
@@ -830,7 +830,7 @@
             ALTER TABLE rules DROP COLUMN revision;
             ALTER TABLE rules DROP COLUMN ast_version;
             CREATE TABLE rule_catalog_state (wrong_column TEXT);
-            PRAGMA user_version = 32;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 32;
             "#,
         )
         .expect("construct conflicting schema 32 fixture");
@@ -907,7 +907,7 @@
             DROP INDEX idx_library_files_size;
             DROP INDEX idx_library_files_confidence;
             CREATE TABLE user_tags (id TEXT PRIMARY KEY);
-            PRAGMA user_version = 30;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 30;
             "#,
         )
         .expect("create conflicting schema 30 fixture");
@@ -972,7 +972,7 @@
             ALTER TABLE scan_roots DROP COLUMN watcher_applied_revision;
             ALTER TABLE scan_roots DROP COLUMN watcher_revision;
             ALTER TABLE scan_runs DROP COLUMN watcher_revision_at_start;
-            PRAGMA user_version = 27;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 27;
             "#,
         )
         .expect("create real schema 27 fixture");
@@ -1017,7 +1017,7 @@
             )
             .expect("dedupe backfill count");
 
-        assert_eq!(version, 36);
+        assert_eq!(version, 37);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
         assert_eq!(rule_recovery_required, 0);
@@ -1046,7 +1046,7 @@
             DROP TABLE IF EXISTS dedupe_runs;
             ALTER TABLE scan_roots DROP COLUMN watcher_rule_recovery_required;
             CREATE TABLE file_fingerprints (file_id TEXT PRIMARY KEY);
-            PRAGMA user_version = 28;
+            DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 28;
             "#,
         )
         .expect("create conflicting schema 28 fixture");

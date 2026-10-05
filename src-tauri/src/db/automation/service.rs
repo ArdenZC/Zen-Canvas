@@ -21,6 +21,32 @@ impl Database {
         &self,
         request: RunAutomationIntentV1,
     ) -> Result<AutomationRunV1, DbError> {
+        if request.request_key.starts_with("auto:") {
+            return Err(invalid("automation_request_namespace_reserved"));
+        }
+        self.run_automation_intent(request, None)
+    }
+
+    pub(super) fn run_automation_intent_automatic(
+        &self,
+        cause: &super::trigger_state::TriggerCause,
+    ) -> Result<AutomationRunV1, DbError> {
+        self.run_automation_intent(
+            RunAutomationIntentV1 {
+                version: 1,
+                intent_id: cause.intent_id.clone(),
+                expected_intent_revision: cause.intent_revision,
+                request_key: cause.request_key.clone(),
+            },
+            Some(cause),
+        )
+    }
+
+    fn run_automation_intent(
+        &self,
+        request: RunAutomationIntentV1,
+        cause: Option<&super::trigger_state::TriggerCause>,
+    ) -> Result<AutomationRunV1, DbError> {
         if request.version != 1
             || request.request_key.trim().is_empty()
             || request.request_key.len() > 200
@@ -30,6 +56,9 @@ impl Database {
         }
         let mut conn = self.conn()?;
         let mut tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(cause) = cause {
+            Self::validate_automation_cause(&tx, cause)?;
+        }
         let intent = load_intent(&tx, &request.intent_id)?;
         require_revision(&intent, request.expected_intent_revision)?;
         if !intent.enabled {
@@ -62,7 +91,11 @@ impl Database {
             request_key: request.request_key,
             intent_id: intent.id.clone(),
             intent_revision: intent.revision,
-            trigger_kind: "manual".into(),
+            trigger_kind: cause.map_or("manual", |c| c.kind.as_str()).into(),
+            trigger_context: cause.map_or_else(
+                || serde_json::json!({"version":1,"kind":"manual"}),
+                |c| c.context.clone(),
+            ),
             scope_fingerprint: intent.scope_fingerprint.clone(),
             library_snapshot_revision: None,
             status: "blocked".into(),
@@ -81,52 +114,67 @@ impl Database {
                 run.scope_fingerprint = fingerprint.clone();
                 let revision = current_library_revision(&tx)?;
                 run.library_snapshot_revision = Some(revision);
-                let savepoint = tx.savepoint()?;
-                let plan = materialize_organization_plan(
-                    &savepoint,
-                    CreateOrganizationPlanRequestV1 {
-                        version: 1,
-                        request_id: run.id.clone(),
-                        title: Some(intent.title),
-                        source: LibrarySelectionV1::AllMatching {
-                            query: Box::new(query),
-                            query_fingerprint: fingerprint,
-                            snapshot_revision: revision,
-                            excluded_file_ids: vec![],
+                let outstanding: Option<(Option<String>, String)> = if cause.is_some() {
+                    tx.query_row("SELECT plan.status,run.result_plan_id FROM automation_runs run LEFT JOIN organization_plans plan ON plan.id=run.result_plan_id WHERE run.intent_id=?1 AND run.result_plan_id IS NOT NULL ORDER BY run.created_at DESC,run.rowid DESC LIMIT 1",[&intent.id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?
+                } else {
+                    None
+                };
+                if let Some((Some(status), plan_id)) = outstanding.filter(|(status, _)| {
+                    status
+                        .as_deref()
+                        .is_some_and(|s| matches!(s, "draft" | "building" | "ready" | "executing"))
+                }) {
+                    let _ = status;
+                    run.result_plan_id = Some(plan_id);
+                    run.error_code = Some("automation_review_pending".into());
+                } else {
+                    let savepoint = tx.savepoint()?;
+                    let plan = materialize_organization_plan(
+                        &savepoint,
+                        CreateOrganizationPlanRequestV1 {
+                            version: 1,
+                            request_id: run.id.clone(),
+                            title: Some(intent.title),
+                            source: LibrarySelectionV1::AllMatching {
+                                query: Box::new(query),
+                                query_fingerprint: fingerprint,
+                                snapshot_revision: revision,
+                                excluded_file_ids: vec![],
+                            },
+                            expected_count: None,
                         },
-                        expected_count: None,
-                    },
-                );
-                match plan {
-                    Ok(plan) => {
-                        run.result_plan_id = Some(plan.id);
-                        let missing: i64 = savepoint.query_row(
+                    );
+                    match plan {
+                        Ok(plan) => {
+                            run.result_plan_id = Some(plan.id);
+                            let missing: i64 = savepoint.query_row(
                             &format!("SELECT COUNT(*) FROM organization_plan_items item WHERE item.plan_id=?1 AND {ANALYSIS_CANDIDATE}"),
                             [run.result_plan_id.as_deref().unwrap()], |row| row.get(0),
                         )?;
-                        run.requires_plan_refresh = missing > 0;
-                        savepoint.commit()?;
-                        run.status = if run.requires_plan_refresh || plan.summary.blocked > 0 {
-                            "blocked"
-                        } else {
-                            "completed"
+                            run.requires_plan_refresh = missing > 0;
+                            savepoint.commit()?;
+                            run.status = if run.requires_plan_refresh || plan.summary.blocked > 0 {
+                                "blocked"
+                            } else {
+                                "completed"
+                            }
+                            .into();
+                            // A crash after this commit preserves a reviewable plan and
+                            // terminal receipt; retry never restarts orchestration.
+                            run.analysis_blocker_code = run
+                                .requires_plan_refresh
+                                .then(|| "automation_analysis_admission_unconfirmed".into());
                         }
-                        .into();
-                        // A crash after this commit preserves a reviewable plan and
-                        // terminal receipt; retry never restarts orchestration.
-                        run.analysis_blocker_code = run
-                            .requires_plan_refresh
-                            .then(|| "automation_analysis_admission_unconfirmed".into());
-                    }
-                    Err(_) => {
-                        drop(savepoint);
-                        run.status = "failed".into();
-                        run.error_code = Some("automation_plan_materialization_failed".into());
+                        Err(_) => {
+                            drop(savepoint);
+                            run.status = "failed".into();
+                            run.error_code = Some("automation_plan_materialization_failed".into());
+                        }
                     }
                 }
             }
         }
-        tx.execute("INSERT INTO automation_runs (id,request_key,intent_id,intent_revision,trigger_kind,scope_fingerprint,library_snapshot_revision,status,result_plan_id,queued_analysis_count,requires_plan_refresh,analysis_blocker_code,error_code,created_at,completed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",params![run.id,run.request_key,run.intent_id,run.intent_revision,run.trigger_kind,run.scope_fingerprint,run.library_snapshot_revision,run.status,run.result_plan_id,run.queued_analysis_count,i64::from(run.requires_plan_refresh),run.analysis_blocker_code,run.error_code,run.created_at,run.completed_at])?;
+        tx.execute("INSERT INTO automation_runs (id,request_key,intent_id,intent_revision,trigger_kind,scope_fingerprint,library_snapshot_revision,status,result_plan_id,queued_analysis_count,requires_plan_refresh,analysis_blocker_code,error_code,created_at,completed_at,trigger_context_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",params![run.id,run.request_key,run.intent_id,run.intent_revision,run.trigger_kind,run.scope_fingerprint,run.library_snapshot_revision,run.status,run.result_plan_id,run.queued_analysis_count,i64::from(run.requires_plan_refresh),run.analysis_blocker_code,run.error_code,run.created_at,run.completed_at,serde_json::to_string(&run.trigger_context)?])?;
         tx.commit()?;
         drop(conn);
         if run.requires_plan_refresh {

@@ -1,0 +1,146 @@
+# PM-02B — Event / Schedule Trigger Result
+
+Status: **PM-02B — OWNER REVIEW PASSED / MERGE READY, SUBJECT TO FRESH EXACT-HEAD CLOSEOUT CI.** Accepted production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37; package 0.1.40. Owner accepted core Windows native behavior with bounded evidence limitations below. PR #317 remains unmerged pending fresh CI on the documentation successor; PM-03 remains NOT ACTIVE.
+
+Exact implementation base: `master@91589a89974324e821b4963b062c3070949252a8`. Branch: `product/pm-02b-event-schedule-triggers`, isolated worktree. Schema exactly 37; package remains 0.1.40. Accepted PM-02A result and frozen research history are unchanged.
+
+Historical note: dated status and gate statements in the sections below preserve their contemporaneous dispositions. The final Owner closeout section at the end of this record is the current PM-02B disposition.
+
+## Implemented contract
+
+- Strict Trigger V2: Manual, Schedule (explicit IANA zone, HH:MM and normalized ISO weekdays), managed_scope_change. Run now remains manual for every enabled trigger. Policy remains review-required / autoExecute false.
+- One durable trigger-state row per automatic Intent, exact revision, bounded root maps, next schedule/event due, last outcome and claimed cause. Editing/toggling/archiving atomically clears debt. Manual Intents have no runtime row. [Schema 37](../SCHEMA_37_AUTOMATION_TRIGGERS.md) documents migration, constraints, fields and indexes.
+- Existing scanner/watcher publication owns the filesystem-only root clock. Creation, removal, rename, size/mtime, physical replacement and stale/live changes count once/root/transaction. Tags/classification/AI/presentation do not. Nullable publication-side filesystem observation digest distinguishes equal-size/equal-mtime replacement; existing helper is read-only. No second watcher or mutation identity authority.
+- Five-second settle uses durable epoch-millisecond deadlines, rounding observations upward so subsecond timing cannot fire early; it extends across a burst; pending maps retain maximum revisions. Startup/wake and postcommit hints reconcile durable clocks, including lost hints. Unhealthy scopes hold event delivery without spinning; newly enabled all-scope roots baseline current revisions. Explicit disabled scopes fail closed.
+- One condition-variable coordinator waits indefinitely when idle, otherwise at the nearest deadline. Existing WorkScheduler Background CPU=1/IO=1/open-handles=1 admission and RuntimeResourceGovernor own policy and fairness. Deferral retains cause/cursor; scheduler cancellation/backpressure waits; no application polling, per-Intent threads or new AI queue.
+- Jiff 0.2.37 is the only new direct dependency; bundled IANA tzdb/lockfile. Fold chooses earlier instant once. Gap chooses the actual first valid transition instant on that date. Daily/weekly/custom recurrence and bounded newest-only catch-up do not replay missed backlog.
+- Backend-reserved deterministic auto keys bind Intent/revision/cause. Claimed cause freezes before admission; crash after atomic Plan+Run publication before cursor advancement retries the same key despite later time/root revisions. Manual spoofing is rejected.
+- Shared manual/automatic service resolves fresh Query V2 and uses existing Plan materialization and Managed AI readiness/consent/currentness/admission. Current valid assessments need no new provider readiness. Automatic paths cannot accept decisions, request Dry Run, execute, or mutate files.
+- The latest referenced draft/building/ready/executing Plan suppresses a new automatic Plan: blocked automation_review_pending Run references the existing Plan and consumes only that cause. Completing it does not replay the skip; a later distinct cause can prepare a new Plan. Manual behavior remains unchanged.
+- macOS pauses through existing lifecycle ownership and recovers before resume. Windows narrow event-driven native power callback provides suspend/resume hints because relative Condvar behavior cannot be proven here. No Windows timer/power polling. Teardown cancels admission, joins coordinator before AI shutdown, unregisters callbacks; failed unregister retains context safely. [ADR-0011](../DECISIONS/0011-automation-trigger-boundary.md) records ownership/decomposition.
+- Bilingual editor supports daily/weekdays/custom, explicit zone/time, backend next due, actual Run source, resource-deferred and review-pending skip states. One backend event subscription refreshes projections; no UI polling. Plan handoff/Advanced Rules remain existing owners. Eight renderer commands retain main-window permission classification; no new automatic renderer command.
+
+## Owner-authorized event-root authority remediation
+
+The native event blocker was first observed at implementation source `e91f27ed278bc80a0cc92fe79e8b83748fa8f812` / tree `c3a74d38380b716af6242c71f7f0f088dcd514b5`. A managed scan could create an enabled durable File Library root that was not enrolled in the persistent watcher configured from `default_scan_folders`; the event resolver treated that scan-root row as event-capable. The original Windows failure remains preserved in the [native qualification record](evidence/PM-02B/windows-native-qualification.md).
+
+The Owner-authorized remediation source is commit `97a42ed2df9c9e460e349a5ebe62be10cddad507`, tree `8433ebfbef2eb5aceecb21dc5cce19cd0be0d958`. One backend helper now derives watcher-owned roots from persisted `app_settings_v1.defaultScanFolders`, the existing watcher path selector and normalized durable File Library roots. Both `Database::list_watcher_root_configs()` and PM-02B event eligibility consume this authority. Explicit and all-enabled scopes that include an unwatched root fail closed with sanitized `automation_event_root_not_watched`; removal clears pending/claimed event debt, and re-enrollment baselines the current root revision so historical changes do not replay.
+
+Production files changed: `src-tauri/src/db/queries/scan.rs`, `src-tauri/src/db/automation/trigger_state.rs`, `src-tauri/src/db/automation/mod.rs`, `src-tauri/src/db/mod.rs`, and `src-tauri/src/watcher.rs`. Regression coverage includes ad-hoc admission exclusion; enabled/disabled default folders; Custom Search and Global Index managed-scope exclusion; Windows path-case normalization; an unwatched nested root beneath a watched parent; preservation of genuine overlapping watched-root ambiguity; explicit/all-enabled unwatched event scopes; Settings removal/re-enrollment; and existing event settle, coalescing, claim, publication, review and metadata behavior.
+
+No watcher ownership was broadened. No schema, migration, package, Cargo dependency/lockfile, frontend, Tauri command, permission, queue, scheduler, poller or filesystem-execution change was added. Schema remains 37 and package remains 0.1.40.
+
+## Windows CI test-fixture repair and current gate
+
+The first remediation candidate was `b304ea91fb7c1380870629156121c032ea14bc7d` / tree `279f951113cddf3923e0d19ca4e3730d9601bb81`. Its fresh hosted CI run [36906218806](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36906218806) failed in Windows Rust quality: **1,118 passed / 1 failed / 24 ignored**. The only failed test was `db::queries::scan::tests::watcher_membership_uses_enabled_default_folders_only`. All functional assertions completed; teardown alone failed with Windows OS error 32 because the SQLite database lived inside the disposable filesystem fixture while the r2d2 pool retained connections. The dependent aggregate Windows Quality gate consequently failed. This run remains a failure and is not relabeled.
+
+The test-only repair is commit `a3dd9082018185891b536b9d1fb693b5ae27a3cf`, tree `1b0fd77ce8d68a041e8d003a7ee711492968def5`, parent `b304ea91fb7c1380870629156121c032ea14bc7d`. It changes only `src-tauri/src/db/queries/scan.rs`: the test now opens its database through the existing `test_db("watcher-membership")` helper outside the disposable fixture. The fixture contains only the four filesystem roots under test; functional assertions and explicit database-drop / fixture-removal cleanup remain unchanged. **No production code changed.**
+
+On the Windows desktop-runtime host, the formerly failing exact test passed three consecutive runs (**1/1 each**). The ad-hoc scan admission and persisted watcher-scope regressions each passed (**1/1**); the complete scan suite passed **28 tests** with one intentional performance ignore; watcher tests passed **25/25**; trigger recovery passed **8/8**. The complete PM-02B trigger suite was **20/21** because `automatic_current_and_stale_semantics_reuse_shared_admission_without_mutation` remains a known baseline failure reproduced on pristine `e91f27e`; it is recorded and was not changed. Rust format and strict Clippy (`cargo clippy --features desktop-runtime --all-targets -- -D warnings`) passed. `npm run test:docs` with `DOCS_DIFF_BASE=91589a89974324e821b4963b062c3070949252a8`, `npm run test:performance:architecture` (**3 files / 28 tests**), and `git diff --check` passed after the documentation closeout edit.
+
+Fresh exact-head hosted CI [36961723813](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36961723813) completed **SUCCESS** on `a3dd9082018185891b536b9d1fb693b5ae27a3cf`. Windows Rust tests, strict Clippy, native filesystem hardening smoke and aggregate Windows Quality passed. The normal macOS Rust/native lifecycle/race/Quick Look lanes, frontend/browser checks, performance shards and aggregate Performance profile also passed. This green run validates the fixture-repair source; it does not replace or erase run 36906218806 and is not Windows native product acceptance.
+
+Schema remains **37**. `src-tauri/Cargo.lock` is unchanged. `src-tauri/Cargo.toml` retains the existing worktree M status anomaly, but its content diff is empty and its worktree object hash equals its index hash (`4eb69ebee444874ba0bedfae4d6dba1591ab0036`); it was not staged or committed. PR #317 remains **OPEN / Draft / unmerged**, PM-02B remains **OWNER REVIEW PENDING**, and PM-03 remains **NOT ACTIVE**. Fresh repaired-head Windows Owner requalification is required and has not been run.
+
+## Windows extended-path event-delivery remediation
+
+The bounded real-Windows backend regression at pre-remediation source `4777e87e6ec86e629538a806df55a7ea7bf34e1f` proved that Windows `RecommendedWatcher` emitted extended-length paths which did not match the existing watcher-root authority. The source fix at `fc5e2b7be00eb29db7629a21e3c640fe1626cf34` delegates watcher path normalization to the existing database normalizer. It does not change watcher ownership, schema, package version or PM-02B trigger semantics.
+
+The first exact-head hosted run for the source fix, [36990307913](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36990307913), is retained as **FAILURE**. Its new Windows regression timed out on the first file create with durable watcher/applied/library revisions `0/0/0`. The run had no native watcher stage tracing, so the reason the default system-temp fixture produced no publication remains unknown.
+
+CI-only follow-up commit `68ddd8d7bf08aa11cecc3ecc07d3bdeb3c480a71` pins that disposable regression root under `${{ runner.temp }}` and enables the existing bounded, root-scoped `native-qa` trace. Fresh exact-head hosted CI [36991861097](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36991861097) completed **SUCCESS** on `68ddd8d7bf08aa11cecc3ecc07d3bdeb3c480a71` / tree `c4951a967f64022c2fc299005edbb1712689bad4`. The Windows Rust suite passed **1,119 / 1,119** with **24 ignored**; the real OS `RecommendedWatcher` create-and-append regression passed **1/1**; strict Clippy and native filesystem hardening smoke passed. The complete fresh exact-head workflow succeeded.
+
+The hosted trace showed a registered active root; actual extended-length `Create(Any)` and `Modify(Any)` callbacks; successful queue and payload conversion; coalesced-path normalization; one matching persisted root; `begin_watcher_revision` results `some` for revisions 1 and 2; successful exact mutation publication; `library_change_revision` advancing `0→1→2`; and `watcher_applied_revision` catching up. The test used explicit harness file create/append; Zen Canvas automatic filesystem mutations remained zero. The new runner-temp fixture path and trace setting distinguish the successful follow-up setup, but the untraced `36990307913` failure does not prove whether its cause was the default temp location or a transient hosted notification miss. Both outcomes remain recorded.
+
+This is real Windows backend regression evidence, not Owner Tauri-window acceptance. Fresh repaired-head Owner requalification, the complete PM-02B native row set, and suspend/resume remain **REQUIRED / NOT RUN**. PR #317 remains **OPEN / Draft / unmerged**; PM-02B remains **OWNER REVIEW PENDING**; PM-03 remains **NOT ACTIVE**.
+
+## Validation and evidence
+
+For source commit `97a42ed2df9c9e460e349a5ebe62be10cddad507`, Windows focused checks in `desktop-runtime` mode: scan/root **28 passed / 1 intentional performance ignore**; watcher **25 passed**, including the Windows case-normalization/routing regression; PM-02B trigger suite **20 passed / 1 failed**; automation database suite **13 passed / 2 failed**. The three automation failures are unchanged manual/stale-readiness assertions and were reproduced on pristine `e91f27e` with the same `desktop-runtime` feature set. Recovery **8/8** and publication **3/3** focused suites passed; Rust format and strict desktop-runtime Clippy (`--all-targets -- -D warnings`) passed.
+
+The complete local `npm run verify:rust` test phase ran **1,115 passed / 24 ignored / 4 failed**. Its failures were the three baseline-reproduced automation assertions above and `content::tests::pdf_cmap_preflight_is_structured_bounded_and_cancellable`, which timed out under the parallel full-suite load and passed when rerun alone (**1/1**). The required local full Rust gate is therefore **NOT GREEN**. This is the historical local full-suite result for the initial root-authority candidate; no tests or thresholds were weakened. The later exact-head hosted CI outcome is recorded in the fixture-repair section above. Green hosted CI does not constitute native acceptance.
+
+Local frontend: typecheck PASS; final full Vitest **172 files / 1780 tests PASS**, including fixture reset/spoof and event-unsubscribe checks. Production frontend build and performance architecture (28 tests) PASS. Browser mock at desktop 1440×960 and narrow 760×900 PASS: schedule/event/custom editing, manual generation on configured automatic trigger, focus restore, no horizontal overflow, Plan handoff and Advanced Rules. Browser plugin is unavailable; existing Playwright used. [Measurements](evidence/PM-02B/browser-measurements.json) are presentation evidence only.
+
+Local clippy passes with Linux-only baseline unused/dead-code diagnostics excluded; supported-host CI retains the unchanged strict `-D warnings` gate.
+
+Focused backend Automation tests: **34 PASS**. Core database tests: **129 PASS / 2 intentional benchmark ignores**. Migration integration: **8 PASS / 2 intentional benchmark ignores**. Scanner/watcher tests: **26 PASS / 1 intentional benchmark ignore**, including actual publication clock/rollback ownership. Performance fixture builder: **100k Schema 37 build PASS**. Linux desktop-runtime compile PASS using the explicit uncommitted harness. Automation test responsibilities are separated into calendar/migration/publication/recovery/runtime/service modules. These tests cover migration/history/idempotent reopen, strict V2, calendar/zone/DST, latest-only catch-up and stable crash claim, pause/edit reset, manual-all-triggers/spoof rejection, two-root event burst/lost wake/reconciliation/new root baseline, review suppression, existing AI currentness/admission, actual filesystem publication and physical replacement, idle/defer/release/cancel/shutdown. Historical migration fixtures and current/performance schema identities are updated to 37; future rejection uses 38.
+
+The Linux harness temporarily supplies the baseline's Linux keyring dependency and existing extracted GTK/WebKit sysroot; this workaround is not committed and does not qualify native Windows/macOS builds. Last full Linux suite: **959 PASS / 25 unsupported native Browse/preview/execution failures / 23 intentional benchmark ignores**, before the final schema constraint/tag-observation tests, which pass in focused validation. No tests were weakened or skipped for this implementation; supported Windows/macOS CI must provide the mandatory platform lanes. The fixture-repair source identity and exact-head CI run are pinned in the section above; the linked CI source-evidence artifact records the tested identity. PR #317 remains Draft for Owner review.
+
+[Windows native qualification](evidence/PM-02B/windows-native-qualification.md): the original e91 qualification **FAILED** on managed-scope-change event delivery; its exact failure record is retained. Exact-head CI on the fixture-repair source is **SUCCESS**. Fresh Windows native requalification is **AUTHORIZED / NOT STARTED**. Suspend/resume and the remaining stopped rows are still **UNVERIFIED**; no repaired native PASS is claimed.
+
+## Preserved boundaries
+
+Provider adapters/parsers/semantic policy, Organization execution/Dry Run/decision authority, Cleanup/trash/operation journals, Rule AST/watcher Rule behavior, scheduler fairness and governor ownership, frozen research/runtime and package version are unchanged. PM-02A accepted history remains intact. Research #283/#270 remains separate; PM-03, Preference Memory production, System One/Laya/Jev, Cleanup automation, release publication and autonomous mutation remain inactive.
+
+
+## Browser QA / changed-file audit
+
+Flow: Settings → Automation → create schedule/event/custom Intent → manual Generate plan → existing Organize Plan → Advanced Rules. Desktop 1440×960 (English/Chinese) and narrow 760×900 use the presentation mock, no real timers/watchers/providers.
+
+| Check | Result |
+| --- | --- |
+| Page identity, meaningful Automation content | PASS: Vite local app, Automation heading and nonempty page title |
+| Blank page / framework overlay | PASS |
+| App console / page errors | PASS: zero relevant errors |
+| Trigger editor and fixed policy | PASS: explicit time/zone/day selection; never-auto-file-change copy |
+| Interaction / modal focus / Plan handoff | PASS |
+| Narrow horizontal overflow | PASS: none |
+| Native timer/watcher/resume acceptance | NOT QUALIFIED by browser mock |
+
+Screenshots: [English schedule](evidence/PM-02B/desktop-blocked-editor.png), [narrow managed-change](evidence/PM-02B/narrow-pending-editor.png), [Chinese custom days](evidence/PM-02B/desktop-current-zh-editor.png). Existing Playwright was used because the Browser plugin is not available. A Browser plugin installation can provide in-app inspection for later UI work.
+
+Changed-file inventory: Automation schema/types/repository/calendar/state/runtime/shared service; Database wake attachment and existing scanner publication; main lifecycle wiring and narrow Windows callback; Trigger editor/workspace/API/mock/bilingual copy; Automation/calendar/recovery/service/runtime/publication/migration/permission guards; historical migration/current-schema/performance fixture assertions; current STATUS/ROADMAP/initiative/Product/Architecture, accepted-scope ADR, Schema 37, this result and PM-02B evidence. The exact file inventory is the Draft PR diff. No protected provider/parser/semantic/execution/Cleanup/trash/journal/Rule-AST/scheduler/governor/frozen-research/package implementation changed; historical tests in those areas change only current schema expectations or remove future schema additions in downgrade fixtures.
+
+Security: npm high-severity audit threshold PASS (two pre-existing moderate Vitest/mocker advisories, no dependency change). Local cargo-audit is not installed; Rust advisory validation is required in hosted CI. Jiff disables system-zone discovery and uses the pinned bundled IANA database for consistent explicit-zone behavior across hosts. No baseline dependency version was upgraded.
+
+## Shared resident-lifecycle blocker exposed by Owner qualification
+
+The original c823 Owner event/schedule/restart/Run-now rows and supplemental debt-reset rows remain historical PASS, with zero observed automatic filesystem mutations. The supplement's **BACKGROUND DELIVERY — FAIL** is preserved: Main background destroyed the last WebView and terminated the backend, so the later append could not publish or deliver. Rows after the critical STOP remain UNVERIFIED.
+
+A fresh native diagnostic reproduction proved one uncoded ExitRequested after `destroy()` returned while the registry still showed Main. Teardown completion incorrectly withdrew resident intent using that stale count; dispatch then shut down resident owners and reached normal Tauri Exit. This shared app-control/exit-intent code predates PM-02B. ZB-04's native evidence did not execute Main background plus tray reopen, and its synchronous/one-shot tests missed the queued-removal boundary.
+
+Successful internal destruction now retains resident intent through delayed/repeated uncoded requests until recreation or genuine Quit; failed destruction withdraws its batch prediction in either completion order. Explicit/coded exit remains authoritative and resident shutdown runs once. Main/Search destruction, generation/readiness, FileWorkspace disposal and failure rollback remain the existing owners.
+
+Fresh Windows native engineering regression passed two zero-WebView background cycles, real watcher/Automation delivery, the tray's native show-main owner with fresh generation/readiness and unchanged resident owners, background Quit and visible quit_app. Hosted CI runs this same real Tauri path and passed both modes. Local focused results are 9/9 exit-intent, 30/30 app-control, 25/25 watcher and 6/6 lifecycle source contracts; the trigger suite remains 20/21 with the unchanged known local baseline failure, reproduced on untouched c823. Hosted Windows Rust tests passed 1,122 with 24 ignored. See the [complete trace, identities, CI history and Owner handoff](evidence/PM-02B/windows-resident-lifecycle-remediation.md).
+
+Only lifecycle source, its directly necessary native-QA/tests/hosted gate and this evidence/current truth changed. Watcher routing, trigger/calendar, Schema 37, package 0.1.40, Plan/provider/admission, file execution and research remain unchanged. This documentation-only successor does not change the tested production/native-QA source; final successor identity and CI are reported in the handoff. Fresh exact-binary Windows Owner requalification is required after code/CI review; PM-02B is not complete and PM-03 remains NOT ACTIVE.
+
+## Final Owner disposition — 2026-10-05
+
+Status: **PM-02B — OWNER REVIEW PASSED / MERGE READY, SUBJECT TO FRESH EXACT-HEAD CLOSEOUT CI.** This records Owner acceptance of the core Windows native behavior on the final production candidate. It does not record a merge or activate PM-03.
+
+Accepted production candidate: HEAD 823edc2b87c958f4bfdf7f6ba4211328140ccca2; tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37; package 0.1.40. The retained exact-binary Owner report is F:/CargoTarget/pm02b-owner-final-823edc2b-20261002-01/qualification-report.md; binary SHA-256 is 1BF6AC7866AFD5657757B4996499E41EF382283DD7DFDF0F725F2C61400A2ED1. Report history and append-only corrections remain preserved.
+
+The disposable qualification profile remains in its final recorded test state: Schedule Intent revision 2, Monday 02:04, Asia/Shanghai. Owner accepted this state as qualification evidence; it was not reopened or cosmetically restored, and retained evidence was not cleaned.
+
+### Final native PASS matrix
+
+| Area | Owner disposition |
+| --- | --- |
+| Candidate identity and isolation | PASS: exact HEAD/tree, binary, Schema 37, package 0.1.40, isolated profile/database/root verified. |
+| Settings and watcher authority | PASS: native Settings enrollment, durable enabled root and real watcher registration verified. |
+| Windows filesystem delivery | PASS: extended-length path routed through the existing canonical normalizer; single publication; five-second settling; burst coalescing; native create, rename and remove; watcher/applied/library revision chain. |
+| Schedule and restart | PASS for natural Schedule delivery while awake and while resident; same-binary restart preserved durable state without replaying the delivered Schedule occurrence or consumed event revision. No suspend/resume claim follows from an awake occurrence. |
+| Intent controls | PASS: Run now preserves the configured automatic trigger; toggle/re-enable and edit-revision changes reset trigger debt. |
+| Resident lifecycle | PASS: Main-to-zero-WebView resident transition; watcher and Automation delivery without Main; real tray reopen; fresh Main generations/readiness with resident owners retained; repeated background lifecycle; visible-Main exit and genuine tray Quit with resident-owner shutdown. |
+| Review-pending behavior | PASS per Intent. The event Intent created its Plan; the independent Schedule Intent later created its own Plan as expected. A later cause on the same event Intent returned automation_review_pending, reused the original live Plan, consumed that cause and did not replay it. The cross-Intent Plan was not a defect. |
+| Product boundaries and safety | PASS: Advanced Rules remain separate; same-binary/profile persistence across restart; no Plan execution or Cleanup/trash operation; Zen Canvas automatic filesystem mutations observed = 0. |
+
+### Owner-accepted UNVERIFIED evidence
+
+| Row | Final disposition |
+| --- | --- |
+| Pending-event pre-settle restart recovery | **ACCEPTED UNVERIFIED — NATIVE EXIT TIMING LIMITATION.** Two attempts captured pending state, but each cause settled at the five-second deadline before confirmed process exit. This is not evidence that recovery fails. Deterministic recovery/idempotence tests remain engineering support; no native pending-at-exit PASS is claimed. |
+| Windows suspend/resume | **ACCEPTED UNVERIFIED — HOST POWER-CONTROL LIMITATION.** powercfg /a reported Modern Standby / S0 Low Power Idle and hibernation; no real OS suspend or resume occurred, no resume notification was observed, and no overdue-after-resume claim is made. |
+| Native narrow layout / exact focus return | **ACCEPTED EVIDENCE LIMITATION.** The exact native control limitation is retained; browser/mock evidence is not promoted to native PASS. This is not a merge blocker under Owner disposition. |
+| Native metadata exclusion | **ACCEPTED DETERMINISTIC EVIDENCE.** The publication contract and deterministic tests establish that tag/semantic metadata does not advance the PM-02B managed-file-change clock. No artificial native mutation or native PASS is claimed. |
+| Native resource-admission saturation | **ACCEPTED DETERMINISTIC RUNTIME EVIDENCE.** WorkScheduler / RuntimeResourceGovernor tests cover background admission, deferral, release and shutdown without consuming the cause. No native saturation test or native PASS is claimed. |
+
+### Historical native failures and remediation
+
+- Watcher delivery: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS.** The extended-length Windows path mismatch prevented watcher-root routing. The fix reuses the canonical database path normalizer. The first hosted follow-up failure [36990307913](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36990307913) remains recorded with its cause unknown; the traced runner-temp regression and exact-head CI [36991861097](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36991861097) passed. Final Owner native filesystem delivery passed on 823edc2b.
+- Resident lifecycle: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS.** The earlier Main destruction / resident exit-intent ordering failure is retained. The repair preserves resident intent through accepted asynchronous Main destruction while genuine Quit remains authoritative. Remediation CI [37013892661](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37013892661) passed, followed by final accepted-candidate CI [37016643626](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37016643626) passing on 823edc2b.
+
+At documentation time PR #317 is OPEN / Draft / unmerged. This closeout changes governance/evidence only; it does not change production behavior, Schema 37, or Automation runtime semantics. After the documentation successor is pushed, its own exact-head CI must pass before the PR moves to Ready for review. No merge or auto-merge is authorized here. PM-03 remains **NOT ACTIVE**.
