@@ -101,12 +101,12 @@ PM-02 separately owns Automation Intent / Trigger / Policy architecture.
 PM-02 is now decomposed into separately gated slices:
 
 - **PM-02A — Automation Intent Foundation:** **COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** Durable Organize-plan intent, manual trigger, fixed review-required / never-auto-execute policy, durable run receipt, fresh Query V2 snapshot resolution and Organization Plan handoff. Windows native + restart acceptance is PASS. See the [bounded implementation result](../tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md).
-- **PM-02B — Event / Schedule Triggers:** **COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** The bounded Schedule + Managed-scope-change implementation is merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate remains 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. Core Windows native evidence is PASS; pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED. PM-03 remains NOT ACTIVE. See [result](../tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md).
+- **PM-02B — Event / Schedule Triggers:** **COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** The bounded Schedule + Managed-scope-change implementation is merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate remains 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. Core Windows native evidence is PASS; pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED. PM-03 was separately activated after this PM-02B closeout. See [result](../tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md).
 - Any additional workflow kinds or richer planner semantics require another bounded activation.
 
 PM-03 owns the final bounded product-hierarchy/compatibility migration closeout. Its current activation taskbook is [PM-03 Product Hierarchy / Migration Closeout Activation](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md). Activation PR [#320](https://github.com/ArdenZC/Zen-Canvas/pull/320) is **MERGED** as `master@c059d911eb053753d7ce7693aa30e39e3965f88c` / tree `771cdfcc5eb7e79fc33415df1a6275f366516ca2`; merge-after CI 37270388844 is **SUCCESS**. PM-03 implementation is ACTIVE.
 
-PM-02A must preserve Rule Repository V2 and existing Organization/Managed AI authorities. It must not create schedule loops, autonomous mutation, a second scheduler/AI queue, System One/Laya/Jev runtime integration, Preference Memory persistence, RAG/vector store, agent/tool/shell execution or release publication.
+PM-02A and PM-02B preserve Rule Repository V2 and existing Organization/Managed AI authorities. PM-03 changes only product hierarchy and route compatibility. These tracks do not create autonomous mutation, a second scheduler/AI queue, System One/Laya/Jev runtime integration, Preference Memory persistence, RAG/vector storage, agent/tool/shell execution or release publication.
 
 ## Research boundary
 
@@ -116,13 +116,13 @@ PM-02A does not consume Preference Memory as production authority.
 
 Production adoption of System One or Preference Memory requires later benchmark evidence and separate architecture review.
 
-## Current activation rule
+## Activation and implementation baselines
 
 PM-01 is complete.
 
 PM-02A is **COMPLETE / MERGED / OWNER REVIEW PASSED** through PR #313 at `master@195e3b18b4bfa718276829f9ed35414714689a7f`; merge-after master CI `36821813846` is **SUCCESS**.
 
-Current PM-02B activation baseline:
+PM-02B activation baseline:
 
 `master@5a4b67e1f0d2d5b3d6bd26c1d19df16a992fea98`
 
@@ -130,9 +130,9 @@ Current activation taskbook:
 
 `docs/project/tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md`
 
-PM-02B activation PR #316 is **MERGED**, exact implementation base 91589a89974324e821b4963b062c3070949252a8. Implementation PR #317 is **COMPLETE / MERGED** as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; merge-after master CI 37265536740 is **SUCCESS**. Owner review passed on production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2. The merged production schema is 37. PM-03 activation now starts from `master@1bafed6a64b6d6ff761af6ed70329d313143ed9d`; implementation remains NOT ACTIVE until the PM-03 activation merges.
+PM-02B activation PR #316 is **MERGED**, exact implementation base 91589a89974324e821b4963b062c3070949252a8. Implementation PR #317 is **COMPLETE / MERGED** as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; merge-after master CI 37265536740 is **SUCCESS**. Owner review passed on production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2. The merged production schema is 37. PM-03 activation PR #320 was subsequently merged; the authorized PM-03 implementation baseline is `master@c72bbce173d53660a68d797b3e0ac2a32cfeb7c5` / tree `8fc2b93b9c64abbc8e0fd892d44fe363a0468f5f`.
 
-Merge of that activation may authorize only PM-02B Event / Schedule Trigger implementation. PM-03, Cleanup automation, startup-as-a-user-trigger, Preference Memory production, System One, Laya/Jev, general agents and autonomous filesystem mutation remain separately gated.
+The PM-02B activation authorized only Event / Schedule Trigger implementation. PM-03 activation authorizes only the product hierarchy / migration closeout; Cleanup automation, Preference Memory production, System One, Laya/Jev, general agents and autonomous filesystem mutation remain separately gated.
 
 
 ## PM-03 Product Hierarchy / Migration Closeout activation
@@ -150,3 +150,9 @@ The activation is deliberately narrow:
 - require mounted/browser migration evidence plus bounded Windows native product evidence.
 
 Generic technical-debt retirement, File Library/Vault compatibility retirement, Cleanup automation, autonomous mutation, Preference Memory production and System One/Laya/Jev remain outside PM-03.
+
+## PM-03 implementation candidate
+
+Implementation branch `product/pm-03-product-hierarchy-migration-closeout` started from the exact authorized baseline above. First implementation commit `9495deea` is published in [Draft PR #322](https://github.com/ArdenZC/Zen-Canvas/pull/322), which remains unmerged and does not close issue #273. The implementation uses `automation` as the canonical frontend route, normalizes `rules` only at URL/cross-window compatibility boundaries, and resets every ordinary Automation entry to Intents. Rule Repository V2 remains under the explicit Advanced Policies surface.
+
+The required browser-mock integration evidence is recorded in [PM-03 browser evidence](../tasks/evidence/PM-03/measurements.json); it does not claim Windows native acceptance. The [PM-03 closeout result](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) records final local/hosted validation and the Windows Owner qualification handoff. Schema remains 37 and package remains 0.1.40.
