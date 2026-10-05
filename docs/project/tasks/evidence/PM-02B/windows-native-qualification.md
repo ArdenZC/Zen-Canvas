@@ -1,6 +1,6 @@
 # PM-02B Windows native qualification
 
-Status: **FINAL OWNER CORE WINDOWS NATIVE QUALIFICATION PASS ON 823edc2b; OWNER-ACCEPTED UNVERIFIED EVIDENCE LIMITATIONS; PM-02B OWNER REVIEW PASSED / MERGE READY SUBJECT TO FRESH DOCUMENTATION-SUCCESSOR CI.** Earlier failures and CI records remain intact. PR #317 is OPEN / Draft / unmerged at this documentation checkpoint; PM-03 is NOT ACTIVE.
+Status: **FINAL OWNER CORE WINDOWS NATIVE QUALIFICATION PASS ON 823edc2b; OWNER-ACCEPTED UNVERIFIED EVIDENCE LIMITATIONS; PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS.** Earlier failures and CI records remain intact. PR #317 squash-merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d`; merge-after master CI 37265536740 is **SUCCESS**. PM-03 is NOT ACTIVE.
 
 ## Previously recorded CI result and native requalification gate
 
@@ -160,4 +160,4 @@ The disposable profile remains in its final qualification state (Schedule revisi
 - Resident lifecycle: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS.** The earlier asynchronous Main destruction cleared resident intent before native exit delivery. The repair retains resident intent while keeping genuine Quit authoritative; engineering CI 37013892661 and final-candidate CI 37016643626 passed, followed by Owner native requalification PASS.
 - Zen Canvas automatic filesystem mutations observed: **0**. Operation and cleanup/trash ledgers remained zero; no automatic Plan execution occurred.
 
-The two accepted UNVERIFIED rows above are evidence boundaries, not product failures. They do not reopen qualification under the Owner's final disposition. PR #317 remains unmerged; exact-head CI is required again for the documentation successor. PM-03 remains **NOT ACTIVE**.
+The two accepted UNVERIFIED rows above are evidence boundaries, not product failures. They do not reopen qualification under the Owner's final disposition. PR #317 is merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; merge-after master CI 37265536740 is **SUCCESS**. PM-03 remains **NOT ACTIVE**.

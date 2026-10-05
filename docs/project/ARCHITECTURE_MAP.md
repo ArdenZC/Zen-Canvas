@@ -286,7 +286,7 @@ Missing/stale analysis is admitted only after existing backend readiness, provid
 
 ## PM-02B Event / Schedule Trigger boundary
 
-Activation PR #316 is merged; PR #317 has passed Owner review on production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. Merge readiness is subject to fresh exact-head closeout CI. [Schema 37](SCHEMA_37_AUTOMATION_TRIGGERS.md), [ADR-0011](DECISIONS/0011-automation-trigger-boundary.md), and [result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md) record the bounded extension; PM-03 remains NOT ACTIVE.
+Activation PR #316 is merged; PM-02B implementation PR #317 is **COMPLETE / MERGED** as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`, with Owner Review PASS and merge-after master CI 37265536740 SUCCESS. Accepted production candidate remains 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. [Schema 37](SCHEMA_37_AUTOMATION_TRIGGERS.md), [ADR-0011](DECISIONS/0011-automation-trigger-boundary.md), and [result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md) record the bounded extension; PM-03 remains NOT ACTIVE.
 
 | Module | Responsibility |
 | --- | --- |

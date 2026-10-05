@@ -1,6 +1,6 @@
 # PM-02B Windows resident-lifecycle remediation evidence
 
-Status: **HISTORICAL BACKGROUND RESIDENT-LIFECYCLE NATIVE FAIL REMEDIATED; FINAL WINDOWS OWNER REQUALIFICATION PASS ON 823edc2b; PM-02B OWNER REVIEW PASSED / MERGE READY SUBJECT TO FRESH DOCUMENTATION-SUCCESSOR CI.** PM-03 is NOT ACTIVE.
+Status: **HISTORICAL BACKGROUND RESIDENT-LIFECYCLE NATIVE FAIL REMEDIATED; FINAL WINDOWS OWNER REQUALIFICATION PASS ON 823edc2b; PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS.** PR #317 squash-merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d`; merge-after master CI 37265536740 is **SUCCESS**. PM-03 is NOT ACTIVE.
 
 ## Exact identities and preserved qualification
 
@@ -95,4 +95,4 @@ The historical c823 background-delivery failure remains preserved and is classif
 
 Owner native requalification then passed Main-to-zero-WebView residency, delivery without Main, tray reopen and fresh Main readiness with resident owners retained, repeated background lifecycle, natural resident Schedule delivery, same-binary persistence/no replay of delivered causes, visible-Main exit and genuine tray Quit with resident-owner shutdown. Zen Canvas automatic filesystem mutations remained zero.
 
-Pending-event pre-settle restart recovery remains **ACCEPTED UNVERIFIED — NATIVE EXIT TIMING LIMITATION**; suspend/resume remains **ACCEPTED UNVERIFIED — HOST POWER-CONTROL LIMITATION**. Native narrow/focus, metadata exclusion and resource-saturation limitations retain the evidence dispositions recorded in the [final Windows qualification record](windows-native-qualification.md). The earlier Required Owner handoff below is historical and superseded. PR #317 remains unmerged; PM-03 remains **NOT ACTIVE**.
+Pending-event pre-settle restart recovery remains **ACCEPTED UNVERIFIED — NATIVE EXIT TIMING LIMITATION**; suspend/resume remains **ACCEPTED UNVERIFIED — HOST POWER-CONTROL LIMITATION**. Native narrow/focus, metadata exclusion and resource-saturation limitations retain the evidence dispositions recorded in the [final Windows qualification record](windows-native-qualification.md). The earlier Required Owner handoff below is historical and superseded. PR #317 is merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; merge-after master CI 37265536740 is **SUCCESS**. PM-03 remains **NOT ACTIVE**.
