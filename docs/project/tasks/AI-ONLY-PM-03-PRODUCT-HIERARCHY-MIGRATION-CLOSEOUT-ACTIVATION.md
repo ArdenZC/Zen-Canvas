@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-05
 
-Status: **OWNER REVIEW PENDING ON PR #320 — MERGE ACTIVATES PM-03 IMPLEMENTATION ONLY**
+Status: **OWNER REVIEW PASSED / ACTIVATED — PR #320 MERGED; PM-03 IMPLEMENTATION ACTIVE**
 
 Initiative: AI-only Product Migration / issue #273
 
@@ -605,6 +605,6 @@ Implementation must start from the exact post-activation master.
 
 No implementation commit belongs in this activation PR.
 
-Until this activation merges:
+Activation closeout: PR #320 squash-merged as `master@c059d911eb053753d7ce7693aa30e39e3965f88c` / tree `771cdfcc5eb7e79fc33415df1a6275f366516ca2`; merge-after CI 37270388844 is **SUCCESS**.
 
-**PM-03 remains NOT ACTIVE.**
+**PM-03 implementation is ACTIVE.**
