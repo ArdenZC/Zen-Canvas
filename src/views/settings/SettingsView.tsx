@@ -1068,7 +1068,7 @@ export function SettingsView() {
           onRemove={(scope) => void removeManagedScope(scope)}
         />
 
-        <AutomationSettingsSection t={t} onOpenRules={() => setView("rules")} />
+        <AutomationSettingsSection t={t} onOpenAutomation={() => setView("automation")} />
 
         <AISettingsSection t={t}>
           {isLoadingAISettings || !aiSettings ? (

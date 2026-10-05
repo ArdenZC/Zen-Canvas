@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { activateCommandNavigation, isSortingPreviewShortcut } from "../src/components/CommandModal";
+import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry } from "../src/components/spotlight/commandRegistry";
 import { makeTranslator } from "../src/i18n";
 import { applySearchNavigation, shouldApplySearchNavigation } from "../src/utils/searchNavigation";
 import { projectAcceptedFileLibraryActivation } from "../src/utils/fileLibraryActivation";
@@ -10,6 +11,25 @@ import { mockGlobalSearchResponseForTests, mockInvokeCommand } from "../src/api/
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "../src/utils/hotkeys";
 
 describe("spotlight search navigation", () => {
+  it("routes the Automation Spotlight command canonically while retaining Rules search keywords", () => {
+    const englishCommands = createCommandRegistry(makeTranslator("en"));
+    const automation = englishCommands.find((command) => command.id === "automation")!;
+    expect(automation.label).toBe("Automation");
+    expect(automation.view).toBe("automation");
+    expect(queryCommandRegistry("rules", englishCommands).map((command) => command.id)).toContain("automation");
+
+    const chineseCommands = createCommandRegistry(makeTranslator("zh"));
+    expect(queryCommandRegistry("规则", chineseCommands).map((command) => command.id)).toContain("automation");
+
+    const setView = vi.fn();
+    executeSpotlightCommand(automation, {
+      setView,
+      requestSettingsSection: vi.fn(),
+      onClose: vi.fn()
+    });
+    expect(setView).toHaveBeenCalledWith("automation");
+  });
+
   it("displays the registered global shortcut for each platform", () => {
     expect(DEFAULT_SEARCH_HOTKEY).toBe("CmdOrCtrl+K");
     expect(formatHotkeyLabel(DEFAULT_SEARCH_HOTKEY, "darwin")).toBe("⌘ K");
@@ -177,6 +197,40 @@ describe("spotlight search navigation", () => {
     expect(setSelectedFileId).toHaveBeenCalledTimes(1);
     expect(setExplicitSelection).toHaveBeenCalledTimes(1);
     expect(loadDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizes legacy cross-window Rules input without weakening nonce, session, revision or Settings guards", () => {
+    const pending = {
+      nonce: 17,
+      view: "scanner" as const,
+      selectedFileId: "",
+      librarySelection: null,
+      libraryFocusedId: "",
+      sessionId: 4,
+      revision: 9
+    };
+    const current = {
+      view: "scanner" as const,
+      selectedFileId: "",
+      librarySelection: null,
+      libraryFocusedId: ""
+    };
+    const legacyPayload = { nonce: 17, view: "rules", fileId: null, sessionId: 4, revision: 9 };
+    expect(shouldApplySearchNavigation(legacyPayload, pending, current)).toBe(true);
+
+    const setView = vi.fn();
+    const setSelectedFileId = vi.fn();
+    expect(applySearchNavigation({ view: "automation", fileId: null }, setView, setSelectedFileId)).toBe(true);
+    expect(applySearchNavigation(legacyPayload, setView, setSelectedFileId)).toBe(true);
+    expect(setView).toHaveBeenNthCalledWith(1, "automation");
+    expect(setView).toHaveBeenNthCalledWith(2, "automation");
+
+    expect(shouldApplySearchNavigation({ ...legacyPayload, nonce: 16 }, pending, current)).toBe(false);
+    expect(shouldApplySearchNavigation({ ...legacyPayload, sessionId: 3 }, pending, current)).toBe(false);
+    expect(shouldApplySearchNavigation({ ...legacyPayload, revision: 8 }, pending, current)).toBe(false);
+    expect(applySearchNavigation({ ...legacyPayload, settingsTarget: "ai" }, setView, setSelectedFileId)).toBe(false);
+    expect(setView).toHaveBeenCalledTimes(2);
+    expect(setSelectedFileId).not.toHaveBeenCalled();
   });
 
   it("applies fixed standalone settings targets and rejects illegal targets", () => {

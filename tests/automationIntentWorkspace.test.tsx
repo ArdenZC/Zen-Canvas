@@ -6,6 +6,7 @@ import { makeTranslator } from "../src/i18n";
 import { resetModalInfrastructureForTests } from "../src/components/modal/ModalPortal";
 import { automationApi } from "../src/api/automationApi";
 import { defaultFileLibraryQuerySpec, useFileLibraryQueryStore } from "../src/store/useFileLibraryV2Store";
+import { useAppStore } from "../src/store/useAppStore";
 import { AutomationWorkspace } from "../src/views/automation/AutomationWorkspace";
 import type { AutomationIntent, AutomationRun } from "../src/types/automation";
 
@@ -41,6 +42,7 @@ describe("PM-02A Intent-first workspace", () => {
     vi.mocked(automationApi.listAutomationIntents).mockResolvedValue([]);
     vi.mocked(automationApi.listAutomationRuns).mockResolvedValue([]);
     useFileLibraryQueryStore.setState({ spec: defaultFileLibraryQuerySpec });
+    useAppStore.setState({ view: "scanner", automationSurface: "intents" });
   });
   afterEach(() => { act(() => root.unmount()); resetModalInfrastructureForTests(); document.body.innerHTML = ""; });
   const render = async () => { await act(async () => root.render(<AutomationWorkspace />)); };
@@ -92,20 +94,40 @@ describe("PM-02A Intent-first workspace", () => {
     expect(document.body.textContent).toContain("Plan generated");
     await click("Open plan"); expect(mocks.openPlan).toHaveBeenCalledWith("plan"); expect(mocks.setView).toHaveBeenCalledWith("organize");
   });
-  it("projects analysis pending/blocked receipts and keeps Advanced Rules reachable", async () => {
+  it("keeps Intents as the default, opens Advanced Policies explicitly, preserves focus and resets on ordinary re-entry", async () => {
     vi.mocked(automationApi.listAutomationIntents).mockResolvedValue([intent]);
     vi.mocked(automationApi.listAutomationRuns).mockResolvedValue([{ ...run, requiresPlanRefresh: true, queuedAnalysisCount: 1 }]); await render();
+    expect(button("Intents").getAttribute("aria-pressed")).toBe("true");
     expect(document.body.textContent).toContain("Analysis requested"); expect(document.body.textContent).toContain("Refresh the plan in Organize");
     vi.mocked(automationApi.listAutomationRuns).mockResolvedValue([{ ...run, status: "blocked", requiresPlanRefresh: true, analysisBlockerCode: "managed_cloud_ai_consent_required" }]); await click("Refresh");
     expect(document.body.textContent).toContain("Needs attention"); expect(document.body.textContent).toContain("cloud consent settings");
     vi.mocked(automationApi.listAutomationRuns).mockResolvedValue([{ ...run, status: "blocked", requiresPlanRefresh: true, analysisBlockerCode: "automation_analysis_admission_unconfirmed" }]); await click("Refresh");
     expect(document.body.textContent).toContain("Analysis admission is unconfirmed");
-    await click("Advanced Rules"); expect(document.body.textContent).toContain("Existing Rules workspace");
+    const advanced = button("Advanced Policies");
+    advanced.focus();
+    await click("Advanced Policies");
+    expect(document.body.textContent).toContain("deterministic Rule Repository V2 policies");
+    expect(document.body.textContent).toContain("Existing Rules workspace");
+    expect(advanced.getAttribute("aria-pressed")).toBe("true");
+    expect(document.activeElement).toBe(advanced);
+    button("Intents").focus();
+    await click("Intents");
+    expect(button("Intents").getAttribute("aria-pressed")).toBe("true");
+    expect(document.activeElement).toBe(button("Intents"));
+    await click("Advanced Policies");
+    await act(async () => useAppStore.getState().setView("automation"));
+    expect(useAppStore.getState().view).toBe("automation");
+    expect(useAppStore.getState().automationSurface).toBe("intents");
+    expect(button("Intents").getAttribute("aria-pressed")).toBe("true");
+    expect(automationApi.createAutomationIntent).not.toHaveBeenCalled();
+    expect(automationApi.updateAutomationIntent).not.toHaveBeenCalled();
+    expect(automationApi.archiveAutomationIntent).not.toHaveBeenCalled();
     expect(automationApi.runAutomationIntentManual).not.toHaveBeenCalled();
   });
   it("renders bilingual fixed-policy copy with no automatic-execution controls", async () => {
     mocks.language = "zh"; await render(); expect(document.body.textContent).toContain("自动文件更改：绝不");
     expect(document.body.textContent).toContain("必须审核");
+    expect(document.body.textContent).toContain("高级策略");
     expect(document.querySelector('input[type="datetime-local"]')).toBeNull();
     expect(makeTranslator("en")("automationFixedPolicy")).toContain("Automatic file changes: Never");
   });

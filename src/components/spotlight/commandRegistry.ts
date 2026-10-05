@@ -36,7 +36,7 @@ export const SPOTLIGHT_COMMAND_CATALOG: readonly SpotlightCommandDefinition[] = 
   definition("suggestions", "organizeFiles", "commandOrganizeFilesDesc", ["整理", "建议", "organize", "suggestions", "files"], "actions", "organize"),
   definition("cleanup", "storageCleanup", "commandCleanupDesc", ["清理", "空间", "cleanup", "storage", "safe trash"], "actions", "cleanup"),
   definition("history", "history", "commandHistoryDesc", ["历史", "恢复", "history", "restore"], "history", "restore"),
-  definition("automation", "automation", "commandAutomationDesc", ["自动化", "规则", "automation", "rules"], "actions", "rules"),
+  definition("automation", "automation", "commandAutomationDesc", ["自动化", "规则", "automation", "rules"], "actions", "automation"),
   definition("settings", "settings", "commandSettingsDesc", ["设置", "偏好", "settings"], "settings", "settings"),
   definition("search-scope-settings", "searchScopeSettings", "commandSearchScopeDesc", ["搜索范围", "范围设置", "search scope"], "settings", "settings", "all", "settings-search-scope"),
   definition("global-index-settings", "globalIndexSettings", "commandGlobalIndexDesc", ["全局索引", "managed", "global index", "index"], "settings", "settings", "all", "settings-global-index"),

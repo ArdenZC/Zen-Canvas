@@ -5,15 +5,15 @@ import { SettingsRow, SettingsSection } from "../components/SettingsPrimitives";
 
 export interface AutomationSettingsSectionProps {
   t: Translator;
-  onOpenRules: () => void;
+  onOpenAutomation: () => void;
 }
 
-export function AutomationSettingsSection({ t, onOpenRules }: AutomationSettingsSectionProps) {
+export function AutomationSettingsSection({ t, onOpenAutomation }: AutomationSettingsSectionProps) {
   return (
     <SettingsSection id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
       <p className={quietText}>{t("automationFixedPolicy")}</p>
       <SettingsRow label={t("automationIntents")} description={t("automationIntentDescription")}>
-        <button className={buttonSecondary} onClick={onOpenRules}>
+        <button className={buttonSecondary} onClick={onOpenAutomation}>
           {t("automationIntentWorkspaceTitle")}
         </button>
       </SettingsRow>

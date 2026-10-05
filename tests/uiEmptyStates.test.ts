@@ -98,6 +98,7 @@ describe("ui empty and command states", () => {
     expect(timeline).toContain('t("previewEmptyTitle")');
     expect(timeline).toContain('t("previewEmptyDesc")');
     expect(timeline).toContain('setView("organize")');
-    expect(timeline).toContain('setView("rules")');
+    expect(t("goAutomationWorkspace")).toBe("打开自动化");
+    expect(timeline).toContain('setView("automation")');
   });
 });

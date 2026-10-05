@@ -327,7 +327,7 @@ describe("app render architecture", () => {
     expect(appShell).toContain('aria-current={view === item.id ? "page" : undefined}');
     expect(appShell).toContain("function viewDescription");
     expect(appShell).toContain('case "cleanup"');
-    expect(appShell).toContain('case "rules"');
+    expect(appShell).toContain('case "automation"');
     expect(appShell).toContain('case "restore"');
     expect(appShell).toContain('case "settings"');
     expect(appShell).toContain("previewActionCount");

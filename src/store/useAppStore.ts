@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import type { Language } from "../i18n";
-import type { Density, ThemeMode, View } from "../types/ui";
+import type { AutomationSurface, Density, ThemeMode, View } from "../types/ui";
 import { preferredLanguage, preferredTheme } from "../utils/uiPreferences";
+import { initialViewFromSearch, normalizeViewInput } from "../utils/viewRoutes";
 
 export type ToastState = { message: string; type: "success" | "error" | "info" };
 
@@ -10,6 +11,7 @@ interface AppStore {
   theme: ThemeMode;
   density: Density;
   view: View;
+  automationSurface: AutomationSurface;
   searchQuery: string;
   globalHotkeyError: string;
   toast: ToastState | null;
@@ -17,6 +19,7 @@ interface AppStore {
   setTheme: (theme: ThemeMode) => void;
   setDensity: (density: Density) => void;
   setView: (view: View) => void;
+  setAutomationSurface: (surface: AutomationSurface) => void;
   setSearchQuery: (searchQuery: string) => void;
   setGlobalHotkeyError: (message: string) => void;
   showToast: (toast: ToastState) => void;
@@ -30,6 +33,7 @@ export const useAppStore = create<AppStore>((set) => ({
   theme: preferredTheme(),
   density: preferredDensity(),
   view: initialMainView(),
+  automationSurface: "intents",
   searchQuery: "",
   globalHotkeyError: "",
   toast: null,
@@ -45,7 +49,13 @@ export const useAppStore = create<AppStore>((set) => ({
     set({ density });
     try { window.localStorage.setItem("zc-density", density); } catch { /* optional preference */ }
   },
-  setView: (view) => set({ view }),
+  setView: (view) => set((state) => {
+    const canonicalView = normalizeViewInput(view) ?? "scanner";
+    return canonicalView === "automation"
+      ? { view: canonicalView, automationSurface: "intents" }
+      : { view: canonicalView, automationSurface: state.automationSurface };
+  }),
+  setAutomationSurface: (automationSurface) => set({ automationSurface }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setGlobalHotkeyError: (globalHotkeyError) => set({ globalHotkeyError }),
   showToast: (toast) => set({ toast }),
@@ -55,20 +65,7 @@ export const useAppStore = create<AppStore>((set) => ({
 }));
 
 function initialMainView(): View {
-  const requested = typeof window === "undefined"
-    ? null
-    : new URLSearchParams(window.location.search).get("view");
-  const valid: readonly View[] = [
-    "scanner",
-    "cleanup",
-    "organize",
-    "library",
-    "preview",
-    "rules",
-    "restore",
-    "settings"
-  ];
-  return valid.find((view) => view === requested) ?? "scanner";
+  return initialViewFromSearch(typeof window === "undefined" ? "" : window.location.search);
 }
 
 function preferredDensity(): Density {
