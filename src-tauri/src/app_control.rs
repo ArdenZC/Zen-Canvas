@@ -76,7 +76,8 @@ pub enum SearchView {
     Organize,
     Library,
     Preview,
-    Rules,
+    #[serde(alias = "rules")]
+    Automation,
     Restore,
     Settings,
 }
@@ -144,11 +145,19 @@ impl SearchView {
             Self::Organize => "organize",
             Self::Library => "library",
             Self::Preview => "preview",
-            Self::Rules => "rules",
+            Self::Automation => "automation",
             Self::Restore => "restore",
             Self::Settings => "settings",
         }
     }
+}
+
+#[cfg(feature = "desktop-runtime")]
+fn main_window_restore_url(generation: u64, last_view: SearchView) -> String {
+    format!(
+        "index.html?mainGeneration={generation}&view={}",
+        last_view.as_query_value()
+    )
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -870,10 +879,7 @@ fn ensure_main_window_locked<R: Runtime>(
             return Err(error);
         }
     };
-    let url = format!(
-        "index.html?mainGeneration={generation}&view={}",
-        last_view.as_query_value()
-    );
+    let url = main_window_restore_url(generation, last_view);
     lifecycle.record_creation_start(generation);
     let window =
         match WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App(url.into()))
@@ -2209,6 +2215,87 @@ mod tests {
         assert!(
             serde_json::from_value::<SearchSettingsTarget>(serde_json::json!("arbitrary")).is_err()
         );
+    }
+
+    #[test]
+    fn search_view_uses_automation_canonically_and_accepts_legacy_rules() {
+        let canonical = serde_json::from_value::<SearchView>(serde_json::json!("automation"))
+            .expect("deserialize canonical Automation route");
+        let legacy = serde_json::from_value::<SearchView>(serde_json::json!("rules"))
+            .expect("deserialize legacy Rules route");
+
+        assert_eq!(canonical, SearchView::Automation);
+        assert_eq!(legacy, SearchView::Automation);
+        assert_eq!(
+            serde_json::to_value(SearchView::Automation).expect("serialize Automation route"),
+            serde_json::json!("automation")
+        );
+    }
+
+    #[test]
+    fn search_view_preserves_existing_route_wire_names() {
+        let routes = [
+            (SearchView::Scanner, "scanner"),
+            (SearchView::Cleanup, "cleanup"),
+            (SearchView::Organize, "organize"),
+            (SearchView::Library, "library"),
+            (SearchView::Preview, "preview"),
+            (SearchView::Restore, "restore"),
+            (SearchView::Settings, "settings"),
+        ];
+
+        for (view, wire_value) in routes {
+            assert_eq!(
+                serde_json::to_value(view).expect("serialize existing route"),
+                serde_json::json!(wire_value)
+            );
+            assert_eq!(
+                serde_json::from_value::<SearchView>(serde_json::json!(wire_value))
+                    .expect("deserialize existing route"),
+                view
+            );
+        }
+    }
+
+    #[test]
+    fn search_navigation_payload_serializes_automation_route_canonically() {
+        let payload = SearchNavigatePayload::new(SearchView::Automation, None);
+        let value = serde_json::to_value(payload).expect("serialize Automation navigation");
+
+        assert_eq!(value["view"], "automation");
+    }
+
+    #[test]
+    fn activate_search_result_request_accepts_canonical_and_legacy_automation_routes() {
+        for wire_value in ["automation", "rules"] {
+            let request =
+                serde_json::from_value::<ActivateSearchResultRequest>(serde_json::json!({
+                    "sessionId": 7,
+                    "expectedRevision": 12,
+                    "view": wire_value,
+                    "fileId": null,
+                    "settingsTarget": null
+                }))
+                .expect("deserialize search activation request");
+
+            assert_eq!(request.view, SearchView::Automation);
+        }
+    }
+
+    #[cfg(feature = "desktop-runtime")]
+    #[test]
+    fn main_window_restore_uses_the_canonical_automation_route() {
+        let session = MainWindowSessionState::default();
+        session
+            .set_last_view(SearchView::Automation)
+            .expect("store last Automation view");
+
+        let url = main_window_restore_url(
+            7,
+            session.last_view().expect("restore last Automation view"),
+        );
+
+        assert_eq!(url, "index.html?mainGeneration=7&view=automation");
     }
 
     #[test]
