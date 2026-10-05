@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / SPECIFICATION ONLY — PM-01 COMPLETE / MERGED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS; PM-03 ACTIVATION PR #320 UNDER OWNER REVIEW / IMPLEMENTATION NOT ACTIVE**
+Status: **ACTIVE INITIATIVE — PM-01 COMPLETE / MERGED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS; PM-03 ACTIVATED / IMPLEMENTATION ACTIVE**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -104,7 +104,7 @@ PM-02 is now decomposed into separately gated slices:
 - **PM-02B — Event / Schedule Triggers:** **COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** The bounded Schedule + Managed-scope-change implementation is merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate remains 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. Core Windows native evidence is PASS; pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED. PM-03 remains NOT ACTIVE. See [result](../tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md).
 - Any additional workflow kinds or richer planner semantics require another bounded activation.
 
-PM-03 owns the final bounded product-hierarchy/compatibility migration closeout. Its current activation taskbook is [PM-03 Product Hierarchy / Migration Closeout Activation](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md). Activation PR [#320](https://github.com/ArdenZC/Zen-Canvas/pull/320) is under Owner review; implementation remains NOT ACTIVE until that activation merges.
+PM-03 owns the final bounded product-hierarchy/compatibility migration closeout. Its current activation taskbook is [PM-03 Product Hierarchy / Migration Closeout Activation](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md). Activation PR [#320](https://github.com/ArdenZC/Zen-Canvas/pull/320) is **MERGED** as `master@c059d911eb053753d7ce7693aa30e39e3965f88c` / tree `771cdfcc5eb7e79fc33415df1a6275f366516ca2`; merge-after CI 37270388844 is **SUCCESS**. PM-03 implementation is ACTIVE.
 
 PM-02A must preserve Rule Repository V2 and existing Organization/Managed AI authorities. It must not create schedule loops, autonomous mutation, a second scheduler/AI queue, System One/Laya/Jev runtime integration, Preference Memory persistence, RAG/vector store, agent/tool/shell execution or release publication.
 
@@ -137,7 +137,7 @@ Merge of that activation may authorize only PM-02B Event / Schedule Trigger impl
 
 ## PM-03 Product Hierarchy / Migration Closeout activation
 
-[PM-03 activation taskbook](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md), PR [#320](https://github.com/ArdenZC/Zen-Canvas/pull/320): **OWNER REVIEW PENDING — MERGE ACTIVATES PM-03 IMPLEMENTATION ONLY**.
+[PM-03 activation taskbook](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md), PR [#320](https://github.com/ArdenZC/Zen-Canvas/pull/320): **OWNER REVIEW PASSED / MERGED — PM-03 IMPLEMENTATION ACTIVE**.
 
 The activation is deliberately narrow:
 
