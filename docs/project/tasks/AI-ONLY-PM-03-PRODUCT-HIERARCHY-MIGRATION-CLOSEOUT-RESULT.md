@@ -69,8 +69,8 @@ No test was weakened to accommodate the migration.
 | Governance (`npm run test:governance`) | PASS |
 | Documentation validation | PASS — `npm run test:docs` with `DOCS_DIFF_BASE=c72bbce173d53660a68d797b3e0ac2a32cfeb7c5`; 5 changed Markdown files validated. |
 | `git diff --check` | PASS on the current documentation/evidence candidate against the authorized baseline. |
-| Hosted CI | PASS on current PR #322 head `a1f8ab1a36ae1331c588e304ec181dc76f83c2ea` — required frontend, format, browser, performance routing/profile and change-scope checks succeeded. A fresh run will bind the final docs-only closeout commit to CI. |
-| Windows candidate package build | Pending fresh build from the final exact PR head. |
+| Hosted CI | The implementation candidate `a1f8ab1a36ae1331c588e304ec181dc76f83c2ea` passed run 37275067628. The exact final-head run and conclusion are linked from PR #322 and included in the Owner handoff. |
+| Windows candidate package build | The fresh exact-head package identity, hash and build outcome are included in the Owner handoff. Owner native qualification remains pending. |
 
 ## Windows native qualification
 
