@@ -67,8 +67,10 @@ No test was weakened to accommodate the migration.
 | Architecture/performance routing (`npm run test:performance:architecture`) | PASS — architecture guard and 3 files / 30 tests |
 | Frontend production build (`npm run build:frontend`) | PASS. Vite emitted CSS `var(...)` parse warnings and an `INEFFECTIVE_DYNAMIC_IMPORT` warning for the PDF renderer; no changed file owns those warnings. |
 | Governance (`npm run test:governance`) | PASS |
-| Documentation validation | Pending committed-candidate run with `DOCS_DIFF_BASE=c72bbce173d53660a68d797b3e0ac2a32cfeb7c5`. |
-| Final `git diff --check`, hosted CI and Windows candidate package build | Pending final closeout candidate. |
+| Documentation validation | PASS — `npm run test:docs` with `DOCS_DIFF_BASE=c72bbce173d53660a68d797b3e0ac2a32cfeb7c5`; 5 changed Markdown files validated. |
+| `git diff --check` | PASS on the current documentation/evidence candidate against the authorized baseline. |
+| Hosted CI | PASS on current PR #322 head `a1f8ab1a36ae1331c588e304ec181dc76f83c2ea` — required frontend, format, browser, performance routing/profile and change-scope checks succeeded. A fresh run will bind the final docs-only closeout commit to CI. |
+| Windows candidate package build | Pending fresh build from the final exact PR head. |
 
 ## Windows native qualification
 
