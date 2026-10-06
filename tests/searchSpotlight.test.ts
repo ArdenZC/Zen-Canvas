@@ -202,6 +202,7 @@ describe("spotlight search navigation", () => {
   it("normalizes legacy cross-window Rules input without weakening nonce, session, revision or Settings guards", () => {
     const pending = {
       nonce: 17,
+      generation: 2,
       view: "scanner" as const,
       selectedFileId: "",
       librarySelection: null,
@@ -215,7 +216,7 @@ describe("spotlight search navigation", () => {
       librarySelection: null,
       libraryFocusedId: ""
     };
-    const legacyPayload = { nonce: 17, view: "rules", fileId: null, sessionId: 4, revision: 9 };
+    const legacyPayload = { generation: 2, nonce: 17, view: "rules", fileId: null, sessionId: 4, revision: 9 };
     expect(shouldApplySearchNavigation(legacyPayload, pending, current)).toBe(true);
 
     const setView = vi.fn();
@@ -279,7 +280,7 @@ describe("spotlight search navigation", () => {
   it("uses the independent global index for command and standalone Spotlight results", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const appShell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
-    const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8").replace(/\r\n/g, "\n");
+    const runtimeProviders = (readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8") + readFileSync(resolve("src/hooks/useSearchNavigationHandoff.ts"), "utf8")).replace(/\r\n/g, "\n");
 
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
     expect(commandModal).toContain("tauriApi.searchGlobalEntries(request)");
@@ -305,11 +306,11 @@ describe("spotlight search navigation", () => {
     expect(appShell).toContain("activateFileLibraryFile={activateFileLibraryFile}");
     expect(commandModal).toContain("activateFileLibraryFile?.(fileId)");
     expect(runtimeProviders).toContain("projectAcceptedFileLibraryActivation");
-    expect(runtimeProviders).toContain("requestSettingsSection,\n        activateFileLibraryFile");
+    expect(runtimeProviders).toContain("requestSettingsSection,\n              activateFileLibraryFile");
   });
 
   it("acknowledges Rust-owned main-window navigation readiness", () => {
-    const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
+    const runtimeProviders = (readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8") + readFileSync(resolve("src/hooks/useSearchNavigationHandoff.ts"), "utf8"));
 
     expect(runtimeProviders).toContain("tauriApi.onMainWindowReadyRequest");
     expect(runtimeProviders).toContain("sessionId = null, revision = null");
@@ -322,6 +323,7 @@ describe("spotlight search navigation", () => {
     const pendingSelection = { kind: "explicit" as const, fileIds: ["file-existing"] };
     const pending = {
       nonce: 9,
+      generation: 2,
       view: "scanner" as const,
       selectedFileId: "",
       librarySelection: pendingSelection,
@@ -344,46 +346,46 @@ describe("spotlight search navigation", () => {
       loadDetail
     }));
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      { generation: 2, nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       unchanged
     )).toBe(true);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      { generation: 2, nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       { ...unchanged, view: "settings" }
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      { generation: 2, nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       { ...unchanged, librarySelection: { kind: "explicit", fileIds: ["file-existing"] } }
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      { generation: 2, nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       { ...unchanged, libraryFocusedId: "file-other" }
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      { generation: 2, nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "settings", fileId: null, sessionId: 4, revision: 12, settingsTarget: "not-a-settings-section" },
+      { generation: 2, nonce: 9, view: "settings", fileId: null, sessionId: 4, revision: 12, settingsTarget: "not-a-settings-section" },
       pending,
       unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1", sessionId: 3, revision: 12 },
+      { generation: 2, nonce: 9, view: "library", fileId: "file-1", sessionId: 3, revision: 12 },
       pending,
       unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 11 },
+      { generation: 2, nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 11 },
       pending,
       unchanged
     )).toBe(false);
-    const stalePayload = { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 };
+    const stalePayload = { generation: 2, nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 };
     if (shouldApplySearchNavigation(stalePayload, pending, unchanged)) {
       applySearchNavigation(stalePayload, setView, setSelectedFileId, undefined, activateFileLibraryFile);
     }

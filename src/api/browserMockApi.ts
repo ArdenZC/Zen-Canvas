@@ -838,6 +838,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "set_global_index_source_enabled":
     case "mark_main_window_ready":
     case "acknowledge_main_window_ready":
+    case "acknowledge_search_navigation":
       return undefined as T;
     case "activate_search_result":
       return mockActivateSearchResult(args?.request as Record<string, unknown> | undefined) as T;

@@ -4,6 +4,14 @@ import type { GlobalHotkeyErrorPayload, GlobalHotkeyStatus, MainWindowReadyReque
 import type { SearchNavigatePayload, SearchSettingsTarget } from "../utils/searchNavigation";
 import type { View } from "../types/ui";
 
+export interface SearchNavigationAcknowledgement {
+  generation: number;
+  nonce: number;
+  sessionId: number | null;
+  revision: number | null;
+  applied: boolean;
+}
+
 export const windowApi = {
   getGlobalHotkeyStatus(): Promise<GlobalHotkeyStatus | null> {
     return invokeCommand<GlobalHotkeyStatus | null>("get_global_hotkey_status");
@@ -37,6 +45,9 @@ export const windowApi = {
   },
   acknowledgeMainWindowReady(nonce: number): Promise<void> {
     return invokeCommand<void>("acknowledge_main_window_ready", { nonce });
+  },
+  acknowledgeSearchNavigation(request: SearchNavigationAcknowledgement): Promise<void> {
+    return invokeCommand<void>("acknowledge_search_navigation", { request });
   },
   onSearchNavigate(handler: EventHandler<SearchNavigatePayload>): Promise<UnlistenFn> {
     return listenTo("search-navigate", handler);

@@ -25,6 +25,7 @@ export interface SearchNavigatePayload {
   view: unknown;
   fileId: unknown;
   nonce?: unknown;
+  generation?: unknown;
   sessionId?: unknown;
   revision?: unknown;
   settingsTarget?: unknown;
@@ -32,6 +33,7 @@ export interface SearchNavigatePayload {
 
 export interface PendingSearchNavigation {
   nonce: number;
+  generation: number;
   view: View;
   selectedFileId: string;
   librarySelection: LibrarySelectionV1 | null;
@@ -87,6 +89,16 @@ function matchesOptionalContext(payloadValue: unknown, pendingValue: number | nu
   return normalized === pendingValue;
 }
 
+export function matchesSearchNavigationBinding(payload: SearchNavigatePayload, pending: PendingSearchNavigation | null) {
+  return Boolean(pending
+    && Number.isSafeInteger(pending.generation) && pending.generation > 0
+    && Number.isSafeInteger(pending.nonce) && pending.nonce > 0
+    && payload.generation === pending.generation
+    && payload.nonce === pending.nonce
+    && matchesOptionalContext(payload.sessionId, pending.sessionId)
+    && matchesOptionalContext(payload.revision, pending.revision));
+}
+
 export function shouldApplySearchNavigation(
   payload: SearchNavigatePayload,
   pending: PendingSearchNavigation | null,
@@ -94,14 +106,14 @@ export function shouldApplySearchNavigation(
 ) {
   return Boolean(
     pending
+    && matchesSearchNavigationBinding(payload, pending)
     && isValidSearchNavigatePayload(payload)
-    && payload.nonce === pending.nonce
-    && matchesOptionalContext(payload.sessionId, pending.sessionId)
-    && matchesOptionalContext(payload.revision, pending.revision)
     && current.view === pending.view
-    && current.selectedFileId === pending.selectedFileId
-    && current.librarySelection === pending.librarySelection
-    && current.libraryFocusedId === pending.libraryFocusedId
+    && (payload.fileId == null || (
+      current.selectedFileId === pending.selectedFileId
+      && current.librarySelection === pending.librarySelection
+      && current.libraryFocusedId === pending.libraryFocusedId
+    ))
   );
 }
 

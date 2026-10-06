@@ -237,6 +237,12 @@ describe("tauriApi", () => {
     });
   });
 
+  it("acknowledges navigation using only the fixed Main binding/outcome DTO", async () => {
+    const request = { generation: 7, nonce: 2, sessionId: 4, revision: 9, applied: true };
+    await tauriApi.acknowledgeSearchNavigation(request);
+    expect(apiMocks.invoke).toHaveBeenCalledWith("acknowledge_search_navigation", { request });
+  });
+
   it("subscribes to the Rust-owned search lifecycle and main readiness event", async () => {
     apiMocks.listen.mockResolvedValueOnce(() => undefined);
 

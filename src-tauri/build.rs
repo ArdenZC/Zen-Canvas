@@ -124,6 +124,7 @@ const COMMANDS: &[&str] = &[
     "hide_search_window_command",
     "mark_main_window_ready",
     "acknowledge_main_window_ready",
+    "acknowledge_search_navigation",
     "get_global_hotkey_status",
     "register_global_search_hotkey",
     "start_managed_scan",

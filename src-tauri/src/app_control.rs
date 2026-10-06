@@ -62,6 +62,7 @@ pub struct SearchNavigatePayload {
     pub view: SearchView,
     pub file_id: Option<String>,
     pub nonce: u64,
+    pub generation: u64,
     pub session_id: Option<u64>,
     pub revision: Option<u64>,
     pub settings_target: Option<SearchSettingsTarget>,
@@ -261,12 +262,25 @@ pub struct MainWindowReadyRequest {
     pub revision: Option<u64>,
 }
 
+/// Transient confirmation of this exact navigation; no view/path authority.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchNavigationAcknowledgement {
+    pub generation: u64,
+    pub nonce: u64,
+    pub session_id: Option<u64>,
+    pub revision: Option<u64>,
+    pub applied: bool,
+}
+
 #[derive(Debug, Default)]
 struct MainWindowReadiness {
     generation: u64,
     ready: bool,
     next_nonce: u64,
     acknowledged_nonce: u64,
+    navigation: Option<SearchNavigationAcknowledgement>,
+    navigation_outcome: Option<bool>,
 }
 
 #[derive(Debug, Default)]
@@ -295,6 +309,7 @@ impl SearchNavigatePayload {
             view,
             file_id,
             nonce: 0,
+            generation: 0,
             session_id: None,
             revision: None,
             settings_target: None,
@@ -451,11 +466,11 @@ impl SearchWindowLifecycleState {
         request: Option<&SearchWindowMutationRequest>,
     ) -> Result<SearchWindowSnapshot, String> {
         let current = self.snapshot_locked()?;
-        if current.phase == SearchWindowPhase::Hidden {
-            return Ok(current);
-        }
         if let Some(request) = request {
             validate_search_window_cas(&current, request.session_id, request.expected_revision)?;
+        }
+        if current.phase == SearchWindowPhase::Hidden {
+            return Ok(current);
         }
         if current.phase == SearchWindowPhase::Hiding {
             return Ok(current);
@@ -639,6 +654,8 @@ impl MainWindowReadinessState {
         state.ready = false;
         state.next_nonce = 0;
         state.acknowledged_nonce = 0;
+        state.navigation = None;
+        state.navigation_outcome = None;
         self.changed.notify_all();
         Ok(())
     }
@@ -650,6 +667,8 @@ impl MainWindowReadinessState {
                 state.ready = false;
                 state.next_nonce = 0;
                 state.acknowledged_nonce = 0;
+                state.navigation = None;
+                state.navigation_outcome = None;
             }
             self.changed.notify_all();
         }
@@ -664,6 +683,10 @@ impl MainWindowReadinessState {
             return Err("main_window_generation_stale".to_string());
         }
         state.ready = ready;
+        if !ready {
+            state.navigation = None;
+            state.navigation_outcome = None;
+        }
         self.changed.notify_all();
         Ok(())
     }
@@ -688,6 +711,8 @@ impl MainWindowReadinessState {
                 return Err("main_window_not_ready".to_string());
             }
         }
+        state.navigation = None;
+        state.navigation_outcome = None;
         state.next_nonce = state.next_nonce.saturating_add(1);
         Ok((state.generation, state.next_nonce))
     }
@@ -736,6 +761,179 @@ impl MainWindowReadinessState {
         }
         Ok(())
     }
+}
+
+fn validate_active_search(
+    snapshot: &SearchWindowSnapshot,
+    request: &SearchWindowMutationRequest,
+) -> Result<(), String> {
+    validate_search_window_cas(snapshot, request.session_id, request.expected_revision)?;
+    if !matches!(
+        snapshot.phase,
+        SearchWindowPhase::VisibleCollapsed | SearchWindowPhase::VisibleExpanded
+    ) {
+        return Err("search_window_phase_stale".to_string());
+    }
+    Ok(())
+}
+
+impl MainWindowReadinessState {
+    #[cfg(any(feature = "desktop-runtime", test))]
+    fn begin_navigation(&self, binding: SearchNavigationAcknowledgement) -> Result<(), String> {
+        let mut state = self
+            .readiness
+            .lock()
+            .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+        if !state.ready || state.generation != binding.generation || binding.generation == 0 {
+            return Err("main_window_generation_stale".to_string());
+        }
+        if binding.nonce == 0
+            || state.next_nonce != binding.nonce
+            || state.acknowledged_nonce != binding.nonce
+        {
+            return Err("main_window_ready_nonce_stale".to_string());
+        }
+        state.navigation = Some(binding);
+        state.navigation_outcome = None;
+        Ok(())
+    }
+
+    fn acknowledge_navigation(
+        &self,
+        binding: SearchNavigationAcknowledgement,
+    ) -> Result<(), String> {
+        let mut state = self
+            .readiness
+            .lock()
+            .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+        let mut expected = binding.clone();
+        expected.applied = false;
+        if !state.ready
+            || state.generation != binding.generation
+            || state.navigation.as_ref() != Some(&expected)
+            || state.navigation_outcome.is_some()
+        {
+            return Err("search_navigation_ack_stale".to_string());
+        }
+        state.navigation_outcome = Some(binding.applied);
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    #[cfg(any(feature = "desktop-runtime", test))]
+    fn cancel_navigation(&self, binding: &SearchNavigationAcknowledgement) {
+        if let Ok(mut state) = self.readiness.lock() {
+            if state.navigation.as_ref() == Some(binding) {
+                state.navigation = None;
+                state.navigation_outcome = None;
+            }
+            self.changed.notify_all();
+        }
+    }
+
+    #[cfg(any(feature = "desktop-runtime", test))]
+    fn wait_for_navigation(
+        &self,
+        binding: &SearchNavigationAcknowledgement,
+        timeout: Duration,
+    ) -> Result<(), String> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self
+            .readiness
+            .lock()
+            .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+        let result = loop {
+            if !state.ready
+                || state.generation != binding.generation
+                || state.navigation.as_ref() != Some(binding)
+            {
+                break Err("search_navigation_main_stale".to_string());
+            }
+            if let Some(applied) = state.navigation_outcome {
+                break if applied {
+                    Ok(())
+                } else {
+                    Err("search_navigation_rejected".to_string())
+                };
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break Err("search_navigation_ack_timeout".to_string());
+            }
+            state = self
+                .changed
+                .wait_timeout(state, remaining)
+                .map_err(|_| "main_window_readiness_unavailable".to_string())?
+                .0;
+        };
+        if state.navigation.as_ref() == Some(binding) {
+            state.navigation = None;
+            state.navigation_outcome = None;
+        }
+        result
+    }
+}
+
+/// Shared by native transport and tests. Emission alone never permits hide.
+#[cfg(any(feature = "desktop-runtime", test))]
+fn handoff_search_navigation(
+    lifecycle: &SearchWindowLifecycleState,
+    readiness: &MainWindowReadinessState,
+    mut payload: SearchNavigatePayload,
+    timeout: Duration,
+    emit_ready: impl FnOnce(MainWindowReadyRequest) -> Result<(), String>,
+    emit_navigation: impl FnOnce(&SearchNavigatePayload) -> Result<(), String>,
+    hide_scoped: impl FnOnce(&SearchWindowMutationRequest) -> Result<(), String>,
+) -> Result<(), String> {
+    let original = match (payload.session_id, payload.revision) {
+        (Some(session_id), Some(expected_revision)) => Some(SearchWindowMutationRequest {
+            session_id,
+            expected_revision,
+        }),
+        (None, None) => None,
+        _ => return Err("search_window_session_required".to_string()),
+    };
+    if let Some(request) = &original {
+        validate_active_search(&lifecycle.get(), request)?;
+    }
+    let (generation, nonce) = readiness.begin_request(timeout)?;
+    payload.generation = generation;
+    payload.nonce = nonce;
+    emit_ready(MainWindowReadyRequest {
+        generation,
+        nonce,
+        session_id: payload.session_id,
+        revision: payload.revision,
+    })?;
+    readiness.wait_for_ack(generation, nonce, timeout)?;
+    let binding = SearchNavigationAcknowledgement {
+        generation,
+        nonce,
+        session_id: payload.session_id,
+        revision: payload.revision,
+        applied: false,
+    };
+    {
+        let _owner = lifecycle
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        if let Some(request) = &original {
+            validate_active_search(&lifecycle.snapshot_locked()?, request)?;
+        }
+        readiness.begin_navigation(binding.clone())?;
+        if let Err(error) = emit_navigation(&payload) {
+            readiness.cancel_navigation(&binding);
+            return Err(error);
+        }
+    }
+    readiness.wait_for_navigation(&binding, timeout)?;
+    if let Some(request) = &original {
+        validate_active_search(&lifecycle.get(), request)?;
+        // Scoped hide repeats CAS under the Search operation lock.
+        hide_scoped(request)?;
+    }
+    Ok(())
 }
 
 impl MainWindowLifecycleState {
@@ -1015,11 +1213,10 @@ fn restore_readiness_after_workspace_dispose_failure(
 }
 
 #[tauri::command]
-pub fn activate_search_result<R: Runtime>(
+pub async fn activate_search_result<R: Runtime>(
     window: WebviewWindow<R>,
     app: AppHandle<R>,
     lifecycle: State<'_, SearchWindowLifecycleState>,
-    readiness: State<'_, MainWindowReadinessState>,
     request: ActivateSearchResultRequest,
 ) -> Result<(), String> {
     if window.label() == SEARCH_WINDOW_LABEL {
@@ -1028,7 +1225,13 @@ pub fn activate_search_result<R: Runtime>(
         else {
             return Err("search_window_session_required".to_string());
         };
-        validate_search_window_cas(&lifecycle.get(), session_id, expected_revision)?;
+        validate_active_search(
+            &lifecycle.get(),
+            &SearchWindowMutationRequest {
+                session_id,
+                expected_revision,
+            },
+        )?;
     } else {
         require_main_window(&window)?;
     }
@@ -1037,7 +1240,17 @@ pub fn activate_search_result<R: Runtime>(
         request.expected_revision,
         request.settings_target,
     );
-    activate_search_result_payload(&app, &lifecycle, &readiness, payload)
+    // Renderer ACKs must be deliverable while this bounded handshake waits.
+    tauri::async_runtime::spawn_blocking(move || {
+        activate_search_result_payload(
+            &app,
+            &app.state::<SearchWindowLifecycleState>(),
+            &app.state::<MainWindowReadinessState>(),
+            payload,
+        )
+    })
+    .await
+    .map_err(|_| "search_navigation_worker_failed".to_string())?
 }
 
 #[tauri::command]
@@ -1165,12 +1378,26 @@ pub fn acknowledge_main_window_ready<R: Runtime>(
     readiness.acknowledge(generation, nonce)
 }
 
+#[tauri::command]
+pub fn acknowledge_search_navigation<R: Runtime>(
+    window: WebviewWindow<R>,
+    readiness: State<'_, MainWindowReadinessState>,
+    request: SearchNavigationAcknowledgement,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    let generation = crate::file_workspace::integration::main_generation_from_window(&window)?;
+    if generation != request.generation {
+        return Err("main_window_generation_stale".to_string());
+    }
+    readiness.acknowledge_navigation(request)
+}
+
 #[cfg(feature = "desktop-runtime")]
 fn activate_search_result_payload<R: Runtime>(
     app: &AppHandle<R>,
     lifecycle: &SearchWindowLifecycleState,
     readiness: &MainWindowReadinessState,
-    mut payload: SearchNavigatePayload,
+    payload: SearchNavigatePayload,
 ) -> Result<(), String> {
     eprintln!(
         "ui_runtime search_activation_received view={:?} session_id={:?} revision={:?}",
@@ -1205,36 +1432,46 @@ fn activate_search_result_payload<R: Runtime>(
         app.webview_windows().len()
     );
 
-    let (generation, nonce) = readiness
-        .begin_request(MAIN_WINDOW_READY_TIMEOUT)
-        .map_err(|error| stage_error("main_ready_request", error))?;
-    payload.nonce = nonce;
-    eprintln!("ui_runtime main_ready_request generation={generation} nonce={nonce}");
-    app.emit_to(
-        MAIN_WINDOW_LABEL,
-        MAIN_WINDOW_READY_REQUEST_EVENT,
-        MainWindowReadyRequest {
-            nonce,
-            generation,
-            session_id: payload.session_id,
-            revision: payload.revision,
+    handoff_search_navigation(
+        lifecycle,
+        readiness,
+        payload,
+        MAIN_WINDOW_READY_TIMEOUT,
+        |request| {
+            eprintln!(
+                "ui_runtime main_ready_request generation={} nonce={}",
+                request.generation, request.nonce
+            );
+            app.emit_to(MAIN_WINDOW_LABEL, MAIN_WINDOW_READY_REQUEST_EVENT, request)
+                .map_err(|error| error.to_string())
+        },
+        |payload| {
+            eprintln!(
+                "ui_runtime main_ready_ack generation={} nonce={}",
+                payload.generation, payload.nonce
+            );
+            app.emit_to(MAIN_WINDOW_LABEL, SEARCH_NAVIGATE_EVENT, payload)
+                .map_err(|error| error.to_string())?;
+            eprintln!(
+                "ui_runtime search_navigation_emitted generation={} nonce={}",
+                payload.generation, payload.nonce
+            );
+            Ok(())
+        },
+        |request| {
+            eprintln!(
+                "ui_runtime navigation_applied_ack session_id={} revision={}",
+                request.session_id, request.expected_revision
+            );
+            hide_search_window_with_state(app, lifecycle, Some(request))?;
+            eprintln!(
+                "ui_runtime search_scoped_hide session_id={} revision={}",
+                request.session_id, request.expected_revision
+            );
+            Ok(())
         },
     )
-    .map_err(|error| stage_error("main_ready_request", error.to_string()))?;
-    readiness
-        .wait_for_ack(generation, nonce, MAIN_WINDOW_READY_TIMEOUT)
-        .map_err(|error| stage_error("main_ready_ack", error))?;
-    eprintln!("ui_runtime main_ready_ack generation={generation} nonce={nonce}");
-
-    app.emit_to(MAIN_WINDOW_LABEL, SEARCH_NAVIGATE_EVENT, payload)
-        .map_err(|error| stage_error("search_navigation_emit", error.to_string()))?;
-    eprintln!("ui_runtime search_navigation_emitted generation={generation} nonce={nonce}");
-    hide_search_window_with_state(app, lifecycle, None)
-        .map_err(|error| stage_error("search_destroy_after_handoff", error))?;
-    eprintln!(
-        "ui_runtime search_destroy_after_handoff result=ok generation={generation} nonce={nonce}"
-    );
-    Ok(())
+    .map_err(|error| stage_error("navigation_commit", error))
 }
 
 #[cfg(not(feature = "desktop-runtime"))]
@@ -2378,5 +2615,320 @@ mod tests {
             ..healthy
         };
         assert!(!hotkey_registration_is_idempotent(&failed, "CmdOrCtrl+K"));
+    }
+    fn handoff_fixture() -> (
+        SearchWindowLifecycleState,
+        MainWindowReadinessState,
+        SearchWindowSnapshot,
+        SearchNavigatePayload,
+    ) {
+        let search = SearchWindowLifecycleState::default();
+        let showing = search.begin_show().unwrap();
+        let visible = search
+            .complete_show(showing.session_id, showing.revision)
+            .unwrap();
+        let main = MainWindowReadinessState::default();
+        main.begin_generation(7).unwrap();
+        main.set_ready(7, true).unwrap();
+        let payload = SearchNavigatePayload::new(SearchView::Automation, None).with_window_context(
+            Some(visible.session_id),
+            Some(visible.revision),
+            None,
+        );
+        (search, main, visible, payload)
+    }
+
+    fn applied_ack(
+        payload: &SearchNavigatePayload,
+        applied: bool,
+    ) -> SearchNavigationAcknowledgement {
+        SearchNavigationAcknowledgement {
+            generation: payload.generation,
+            nonce: payload.nonce,
+            session_id: payload.session_id,
+            revision: payload.revision,
+            applied,
+        }
+    }
+
+    #[test]
+    fn handoff_success_requires_ready_then_navigation_commit_then_original_scoped_hide() {
+        let (search, main, original, payload) = handoff_fixture();
+        let stages = std::cell::RefCell::new(Vec::new());
+        handoff_search_navigation(
+            &search,
+            &main,
+            payload,
+            Duration::from_millis(100),
+            |request| {
+                stages.borrow_mut().push("ready");
+                main.acknowledge(request.generation, request.nonce)
+            },
+            |payload| {
+                assert_eq!(search.get(), original); // no premature native hide
+                assert_eq!(serde_json::to_value(payload).unwrap()["view"], "automation");
+                stages.borrow_mut().push("navigation");
+                main.acknowledge_navigation(applied_ack(payload, true))
+            },
+            |request| {
+                assert_eq!(request.session_id, original.session_id);
+                assert_eq!(request.expected_revision, original.revision);
+                stages.borrow_mut().push("scoped_hide");
+                search
+                    .hide_with_native(Some(request), || Ok(()), |_| {})
+                    .map(|_| ())
+            },
+        )
+        .unwrap();
+        assert_eq!(*stages.borrow(), ["ready", "navigation", "scoped_hide"]);
+        assert_eq!(search.get().phase, SearchWindowPhase::Hidden);
+    }
+
+    #[test]
+    fn handoff_timeout_and_rejection_keep_search_retryable_and_reject_late_ack() {
+        for outcome in [None, Some(false)] {
+            let (search, main, original, payload) = handoff_fixture();
+            let emitted = std::cell::RefCell::new(None);
+            let result = handoff_search_navigation(
+                &search,
+                &main,
+                payload,
+                Duration::from_millis(5),
+                |request| main.acknowledge(request.generation, request.nonce),
+                |payload| {
+                    assert_eq!(search.get(), original);
+                    *emitted.borrow_mut() = Some(payload.clone());
+                    if let Some(applied) = outcome {
+                        main.acknowledge_navigation(applied_ack(payload, applied))?;
+                    }
+                    Ok(())
+                },
+                |_| panic!("failed navigation must never hide"),
+            );
+            assert_eq!(
+                result.unwrap_err(),
+                if outcome.is_some() {
+                    "search_navigation_rejected"
+                } else {
+                    "search_navigation_ack_timeout"
+                }
+            );
+            assert_eq!(search.get(), original);
+            assert!(main
+                .acknowledge_navigation(applied_ack(emitted.borrow().as_ref().unwrap(), true))
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn handoff_revalidates_revision_and_phase_after_ready_before_emit() {
+        for hide in [false, true] {
+            let (search, main, original, payload) = handoff_fixture();
+            let result = handoff_search_navigation(
+                &search,
+                &main,
+                payload,
+                Duration::from_millis(100),
+                |request| {
+                    main.acknowledge(request.generation, request.nonce)?;
+                    if hide {
+                        search.hide_with_native(
+                            Some(&SearchWindowMutationRequest {
+                                session_id: original.session_id,
+                                expected_revision: original.revision,
+                            }),
+                            || Ok(()),
+                            |_| {},
+                        )?;
+                    } else {
+                        search.resize(&SearchWindowResizeRequest {
+                            session_id: original.session_id,
+                            expected_revision: original.revision,
+                            expanded: true,
+                        })?;
+                    }
+                    Ok(())
+                },
+                |_| panic!("stale post-ready Search must not emit navigation"),
+                |_| panic!("must not hide"),
+            );
+            assert!(result.is_err());
+        }
+        let (search, main, original, payload) = handoff_fixture();
+        search.snapshot.lock().unwrap().phase = SearchWindowPhase::Showing;
+        assert_eq!(
+            handoff_search_navigation(
+                &search,
+                &main,
+                payload,
+                Duration::from_millis(5),
+                |_| panic!("invalid phase"),
+                |_| panic!("invalid phase"),
+                |_| panic!("invalid phase")
+            )
+            .unwrap_err(),
+            "search_window_phase_stale"
+        );
+        assert_eq!(search.get().revision, original.revision);
+    }
+
+    #[test]
+    fn handoff_reopened_or_resized_search_during_commit_wait_is_never_hidden() {
+        for reopen in [false, true] {
+            let (search, main, original, payload) = handoff_fixture();
+            std::thread::scope(|scope| {
+                let (tx, rx) = mpsc::channel::<SearchNavigatePayload>();
+                let search = &search;
+                let main = &main;
+                let original = &original;
+                let worker = scope.spawn(move || {
+                    let emitted = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                    if reopen {
+                        search
+                            .hide_with_native(
+                                Some(&SearchWindowMutationRequest {
+                                    session_id: original.session_id,
+                                    expected_revision: original.revision,
+                                }),
+                                || Ok(()),
+                                |_| {},
+                            )
+                            .unwrap();
+                        let showing = search.begin_show().unwrap();
+                        search
+                            .complete_show(showing.session_id, showing.revision)
+                            .unwrap();
+                    } else {
+                        search
+                            .resize(&SearchWindowResizeRequest {
+                                session_id: original.session_id,
+                                expected_revision: original.revision,
+                                expanded: true,
+                            })
+                            .unwrap();
+                    }
+                    main.acknowledge_navigation(applied_ack(&emitted, true))
+                        .unwrap();
+                });
+                let result = handoff_search_navigation(
+                    search,
+                    main,
+                    payload,
+                    Duration::from_secs(1),
+                    |request| main.acknowledge(request.generation, request.nonce),
+                    |payload| {
+                        assert_eq!(search.get(), *original);
+                        tx.send(payload.clone()).unwrap();
+                        Ok(())
+                    },
+                    |_| panic!("old handoff cannot hide changed Search"),
+                );
+                assert!(result.is_err());
+                worker.join().unwrap();
+            });
+            assert_ne!(search.get().phase, SearchWindowPhase::Hidden);
+            if reopen {
+                assert!(search.get().session_id > original.session_id);
+            }
+        }
+    }
+
+    #[test]
+    fn handoff_main_disappearance_or_recreation_and_mismatched_ack_fail_closed() {
+        for recreate in [false, true] {
+            let (search, main, original, payload) = handoff_fixture();
+            let result = handoff_search_navigation(
+                &search,
+                &main,
+                payload,
+                Duration::from_millis(100),
+                |request| main.acknowledge(request.generation, request.nonce),
+                |payload| {
+                    let good = applied_ack(payload, true);
+                    for bad in [
+                        SearchNavigationAcknowledgement {
+                            generation: 8,
+                            ..good.clone()
+                        },
+                        SearchNavigationAcknowledgement {
+                            nonce: 2,
+                            ..good.clone()
+                        },
+                        SearchNavigationAcknowledgement {
+                            session_id: Some(99),
+                            ..good.clone()
+                        },
+                        SearchNavigationAcknowledgement {
+                            revision: Some(99),
+                            ..good.clone()
+                        },
+                    ] {
+                        assert!(main.acknowledge_navigation(bad).is_err());
+                    }
+                    if recreate {
+                        main.begin_generation(8)?;
+                        main.set_ready(8, true)?;
+                    } else {
+                        main.set_ready(7, false)?;
+                    }
+                    assert!(main.acknowledge_navigation(good).is_err());
+                    Ok(())
+                },
+                |_| panic!("disappeared Main cannot hide Search"),
+            );
+            assert_eq!(result.unwrap_err(), "search_navigation_main_stale");
+            assert_eq!(search.get(), original);
+        }
+    }
+    #[test]
+    fn handoff_emit_failure_disarms_ack_and_scoped_hide_rejects_last_moment_reopen() {
+        let (search, main, original, payload) = handoff_fixture();
+        let emitted = std::cell::RefCell::new(None);
+        let result = handoff_search_navigation(
+            &search,
+            &main,
+            payload.clone(),
+            Duration::from_millis(100),
+            |request| main.acknowledge(request.generation, request.nonce),
+            |payload| {
+                *emitted.borrow_mut() = Some(payload.clone());
+                Err("emit_failed".to_string())
+            },
+            |_| panic!("emit failure cannot hide"),
+        );
+        assert_eq!(result.unwrap_err(), "emit_failed");
+        assert!(main
+            .acknowledge_navigation(applied_ack(emitted.borrow().as_ref().unwrap(), true))
+            .is_err());
+        assert_eq!(search.get(), original);
+        let result = handoff_search_navigation(
+            &search,
+            &main,
+            payload,
+            Duration::from_millis(100),
+            |request| main.acknowledge(request.generation, request.nonce),
+            |payload| main.acknowledge_navigation(applied_ack(payload, true)),
+            |request| {
+                search.hide_with_native(Some(request), || Ok(()), |_| {})?;
+                let showing = search.begin_show()?;
+                search.complete_show(showing.session_id, showing.revision)?;
+                search
+                    .hide_with_native(
+                        Some(request),
+                        || panic!("new Search cannot be destroyed"),
+                        |_| {},
+                    )
+                    .map(|_| ())
+            },
+        );
+        assert_eq!(result.unwrap_err(), "search_window_session_stale");
+        assert_eq!(search.get().phase, SearchWindowPhase::VisibleCollapsed);
+    }
+
+    #[test]
+    fn navigation_ack_dto_rejects_renderer_authority_expansion() {
+        assert!(serde_json::from_value::<SearchNavigationAcknowledgement>(serde_json::json!({
+            "generation": 7, "nonce": 1, "sessionId": 4, "revision": 9, "applied": true, "path": "forbidden"
+        })).is_err());
     }
 }

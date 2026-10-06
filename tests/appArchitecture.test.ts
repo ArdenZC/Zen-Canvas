@@ -215,12 +215,9 @@ describe("app render architecture", () => {
       runtimeProviders.indexOf("function StoreRuntimeBootstrapper"),
       runtimeProviders.indexOf("function arraysEqual")
     );
-    const searchNavigateIndex = runtimeProviders.indexOf("tauriApi.onSearchNavigate");
     const hotkeyFailureIndex = runtimeProviders.indexOf("tauriApi.onGlobalHotkeyRegistrationFailed");
-    const searchNavigateHandler = runtimeProviders.slice(
-      runtimeProviders.lastIndexOf("useEffect", searchNavigateIndex),
-      hotkeyFailureIndex
-    );
+    const searchNavigateHandler = read("src/hooks/useSearchNavigationHandoff.ts");
+    expect(runtimeProviders).toContain("useSearchNavigationHandoff(isSearchMode,");
     const hotkeyFailureHandler = runtimeProviders.slice(
       runtimeProviders.lastIndexOf("useEffect", hotkeyFailureIndex),
       runtimeProviders.indexOf("const setCloseBehavior")
