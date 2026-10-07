@@ -1,6 +1,6 @@
 # PM-03 — Product Hierarchy / Migration Closeout Result
 
-**Disposition:** **PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS**. **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS**. Accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; Windows Owner requalification PASS with native product behavior PASS + deterministic ordering evidence accepted. No native ACK trace was captured. PR #322 squash-merged as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; merge-after master CI [37561509211](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37561509211) is **SUCCESS**. #273 remains open only for final initiative closure; #323 remains independently open.
+**Disposition:** **PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS**. **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS**. Accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; Windows Owner requalification PASS with native product behavior PASS + deterministic ordering evidence accepted. No native ACK trace was captured. PR #322 squash-merged as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; merge-after master CI [37561509211](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37561509211) is **SUCCESS**. #273 is **CLOSED / completed**; #323 remains independently open.
 
 ## Historical implementation / remediation checkpoints
 
@@ -137,4 +137,9 @@ Safety: automation_intents, automation_runs, rules, organization_plans, organiza
 
 **PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323** remains independently reproduced and open, without repair. Command-registry Spotlight and PM-03 route qualification remained functional. PM-03 does not absorb File Library/Vault compatibility retirement, legacy managed-AI queue cleanup, design-token debt, generic technical debt, Cleanup automation, autonomous filesystem mutation, Preference Memory, System One/Laya/Jev, release publication or Global Index #323.
 
-Post-merge state: **PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS**. PR #322 squash-merged as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; final pre-merge documentation HEAD `b6aa48378fb827054e2df862adc44e0760a6a981` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa` passed exact-head CI 37560256010, and merge-after master CI 37561509211 is **SUCCESS**. Skipped jobs remain skipped. #273 is eligible for final Owner closure after the post-merge reconciliation merges; #323 remains open. No post-PM activation is authorized.
+Post-merge state: **PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS**. PR #322 squash-merged as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; final pre-merge documentation HEAD `b6aa48378fb827054e2df862adc44e0760a6a981` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa` passed exact-head CI 37560256010, and merge-after master CI 37561509211 is **SUCCESS**. Skipped jobs remain skipped. Post-merge reconciliation PR #324 merged as `master@cfdde76db2e339f1572e889fa586170361e2d796`; merge-after docs CI 37563539120 is **SUCCESS**. #273 is **CLOSED / completed**; #323 remains open. No post-PM activation is authorized.
+
+
+## Initiative closure
+
+AI-only Product Migration issue #273 is **CLOSED / completed** after PM-03 merge and the post-merge governance reconciliation. No post-PM initiative is active. Global Index issue #323 remains independent and OPEN.
