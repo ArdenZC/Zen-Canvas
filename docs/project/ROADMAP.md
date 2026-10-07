@@ -95,6 +95,8 @@ Authority: [initiative](initiatives/windows-global-index-recovery.md) and [activ
 
 The bounded remediation preserves typed Paused/rebuild-required semantics across the Windows Global Index service boundary and restores automatic admitted MFT rebuild after USN history discontinuity. It does not activate #270, #283, generic technical-debt retirement or release publication.
 
+## Completed initiative history
+
 ### AI-only Product Migration — completed
 
 Status: **COMPLETE / CLOSED — issue #273. PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED.**
