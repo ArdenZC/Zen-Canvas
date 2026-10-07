@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / IMPLEMENTATION CLOSEOUT — PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 merge-after master CI 37561509211 SUCCESS; #273 OPEN PENDING FINAL OWNER CLOSURE**
+Status: **COMPLETE / CLOSED — PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED; issue #273 CLOSED / completed**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -166,6 +166,13 @@ The browser-mock integration evidence is recorded in [PM-03 browser evidence](..
 
 Canonical `automation`, inbound-only `rules`, ordinary Intents default, explicit Advanced Policies and unchanged Rule Repository V2 / Rule Proposal are implemented. Standalone Search → Main closes only through the navigation commit ACK / original-session scoped-hide gate. No PM-02 Automation, Rule, semantic or filesystem execution authority changed.
 
-PR #322 squash-merged as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; merge-after master CI [37561509211](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37561509211) is **SUCCESS**. Historical production-candidate CI 37424135807 remains candidate evidence only. #273 is eligible for final Owner closure after this reconciliation. **PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323** remains independently tracked, not fixed or closed; command-registry Spotlight and PM-03 routes remained usable despite index degradation.
+PR #322 squash-merged as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; merge-after master CI [37561509211](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37561509211) is **SUCCESS**. Post-merge reconciliation PR #324 merged as `master@cfdde76db2e339f1572e889fa586170361e2d796`; merge-after docs CI [37563539120](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37563539120) is **SUCCESS**. Issue #273 is **CLOSED / completed**. **PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323** remains independently tracked and is now eligible for its own separately reviewed remediation; command-registry Spotlight and PM-03 routes remained usable despite index degradation.
 
 PM-03 does not absorb File Library/Vault compatibility retirement, legacy managed-AI queue cleanup, design-token debt, generic technical debt, Cleanup automation, autonomous filesystem mutation, Preference Memory, System One/Laya/Jev, release publication or #323. No post-PM initiative is activated.
+
+
+## Initiative closure
+
+AI-only Product Migration is **COMPLETE / CLOSED**. Issue #273 is CLOSED / completed. No Preference Memory, System One/Laya/Jev, autonomous mutation, Cleanup automation or release publication authority follows from this closure.
+
+The next production remediation is separate issue #323, [Windows Global Index Recovery Remediation](windows-global-index-recovery.md), subject to its own activation review.
