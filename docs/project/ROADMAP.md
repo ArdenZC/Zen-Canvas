@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **FINAL ISSUE-CLOSURE RECONCILIATION — PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 merge-after master CI 37561509211 SUCCESS; #273 pending final Owner closure.**
+Status: **ACTIVE INITIATIVE / IMPLEMENTATION CLOSEOUT — PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 merge-after master CI 37561509211 SUCCESS; #273 pending final Owner closure.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), accepted [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md), and current [PM-02B activation taskbook](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md). PM-01 historical authority remains [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md) and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
