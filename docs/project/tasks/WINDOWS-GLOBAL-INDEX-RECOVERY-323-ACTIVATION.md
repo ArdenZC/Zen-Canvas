@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-07
 
-Status: **OWNER REVIEW PENDING — MERGE ACTIVATES #323 IMPLEMENTATION ONLY**
+Status: **OWNER REVIEW PENDING ON PR #325 — MERGE ACTIVATES #323 IMPLEMENTATION ONLY**
 
 Issue: [#323 — Windows Global Index recovery loses paused/rebuild state across service transport](https://github.com/ArdenZC/Zen-Canvas/issues/323)
 
