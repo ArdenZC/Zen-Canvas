@@ -140,6 +140,7 @@
     "allow-resize-search-window",
     "allow-mark-main-window-ready",
     "allow-acknowledge-main-window-ready",
+    "allow-acknowledge-search-navigation",
     "allow-get-global-hotkey-status",
     "allow-register-global-search-hotkey",
     "allow-scan-directory",

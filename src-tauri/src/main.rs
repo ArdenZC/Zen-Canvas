@@ -478,6 +478,7 @@ fn main() {
             zen_canvas_tauri::app_control::hide_search_window_command,
             zen_canvas_tauri::app_control::mark_main_window_ready,
             zen_canvas_tauri::app_control::acknowledge_main_window_ready,
+            zen_canvas_tauri::app_control::acknowledge_search_navigation,
             zen_canvas_tauri::app_control::get_global_hotkey_status,
             zen_canvas_tauri::app_control::register_global_search_hotkey,
             zen_canvas_tauri::scanner::start_managed_scan,

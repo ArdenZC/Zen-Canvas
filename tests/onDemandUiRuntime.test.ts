@@ -166,7 +166,7 @@ describe("on-demand UI runtime boundaries", () => {
 
     expect(ensureMain).toContain("if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL)");
     expect(ensureMain).toContain("let generation = lifecycle.next_generation()?");
-    expect(ensureMain).toContain("mainGeneration={generation}");
+    expect(ensureMain).toContain("main_window_restore_url(generation, last_view)");
     expect(ensureMain).toContain("record_window_created()");
     expect(enterBackground.indexOf("session.set_last_view")).toBeLessThan(enterBackground.indexOf("readiness.set_ready(generation, false)"));
     expect(enterBackground.indexOf("readiness.set_ready(generation, false)")).toBeLessThan(enterBackground.indexOf("workspace.dispose_generation(generation)"));

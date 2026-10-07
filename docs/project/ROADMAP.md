@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-10-01
+Last verified: 2026-10-05
 
 ## Completed
 
@@ -89,7 +89,7 @@ Final authority:
 
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE — PM-01, PM-02A and PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 ACTIVATED / IMPLEMENTATION ACTIVE.**
+Status: **ACTIVE INITIATIVE — PM-01, PM-02A and PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), accepted [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md), and current [PM-02B activation taskbook](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md). PM-01 historical authority remains [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md) and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -102,11 +102,11 @@ Current production / research sequence:
 3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
 4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
 5. **PM-02A Automation Intent Foundation — COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** [Result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md): Schema 36, reusable Query V2 scope, manual Intent-to-Plan handoff and existing Managed AI admission; Windows native + restart acceptance PASS; no automatic execution.
-6. **PM-02B Event / Schedule Triggers — COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** [Result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md): squash merge `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37, package 0.1.40. Core Windows native evidence is PASS. Pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED evidence limitations. PM-03 remains NOT ACTIVE.
-7. **PM-03 Product Hierarchy / Migration Closeout — ACTIVATED / IMPLEMENTATION ACTIVE.** Activation PR #320 merged as `master@c059d911eb053753d7ce7693aa30e39e3965f88c`; merge-after CI 37270388844 SUCCESS. [Activation taskbook](tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md): canonical Automation route migration, legacy `rules` input compatibility, Advanced Policies/Compatibility hierarchy, product-copy closeout and browser/Windows native migration evidence; Schema remains 37.
+6. **PM-02B Event / Schedule Triggers — COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** [Result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md): squash merge `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37, package 0.1.40. Core Windows native evidence is PASS. Pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED evidence limitations. PM-03 was subsequently activated through PR #320.
+7. **PM-03 Product Hierarchy / Migration Closeout — IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE.** Accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; Windows Owner requalification PASS with native product behavior PASS + deterministic ordering evidence accepted (no native ACK trace). Historical native failures, remediations and dirty-Sandbox install precondition are retained in the [result](tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) and [native record](tasks/evidence/PM-03/windows-native-qualification.md). [PR #322](https://github.com/ArdenZC/Zen-Canvas/pull/322) remains unmerged pending fresh final documentation-head CI / final Owner merge. Schema 37 / package 0.1.40 unchanged. #273 remains open pending merge-after reconciliation; independent #323 remains open/unfixed.
 8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
 
-PM-01 consumed rather than recreated the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded. No production implementation branch is active after the PM-01 closeout.
+PM-01 consumed rather than recreated the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded. PM-03 implementation and Owner review are complete; its bounded PR remains unmerged pending final Owner merge; it does not authorize Preference Memory, System One/Laya/Jev or release publication.
 
 #270 remains separate. Release publication remains deferred.
 

@@ -98,7 +98,8 @@ export async function activateCommandNavigation({
   setSelectedFileId,
   activateFileLibraryFile,
   onClose,
-  activateSearchResult = tauriApi.activateSearchResult
+  activateSearchResult = tauriApi.activateSearchResult,
+  onStandaloneActivationStateChange
 }: {
   standalone: boolean;
   windowSnapshot?: SearchWindowSnapshot | null;
@@ -109,6 +110,7 @@ export async function activateCommandNavigation({
   setSelectedFileId: (id: string) => void;
   activateFileLibraryFile?: (id: string) => void;
   onClose: () => void;
+  onStandaloneActivationStateChange?: (pending: boolean) => void;
   activateSearchResult?: (
     view: View,
     fileId: string | null,
@@ -117,10 +119,15 @@ export async function activateCommandNavigation({
   ) => Promise<void>;
 }) {
   if (standalone) {
-    if (settingsTarget) {
-      await activateSearchResult(view, fileId, windowSnapshot ?? undefined, settingsTarget);
-    } else {
-      await activateSearchResult(view, fileId, windowSnapshot ?? undefined);
+    onStandaloneActivationStateChange?.(true);
+    try {
+      if (settingsTarget) {
+        await activateSearchResult(view, fileId, windowSnapshot ?? undefined, settingsTarget);
+      } else {
+        await activateSearchResult(view, fileId, windowSnapshot ?? undefined);
+      }
+    } finally {
+      onStandaloneActivationStateChange?.(false);
     }
     return;
   }
@@ -183,6 +190,15 @@ export function CommandModal({
   const [inputFocused, setInputFocused] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const isComposingRef = useRef(false);
+  const standaloneActivationRef = useRef({ pending: 0, epoch: 0 });
+  const trackStandaloneActivation = useCallback((pending: boolean) => {
+    if (pending) {
+      standaloneActivationRef.current.pending += 1;
+      standaloneActivationRef.current.epoch += 1;
+    } else {
+      standaloneActivationRef.current.pending = Math.max(0, standaloneActivationRef.current.pending - 1);
+    }
+  }, []);
   const settingsCommandSectionRef = useRef<string | null>(null);
   const queryControllerRef = useRef(new SpotlightQueryController());
   const searchWindowSnapshotRef = useRef<SearchWindowSnapshot | null>(null);
@@ -336,12 +352,16 @@ export function CommandModal({
     if (!standalone) return;
     let blurTimer: number | undefined;
     const handleBlur = () => {
-      if (isComposingRef.current) return;
+      if (isComposingRef.current || standaloneActivationRef.current.pending > 0) return;
+      const activationEpoch = standaloneActivationRef.current.epoch;
       const blurredSnapshot = searchWindowSnapshotRef.current;
       if (!blurredSnapshot) return;
       window.clearTimeout(blurTimer);
       blurTimer = window.setTimeout(() => {
-        if (isComposingRef.current) return;
+        // Main intentionally takes focus during handoff. Neither that blur nor
+        // a pre-handoff timer may close a rejected/timed-out Search afterward.
+        if (isComposingRef.current || standaloneActivationRef.current.pending > 0
+          || standaloneActivationRef.current.epoch !== activationEpoch) return;
         if (!document.hasFocus()) requestSearchWindowHide(blurredSnapshot);
       }, 120);
     };
@@ -429,7 +449,8 @@ export function CommandModal({
         setView,
         setSelectedFileId,
         activateFileLibraryFile,
-        onClose
+        onClose,
+        onStandaloneActivationStateChange: trackStandaloneActivation
       });
     } catch (error) {
       const message = readableError(error);
@@ -461,7 +482,8 @@ export function CommandModal({
           setView,
           setSelectedFileId,
           activateFileLibraryFile,
-          onClose
+          onClose,
+          onStandaloneActivationStateChange: trackStandaloneActivation
         });
         return;
       }
@@ -488,7 +510,8 @@ export function CommandModal({
       setView,
       setSelectedFileId,
       activateFileLibraryFile,
-      onClose
+      onClose,
+      onStandaloneActivationStateChange: trackStandaloneActivation
     }).catch((error) => {
       const message = readableError(error);
       setCommandError(message);

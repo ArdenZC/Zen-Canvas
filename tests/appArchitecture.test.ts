@@ -215,12 +215,9 @@ describe("app render architecture", () => {
       runtimeProviders.indexOf("function StoreRuntimeBootstrapper"),
       runtimeProviders.indexOf("function arraysEqual")
     );
-    const searchNavigateIndex = runtimeProviders.indexOf("tauriApi.onSearchNavigate");
     const hotkeyFailureIndex = runtimeProviders.indexOf("tauriApi.onGlobalHotkeyRegistrationFailed");
-    const searchNavigateHandler = runtimeProviders.slice(
-      runtimeProviders.lastIndexOf("useEffect", searchNavigateIndex),
-      hotkeyFailureIndex
-    );
+    const searchNavigateHandler = read("src/hooks/useSearchNavigationHandoff.ts");
+    expect(runtimeProviders).toContain("useSearchNavigationHandoff(isSearchMode,");
     const hotkeyFailureHandler = runtimeProviders.slice(
       runtimeProviders.lastIndexOf("useEffect", hotkeyFailureIndex),
       runtimeProviders.indexOf("const setCloseBehavior")
@@ -327,7 +324,7 @@ describe("app render architecture", () => {
     expect(appShell).toContain('aria-current={view === item.id ? "page" : undefined}');
     expect(appShell).toContain("function viewDescription");
     expect(appShell).toContain('case "cleanup"');
-    expect(appShell).toContain('case "rules"');
+    expect(appShell).toContain('case "automation"');
     expect(appShell).toContain('case "restore"');
     expect(appShell).toContain('case "settings"');
     expect(appShell).toContain("previewActionCount");

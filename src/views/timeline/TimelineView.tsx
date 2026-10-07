@@ -204,8 +204,8 @@ export function TimelineView() {
               </button>
             )}
             secondaryAction={(
-              <button className={buttonDefault} onClick={() => setView("rules")}>
-                {t("goRuleEngine")}
+              <button className={buttonDefault} onClick={() => setView("automation")}>
+                {t("goAutomationWorkspace")}
               </button>
             )}
           />

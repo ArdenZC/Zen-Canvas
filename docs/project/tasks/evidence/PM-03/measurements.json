@@ -1,0 +1,126 @@
+{
+  "generatedAt": "2026-10-05T06:41:59.959Z",
+  "evidenceBoundary": "Browser mock integration and presentation evidence only; it is not native Windows, filesystem or provider acceptance.",
+  "fileMutationBoundary": "The browser mock command boundary was instrumented. Zero file, Rule or Intent mutation commands were observed during navigation scenarios.",
+  "results": [
+    {
+      "scenario": "en-desktop",
+      "language": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      },
+      "spotlightToIntents": true,
+      "explicitAdvancedPolicies": true,
+      "keyboardReturnAndFocus": true,
+      "settingsToIntents": true,
+      "horizontalOverflow": false,
+      "dimensions": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "workspaceWidth": 1220,
+        "workspaceScrollWidth": 1220
+      },
+      "fileAndRuleMutationCommandCount": 0,
+      "observedBrowserMockCommandCount": 47,
+      "nativeWindowsEvidence": false
+    },
+    {
+      "scenario": "zh-desktop",
+      "language": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      },
+      "spotlightToIntents": true,
+      "explicitAdvancedPolicies": true,
+      "keyboardReturnAndFocus": true,
+      "settingsToIntents": true,
+      "horizontalOverflow": false,
+      "dimensions": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "workspaceWidth": 1220,
+        "workspaceScrollWidth": 1220
+      },
+      "fileAndRuleMutationCommandCount": 0,
+      "observedBrowserMockCommandCount": 47,
+      "nativeWindowsEvidence": false
+    },
+    {
+      "scenario": "en-narrow",
+      "language": "en",
+      "viewport": {
+        "width": 760,
+        "height": 900
+      },
+      "spotlightToIntents": true,
+      "explicitAdvancedPolicies": true,
+      "keyboardReturnAndFocus": true,
+      "settingsToIntents": true,
+      "horizontalOverflow": false,
+      "dimensions": {
+        "viewportWidth": 760,
+        "documentWidth": 760,
+        "workspaceWidth": 584,
+        "workspaceScrollWidth": 584
+      },
+      "fileAndRuleMutationCommandCount": 0,
+      "observedBrowserMockCommandCount": 47,
+      "nativeWindowsEvidence": false
+    },
+    {
+      "scenario": "zh-narrow",
+      "language": "zh",
+      "viewport": {
+        "width": 760,
+        "height": 900
+      },
+      "spotlightToIntents": true,
+      "explicitAdvancedPolicies": true,
+      "keyboardReturnAndFocus": true,
+      "settingsToIntents": true,
+      "horizontalOverflow": false,
+      "dimensions": {
+        "viewportWidth": 760,
+        "documentWidth": 760,
+        "workspaceWidth": 584,
+        "workspaceScrollWidth": 584
+      },
+      "fileAndRuleMutationCommandCount": 0,
+      "observedBrowserMockCommandCount": 47,
+      "nativeWindowsEvidence": false
+    },
+    {
+      "scenario": "en-canonical-url",
+      "language": "en",
+      "directRoute": "automation",
+      "resolvedProductRoute": "automation",
+      "defaultSurface": "intents",
+      "fileAndRuleMutationCommandCount": 0,
+      "observedBrowserMockCommandCount": 27,
+      "nativeWindowsEvidence": false
+    },
+    {
+      "scenario": "en-legacy-url-rules",
+      "language": "en",
+      "directRoute": "rules",
+      "resolvedProductRoute": "automation",
+      "defaultSurface": "intents",
+      "fileAndRuleMutationCommandCount": 0,
+      "observedBrowserMockCommandCount": 27,
+      "nativeWindowsEvidence": false
+    },
+    {
+      "scenario": "zh-legacy-url-rules",
+      "language": "zh",
+      "directRoute": "rules",
+      "resolvedProductRoute": "automation",
+      "defaultSurface": "intents",
+      "fileAndRuleMutationCommandCount": 0,
+      "observedBrowserMockCommandCount": 27,
+      "nativeWindowsEvidence": false
+    }
+  ],
+  "browserErrors": []
+}

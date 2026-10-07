@@ -22,6 +22,7 @@ type CommandContract = {
   guard: GuardExpectation;
 };
 
+const appControlSource = readFileSync(resolve("src-tauri/src/app_control.rs"), "utf8");
 const mainSource = readFileSync(resolve("src-tauri/src/main.rs"), "utf8");
 const buildSource = readFileSync(resolve("src-tauri/build.rs"), "utf8");
 const matrixSource = readFileSync(
@@ -158,6 +159,7 @@ const explicitContracts: CommandContract[] = [
     "enter_background",
     "mark_main_window_ready",
     "acknowledge_main_window_ready",
+    "acknowledge_search_navigation",
     "register_global_search_hotkey",
   ]),
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/scanner.rs", [
@@ -711,7 +713,11 @@ describe("Tauri command permission contract", () => {
         expect(body).toContain("require_search_window");
       } else if (contract.guard === "search_or_main_window") {
         expect(body).toContain("SEARCH_WINDOW_LABEL");
-        expect(body).toContain("validate_search_window_cas");
+        expect(body).toContain("validate_active_search");
+        const validator = appControlSource.slice(appControlSource.indexOf("fn validate_active_search"), appControlSource.indexOf("impl MainWindowReadinessState", appControlSource.indexOf("fn validate_active_search")));
+        expect(validator).toContain("validate_search_window_cas");
+        expect(validator).toContain("SearchWindowPhase::VisibleCollapsed");
+        expect(validator).toContain("SearchWindowPhase::VisibleExpanded");
         expect(body).toContain("require_main_window");
       } else {
         expect(body).not.toContain("require_main_window");

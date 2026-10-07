@@ -3,6 +3,7 @@ import { tauriApi } from "../../api/tauriApi";
 import type { ScanRootDto } from "../../api/types";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
+import { useAppStore } from "../../store/useAppStore";
 import type { AutomationIntent } from "../../types/automation";
 import { warningSurface } from "../../utils/tw";
 import { Button, ConfirmDialog, panelSurface, pageSurface } from "../shared/ui";
@@ -13,8 +14,10 @@ const RulesView = lazy(() => import("../rules/RulesView").then((module) => ({ de
 export function AutomationWorkspace() {
   const { t } = useI18nContext();
   const { setView } = useNavigationContext();
+  const automationSurface = useAppStore((state) => state.automationSurface);
+  const setAutomationSurface = useAppStore((state) => state.setAutomationSurface);
+  const advanced = automationSurface === "advanced-policies";
   const state = useAutomationIntents();
-  const [advanced, setAdvanced] = useState(false);
   const [editor, setEditor] = useState<AutomationIntent | "new" | null>(null);
   const [archiving, setArchiving] = useState<AutomationIntent | null>(null);
   const [roots, setRoots] = useState<ScanRootDto[]>([]);
@@ -33,10 +36,16 @@ export function AutomationWorkspace() {
     else setOpenError(true);
   };
   return <div className={`${pageSurface} space-y-5 p-4 sm:p-6`}>
-    <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">{t("automationIntents")}</h2>
-      <div className="flex gap-2" role="group" aria-label={t("automationIntentWorkspaceTitle")}><Button aria-pressed={!advanced} onClick={() => setAdvanced(false)}>{t("automationIntents")}</Button><Button aria-pressed={advanced} onClick={() => setAdvanced(true)}>{t("automationAdvancedRules")}</Button></div>
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">{t(advanced ? "automationAdvancedPolicies" : "automationIntents")}</h2>
+      <div className="flex flex-wrap gap-2" role="group" aria-label={t("automationWorkspaceNavigationLabel")}>
+        <Button aria-pressed={!advanced} aria-controls="automation-workspace-panel" onClick={() => setAutomationSurface("intents")}>{t("automationIntents")}</Button>
+        <Button aria-pressed={advanced} aria-controls="automation-workspace-panel" onClick={() => setAutomationSurface("advanced-policies")}>{t("automationAdvancedPolicies")}</Button>
+      </div>
     </div>
-    {advanced ? <Suspense fallback={<p>{t("loading")}</p>}><RulesView /></Suspense> : <>
+    {advanced ? <section id="automation-workspace-panel" aria-label={t("automationAdvancedPolicies")} className="min-w-0 space-y-4">
+      <p className="max-w-3xl text-sm opacity-70">{t("automationAdvancedPoliciesDescription")}</p>
+      <Suspense fallback={<p>{t("loading")}</p>}><RulesView /></Suspense>
+    </section> : <section id="automation-workspace-panel" aria-label={t("automationIntents")} className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm opacity-70">{t("automationFixedPolicy")}</p><div className="flex gap-2"><Button disabled={Boolean(state.busy)} onClick={() => void state.reload()}>{t("automationReload")}</Button><Button variant="primary" disabled={Boolean(state.busy)} onClick={() => setEditor("new")}>{t("automationCreateIntent")}</Button></div></div>
       {(state.error || openError) && <p role="alert" className={`${warningSurface} rounded-xl p-3`}>{t(openError ? "automationOpenFailed" : state.error === "revision" ? "automationRevisionConflict" : "automationActionFailed")}</p>}
       {state.loading ? <p role="status">{t("loading")}</p> : state.intents.length === 0 ? <div className={`${panelSurface} p-8`}><h2 className="font-semibold">{t("automationIntentEmptyTitle")}</h2><p className="mt-2 text-sm opacity-70">{t("automationEmptyDescription")}</p></div> : <div className="space-y-3">{state.intents.map((intent) => {
@@ -60,7 +69,7 @@ export function AutomationWorkspace() {
           </div>}
         </article>;
       })}</div>}
-    </>}
+    </section>}
     {editor && <AutomationIntentEditor intent={editor === "new" ? undefined : editor} roots={roots} t={t} busy={Boolean(state.busy)} onSave={(draft) => state.save(draft, editor === "new" ? undefined : editor)} onClose={() => setEditor(null)} />}
     {archiving && <ConfirmDialog open isProcessing={Boolean(state.busy)} title={t("automationArchive")} description={t("automationArchiveDescription")} confirmLabel={t("automationArchive")} cancelLabel={t("cancel")} onConfirm={() => { void state.archive(archiving).then((saved) => { if (saved) setArchiving(null); }); }} onCancel={() => setArchiving(null)} />}
   </div>;

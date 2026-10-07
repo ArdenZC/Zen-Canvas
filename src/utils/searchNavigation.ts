@@ -1,5 +1,6 @@
 import type { View } from "../types/ui";
 import type { LibrarySelectionV1 } from "../types/domain";
+import { normalizeViewInput } from "./viewRoutes";
 
 export type SearchSettingsTarget = "search-scope" | "global-index" | "appearance" | "ai";
 
@@ -24,6 +25,7 @@ export interface SearchNavigatePayload {
   view: unknown;
   fileId: unknown;
   nonce?: unknown;
+  generation?: unknown;
   sessionId?: unknown;
   revision?: unknown;
   settingsTarget?: unknown;
@@ -31,6 +33,7 @@ export interface SearchNavigatePayload {
 
 export interface PendingSearchNavigation {
   nonce: number;
+  generation: number;
   view: View;
   selectedFileId: string;
   librarySelection: LibrarySelectionV1 | null;
@@ -63,31 +66,37 @@ function isOptionalRevision(value: unknown) {
     || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
 }
 
-const VALID_VIEWS = new Set<View>([
-  "scanner", "cleanup", "organize", "library", "preview", "rules", "restore", "settings"
-]);
-
 function isOptionalFileId(value: unknown) {
   return value === undefined || value === null || (typeof value === "string" && value.length > 0);
 }
 
 function isValidSearchNavigatePayload(payload: SearchNavigatePayload) {
+  const view = normalizeViewInput(payload.view);
   if (!isOptionalRevision(payload.sessionId)
     || !isOptionalRevision(payload.revision)
     || !isOptionalFileId(payload.fileId)
-    || typeof payload.view !== "string"
-    || !VALID_VIEWS.has(payload.view as View)) return false;
+    || view === null) return false;
   if (payload.settingsTarget !== undefined
     && payload.settingsTarget !== null
     && !isSearchSettingsTarget(payload.settingsTarget)) return false;
   return payload.settingsTarget == null
     ? true
-    : payload.view === "settings" && payload.fileId == null;
+    : view === "settings" && payload.fileId == null;
 }
 
 function matchesOptionalContext(payloadValue: unknown, pendingValue: number | null | undefined) {
   const normalized = payloadValue == null ? null : payloadValue;
   return normalized === pendingValue;
+}
+
+export function matchesSearchNavigationBinding(payload: SearchNavigatePayload, pending: PendingSearchNavigation | null) {
+  return Boolean(pending
+    && Number.isSafeInteger(pending.generation) && pending.generation > 0
+    && Number.isSafeInteger(pending.nonce) && pending.nonce > 0
+    && payload.generation === pending.generation
+    && payload.nonce === pending.nonce
+    && matchesOptionalContext(payload.sessionId, pending.sessionId)
+    && matchesOptionalContext(payload.revision, pending.revision));
 }
 
 export function shouldApplySearchNavigation(
@@ -97,14 +106,14 @@ export function shouldApplySearchNavigation(
 ) {
   return Boolean(
     pending
+    && matchesSearchNavigationBinding(payload, pending)
     && isValidSearchNavigatePayload(payload)
-    && payload.nonce === pending.nonce
-    && matchesOptionalContext(payload.sessionId, pending.sessionId)
-    && matchesOptionalContext(payload.revision, pending.revision)
     && current.view === pending.view
-    && current.selectedFileId === pending.selectedFileId
-    && current.librarySelection === pending.librarySelection
-    && current.libraryFocusedId === pending.libraryFocusedId
+    && (payload.fileId == null || (
+      current.selectedFileId === pending.selectedFileId
+      && current.librarySelection === pending.librarySelection
+      && current.libraryFocusedId === pending.libraryFocusedId
+    ))
   );
 }
 
@@ -116,7 +125,8 @@ export function applySearchNavigation(
   activateFileLibraryFile?: (id: string) => void
 ) {
   if (!isValidSearchNavigatePayload(payload)) return false;
-  const view = payload.view as View;
+  const view = normalizeViewInput(payload.view);
+  if (!view) return false;
   setView(view);
   if (typeof payload.fileId === "string" && payload.fileId) {
     setSelectedFileId(payload.fileId);

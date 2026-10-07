@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { tauriApi } from "../api/tauriApi";
 import { ChromeProvider, RulesProvider, RuntimeCapabilitiesProvider, SettingsProvider } from "../contexts/AppContexts";
 import { useAppChrome } from "../hooks/useAppChrome";
@@ -27,8 +27,7 @@ import type {
   RuleDraftV2,
   RuntimeCapabilities
 } from "../types/domain";
-import { applySearchNavigation, shouldApplySearchNavigation, type PendingSearchNavigation } from "../utils/searchNavigation";
-import { installMainReadinessListenerBeforeReady } from "../utils/mainWindowReadiness";
+import { useSearchNavigationHandoff } from "../hooks/useSearchNavigationHandoff";
 import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { localizedStableError, normalizePathLike, readableError } from "../utils/viewHelpers";
 
@@ -76,7 +75,6 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     }
   }, [language]);
-  const pendingSearchNavigationRef = useRef<PendingSearchNavigation | null>(null);
   const refreshCurrentQuery = useCallback(
     () => useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery),
     []
@@ -164,81 +162,8 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     isSearchMode
   ]);
 
-  useEffect(() => {
-    if (isSearchMode) return;
+  useSearchNavigationHandoff(isSearchMode, setView, activateFileLibraryFile, showError);
 
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    void tauriApi.onSearchNavigate((payload) => {
-      const pending = pendingSearchNavigationRef.current;
-      const currentLibrary = useFileLibraryStore.getState();
-      const currentLibrarySelection = useFileLibrarySelectionStore.getState();
-      if (!shouldApplySearchNavigation(payload, pending, {
-        view: useAppStore.getState().view,
-        selectedFileId: currentLibrary.selectedFileId,
-        librarySelection: currentLibrarySelection.selection,
-        libraryFocusedId: currentLibrarySelection.focusedId
-      })) return;
-      pendingSearchNavigationRef.current = null;
-      applySearchNavigation(
-        payload,
-        setView,
-        useFileLibraryStore.getState().setSelectedFileId,
-        requestSettingsSection,
-        activateFileLibraryFile
-      );
-    }).then((dispose) => {
-      if (disposed) dispose();
-      else unlisten = dispose;
-    }).catch((error) => {
-      if (!disposed) showError(readableError(error));
-    });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [activateFileLibraryFile, isSearchMode, setView, showError]);
-
-  useEffect(() => {
-    if (isSearchMode) return;
-
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    const mainGeneration = Number(new URLSearchParams(window.location.search).get("mainGeneration"));
-    void installMainReadinessListenerBeforeReady(
-      () => tauriApi.onMainWindowReadyRequest(({ nonce, generation, sessionId = null, revision = null }) => {
-        if (generation !== mainGeneration) return;
-        pendingSearchNavigationRef.current = {
-          nonce,
-          view: useAppStore.getState().view,
-          selectedFileId: useFileLibraryStore.getState().selectedFileId,
-          librarySelection: useFileLibrarySelectionStore.getState().selection,
-          libraryFocusedId: useFileLibrarySelectionStore.getState().focusedId,
-          sessionId,
-          revision
-        };
-        void tauriApi.acknowledgeMainWindowReady(nonce).catch((error) => {
-          if (!disposed) showError(readableError(error));
-        });
-      }),
-      () => tauriApi.markMainWindowReady(true),
-      () => disposed
-    ).then((dispose) => {
-      if (disposed) dispose?.();
-      else unlisten = dispose;
-    }).catch((error) => {
-      if (!disposed) showError(readableError(error));
-    });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-      void tauriApi.markMainWindowReady(false).catch(() => undefined);
-    };
-  }, [isSearchMode, showError]);
 
   useEffect(() => {
     if (isSearchMode) return;

@@ -134,7 +134,7 @@ describe("W6-03 product hierarchy", () => {
     expect(document.body.textContent).toContain("node_modules, .git, target, dist, build");
   });
 
-  it("removes Automation from the persistent sidebar without deleting the Rules workspace or its Settings entry", () => {
+  it("keeps Automation out of the persistent sidebar while routing to its workspace from Settings", () => {
     const appShell = read("src/components/AppShell.tsx");
     const settingsView = read("src/views/settings/SettingsView.tsx");
     const automationSection = read("src/views/settings/sections/AutomationSettingsSection.tsx");
@@ -142,9 +142,9 @@ describe("W6-03 product hierarchy", () => {
 
     expect(navGroupsSource).not.toContain('{ id: "rules", label: t("automation")');
     expect(appShell).toContain('const AutomationWorkspace = lazy(() => import("../views/automation/AutomationWorkspace")');
-    expect(appShell).toContain('else if (view === "rules") content = <AutomationWorkspace />');
+    expect(appShell).toContain('else if (view === "automation") content = <AutomationWorkspace />');
     expect(read("src/views/automation/AutomationWorkspace.tsx")).toContain('import("../rules/RulesView")');
-    expect(settingsView).toContain('onOpenRules={() => setView("rules")}');
-    expect(automationSection).toContain("onOpenRules");
+    expect(settingsView).toContain('onOpenAutomation={() => setView("automation")}');
+    expect(automationSection).toContain("onOpenAutomation");
   });
 });

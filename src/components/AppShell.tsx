@@ -111,7 +111,7 @@ export function AppShell() {
   }, []);
 
   const groups = useMemo(() => navGroups(t), [t]);
-  const activeLabel = view === "rules"
+  const activeLabel = view === "automation"
     ? t("automationIntentWorkspaceTitle")
     : groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
@@ -399,7 +399,7 @@ const AppViewContent = memo(function AppViewContent() {
   else if (view === "organize") content = <OrganizeSuggestionsView />;
   else if (view === "library") content = <FileLibraryWorkspace />;
   else if (view === "preview") content = <TimelineView />;
-  else if (view === "rules") content = <AutomationWorkspace />;
+  else if (view === "automation") content = <AutomationWorkspace />;
   else if (view === "restore") content = <RestoreView />;
   else content = <SettingsView />;
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
@@ -487,7 +487,7 @@ function viewDescription(
       return previewActionCount > 0
         ? `${previewActionCount.toLocaleString()} ${t("items")} · ${t("viewDescPreview")}`
         : t("viewDescPreview");
-    case "rules":
+    case "automation":
       return t("automationIntentDescription");
     case "restore":
       return t("viewDescRestore");
@@ -551,7 +551,7 @@ function topbarContext(view: View, t: Translator) {
     case "organize": return t("topbarOrganizeContext");
     case "cleanup": return t("topbarCleanupContext");
     case "restore": return t("topbarHistoryContext");
-    case "rules": return t("topbarAutomationContext");
+    case "automation": return t("topbarAutomationContext");
     case "preview": return t("topbarPreviewContext");
     case "settings": return t("topbarSettingsContext");
   }

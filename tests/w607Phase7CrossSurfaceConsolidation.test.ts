@@ -61,7 +61,7 @@ describe("W6-07 Phase 7 cross-surface consolidation", () => {
     const shell = read("src/components/AppShell.tsx");
     expect(shell).toContain('id: "library"');
     expect(shell).toContain('else if (view === "library") content = <FileLibraryWorkspace />');
-    expect(shell).toContain('else if (view === "rules") content = <AutomationWorkspace />');
+    expect(shell).toContain('else if (view === "automation") content = <AutomationWorkspace />');
     expect(shell).toContain('else if (view === "restore") content = <RestoreView />');
     expect(shell).toContain("projectAcceptedFileLibraryActivation");
   });
