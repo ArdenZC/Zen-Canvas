@@ -87,9 +87,17 @@ Final authority:
 
 ## Current
 
+### No active initiative
+
+Status: **BETWEEN INITIATIVES / NO ACTIVE IMPLEMENTATION.**
+
+AI-only Product Migration issue #273 is **COMPLETE / CLOSED**. Independent Global Index issue #323 remains OPEN. No next product initiative, release publication, Preference Memory production, System One/Laya/Jev runtime or autonomous mutation track is activated.
+
+## Recently completed — AI-only Product Migration
+
 ### AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE / IMPLEMENTATION CLOSEOUT — PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 merge-after master CI 37561509211 SUCCESS; #273 pending final Owner closure.**
+Status: **COMPLETE / CLOSED — PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED; #273 CLOSED AS COMPLETED.**
 
 Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), accepted [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md), and current [PM-02B activation taskbook](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md). PM-01 historical authority remains [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md) and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
 
@@ -103,7 +111,7 @@ Current production / research sequence:
 4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
 5. **PM-02A Automation Intent Foundation — COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** [Result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md): Schema 36, reusable Query V2 scope, manual Intent-to-Plan handoff and existing Managed AI admission; Windows native + restart acceptance PASS; no automatic execution.
 6. **PM-02B Event / Schedule Triggers — COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** [Result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md): squash merge `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37, package 0.1.40. Core Windows native evidence is PASS. Pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED evidence limitations. PM-03 was subsequently activated through PR #320.
-7. **PM-03 Product Hierarchy / Migration Closeout — COMPLETE / MERGED through PR #322; OWNER REVIEW PASSED; merge-after master CI 37561509211 SUCCESS.** Squash merge `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`. Windows Owner requalification PASS remains native product behavior PASS + deterministic ordering evidence accepted (no native ACK trace). Historical failures/remediations remain in the [result](tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) and [native record](tasks/evidence/PM-03/windows-native-qualification.md). Schema 37 / package 0.1.40 unchanged. #273 is ready for final Owner closure after reconciliation; independent #323 remains open/unfixed.
+7. **PM-03 Product Hierarchy / Migration Closeout — COMPLETE / MERGED through PR #322; OWNER REVIEW PASSED; merge-after master CI 37561509211 SUCCESS.** Squash merge `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`. Windows Owner requalification PASS remains native product behavior PASS + deterministic ordering evidence accepted (no native ACK trace). Historical failures/remediations remain in the [result](tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) and [native record](tasks/evidence/PM-03/windows-native-qualification.md). Schema 37 / package 0.1.40 unchanged. #273 is **CLOSED / completed**; independent #323 remains open/unfixed.
 8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
 
 PM-01 consumed rather than recreated the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded. PM-03 implementation and Owner review are complete; PR #322 is merged and merge-after master CI 37561509211 is SUCCESS; it does not authorize Preference Memory, System One/Laya/Jev or release publication.
