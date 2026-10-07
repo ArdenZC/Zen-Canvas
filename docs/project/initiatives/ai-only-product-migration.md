@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE — PM-01 COMPLETE / MERGED; PM-02A COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER CI SUCCESS; PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS; PM-03 ACTIVATED / IMPLEMENTATION ACTIVE**
+Status: **ACTIVE INITIATIVE — PM-01, PM-02A and PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE; #273 OPEN PENDING MERGE-AFTER RECONCILIATION**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -104,7 +104,7 @@ PM-02 is now decomposed into separately gated slices:
 - **PM-02B — Event / Schedule Triggers:** **COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** The bounded Schedule + Managed-scope-change implementation is merged as `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate remains 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89. Core Windows native evidence is PASS; pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED. PM-03 was separately activated after this PM-02B closeout. See [result](../tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md).
 - Any additional workflow kinds or richer planner semantics require another bounded activation.
 
-PM-03 owns the final bounded product-hierarchy/compatibility migration closeout. Its current activation taskbook is [PM-03 Product Hierarchy / Migration Closeout Activation](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md). Activation PR [#320](https://github.com/ArdenZC/Zen-Canvas/pull/320) is **MERGED** as `master@c059d911eb053753d7ce7693aa30e39e3965f88c` / tree `771cdfcc5eb7e79fc33415df1a6275f366516ca2`; merge-after CI 37270388844 is **SUCCESS**. PM-03 implementation is ACTIVE.
+PM-03 owns the final bounded product-hierarchy/compatibility migration closeout. Its current activation taskbook is [PM-03 Product Hierarchy / Migration Closeout Activation](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-ACTIVATION.md). Activation PR [#320](https://github.com/ArdenZC/Zen-Canvas/pull/320) is **MERGED** as `master@c059d911eb053753d7ce7693aa30e39e3965f88c` / tree `771cdfcc5eb7e79fc33415df1a6275f366516ca2`; merge-after CI 37270388844 is **SUCCESS**. PM-03 implementation is complete / Owner review passed; PR #322 is ready for final Owner merge but remains unmerged.
 
 PM-02A and PM-02B preserve Rule Repository V2 and existing Organization/Managed AI authorities. PM-03 changes only product hierarchy and route compatibility. These tracks do not create autonomous mutation, a second scheduler/AI queue, System One/Laya/Jev runtime integration, Preference Memory persistence, RAG/vector storage, agent/tool/shell execution or release publication.
 
@@ -151,10 +151,21 @@ The activation is deliberately narrow:
 
 Generic technical-debt retirement, File Library/Vault compatibility retirement, Cleanup automation, autonomous mutation, Preference Memory production and System One/Laya/Jev remain outside PM-03.
 
-## PM-03 implementation and Owner-requested remediation
+## Historical PM-03 implementation and Owner-requested remediation
 
 Implementation branch `product/pm-03-product-hierarchy-migration-closeout` started from the exact authorized baseline above. [Draft PR #322](https://github.com/ArdenZC/Zen-Canvas/pull/322) remains unmerged and does not close issue #273. The frontend candidate makes `automation` canonical, normalizes historical `rules` at URL/cross-window input, defaults ordinary entries to Intents and keeps Rule Repository V2 behind explicit Advanced Policies.
 
 Owner review marked candidate `47ef02922d58329e035eaf8391feaaa4d9523cbf` **CHANGES REQUESTED** before Windows qualification: Rust `SearchView` still used `Rules`, failed to deserialize canonical `automation`, and emitted `view=rules` on resident Main restoration. Owner authorized only the native transport correction: canonical `SearchView::Automation`, inbound serde alias `rules`, and canonical restore query. No semantic, Automation runtime, Rule, filesystem or permission authority changes are authorized. The earlier installer SHA-256 `E7A342E95356222BF9BC266CB1B6741060E7297C3E23EDAF06B4D85C1D5BF9F3` is superseded and must not be used for Owner qualification.
 
 The browser-mock integration evidence is recorded in [PM-03 browser evidence](../tasks/evidence/PM-03/measurements.json); it does not exercise Rust serde and is not Windows native evidence. The [PM-03 closeout result](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) records the Owner finding, the authorized remediation and the fresh exact-head handoff. Schema remains 37 and package remains 0.1.40. Windows Owner qualification has not been performed.
+
+
+## PM-03 final Owner closeout — 2026-10-07
+
+**PM-03 IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE**. Accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; Schema 37 / package 0.1.40. Fresh Windows Sandbox requalification is **PASS**, using **native product behavior PASS + deterministic ordering evidence accepted**; exact native transient ordering / ACK trace was not recorded. See [result](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) and [native record](../tasks/evidence/PM-03/windows-native-qualification.md) for preserved transport/handoff failures, remediations, dirty-Sandbox precondition and successful fresh install/native rows.
+
+Canonical `automation`, inbound-only `rules`, ordinary Intents default, explicit Advanced Policies and unchanged Rule Repository V2 / Rule Proposal are implemented. Standalone Search → Main closes only through the navigation commit ACK / original-session scoped-hide gate. No PM-02 Automation, Rule, semantic or filesystem execution authority changed.
+
+PR #322 remains unmerged pending fresh final documentation-head CI and final Owner merge; historical production-candidate CI 37424135807 is not final-head CI. #273 remains open pending merge-after reconciliation. **PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323** remains independently tracked, not fixed or closed; command-registry Spotlight and PM-03 routes remained usable despite index degradation.
+
+PM-03 does not absorb File Library/Vault compatibility retirement, legacy managed-AI queue cleanup, design-token debt, generic technical debt, Cleanup automation, autonomous filesystem mutation, Preference Memory, System One/Laya/Jev, release publication or #323. No post-PM initiative is activated.

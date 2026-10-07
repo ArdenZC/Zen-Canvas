@@ -1,11 +1,11 @@
 # PM-03 Windows Native Owner Qualification — Progress Record
 
-**Current disposition (2026-10-06): HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION REQUIRED.** The 2026-10-05 checkpoint immediately below is retained as historical evidence; its no-failure/privacy-prompt status is superseded by the Owner-confirmed standalone handoff FAIL recorded at the end. New source/CI/package evidence cannot confer native Owner PASS.
+**Current disposition (2026-10-07): PM-03 WINDOWS NATIVE OWNER REQUALIFICATION PASS.** **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS**. Owner accepts native product behavior PASS + deterministic ordering evidence accepted; no native ACK trace was captured. The final fresh-Sandbox record below supersedes earlier blocking dispositions without rewriting them.
 
 Date: 2026-10-05 (Asia/Shanghai)
 Status: **PAUSED — OWNER QUALIFICATION INCOMPLETE.** No product failure has been observed. Native Spotlight entry is blocked by a Windows input-method privacy prompt that requires the user to choose.
 
-This is an append-only record of the work performed so far. It does not establish PM-03 Owner acceptance or readiness for final closeout.
+The following 2026-10-05 checkpoint and subsequent failed/preparation attempts are historical evidence. The appended 2026-10-07 final Owner disposition owns current qualification truth.
 
 ## Candidate identity
 
@@ -186,3 +186,136 @@ Candidate remains running after the diagnostic. No retry, manual Rebuild/Resume/
 Owner-confirmed outcome for `10f638cf8f100f5aad182c670ee451749d898055` / tree `e120f83d252c93b205272208a62b2492c3b401a5`: **FAIL — Spotlight Automation command closed Search but did not navigate Main.** Main remained Overview instead of Automation → Intents. This genuine native failure is retained independently of the Global Index #323 observations above.
 
 Installer SHA-256 `332DF1543C4286B72DAF61D596ACBD74749095B3E590505E65E47DBF35FFBD71` is superseded; do not retry qualification or use it for Owner PASS. The separately authorized repair proceeds on the same branch and Draft PR #322. No repaired binary has Owner native PASS: **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION REQUIRED**. Deterministic tests, hosted CI, browser evidence and a new installer are separate engineering evidence. Fresh Owner native evidence is still required. No #273/#323 closure or merge is authorized.
+
+## Remediated candidate Owner requalification preparation — 2026-10-06
+
+**PM-03 WINDOWS NATIVE OWNER REQUALIFICATION BLOCKED — OWNER REVIEW REQUIRED**
+
+The block occurred during installer preparation, before the remediated candidate launched or any qualification route action. No new PM-03 handoff failure or native PASS was established. The historical `10f638cf8f100f5aad182c670ee451749d898055` failure above remains unchanged.
+
+### Independently verified identity
+
+- Existing branch: `product/pm-03-product-hierarchy-migration-closeout`; HEAD `843693ea7e3612a662a5331daaedef557d40fee1`; tree `72b1c263650951be118a5f23e820d5dca8e4e621`.
+- Detached build checkout `E:\CargoTarget\pm03-handoff-build-20261006` independently retained the same HEAD/tree and clean status. No build ran.
+- Fresh installer: `E:\CargoTarget\pm03-handoff-evidence-843693ea\package\Zen Canvas_0.1.40_x64-setup.exe`; **9,811,183 bytes**; SHA-256 **02C9ECE0B6799947D8828E7BB0D0B9F52F95166DF3030FC2C503F1688EAD21F9**. Its task-share copy was independently hash-verified before opening.
+- Exact-head CI `37424135807`: completed / SUCCESS, head SHA matches. PR #322: OPEN / Draft, head SHA matches; read-only verification only.
+- Build-output executable `E:\CargoTarget\pm03-product-hierarchy-migration-closeout-c72bbce\cargo-target\release\zen-canvas.exe`: file/product version 0.1.40, SHA-256 `CDF214E2F053E4B0D64966B60F2DDC87AFBB19172340586B2B85D511DC3A4B6F`. This executable was not launched and is not evidence of guest installation identity.
+- Intended schema/package: 37 / 0.1.40. No fresh running-candidate database schema or PID could be verified.
+
+### Isolated preparation and observed installation block
+
+The existing task-owned Windows Sandbox was used; no host real-user profile/database was opened. Its configuration disables networking and clipboard redirection, maps the superseded installer directory read-only and maps the task-owned evidence share writable. Neither superseded installer was launched. The existing old candidate was visibly on Overview and was closed using its normal close dialog → direct Quit, solely to prepare candidate replacement. This is not the required new-candidate Quit/restart row.
+
+The verified fresh installer copy is `E:\CargoTarget\pm03-native-owner-qualification-10f638cf\share\candidate-843693ea\Zen Canvas_0.1.40_x64-setup.exe`, visible in the guest at `C:\Users\WDAGUtilityAccount\Desktop\share\candidate-843693ea`. Native Explorer opened this copy. Setup showed an existing 0.1.40 installation, default Add/Reinstall components, and destination `C:\Program Files\Zen Canvas`.
+
+On proceeding, Setup displayed exactly: **“Existing Zen Canvas product metadata is incomplete or inconsistent. Installation was not changed.”** The installer dialog was left at this failure. No repair, uninstall, retry, alternate binary launch, profile reset or subsequent qualification interaction occurred. This is an observed installer/environment preparation block; its cause and PM-03 attribution are unverified.
+
+The existing isolated profile is `C:\Users\WDAGUtilityAccount`; historical task DB path is `C:\Users\WDAGUtilityAccount\AppData\Roaming\com.startlan.zencanvas\zen-canvas.sqlite3`. No live DB was read or changed in this attempt. Guest Windows build, installed executable hash, new-candidate PID and new-candidate schema remain UNVERIFIED. Historical guest build/PIDs are not promoted to this candidate.
+
+Failure screenshot: `E:\CargoTarget\pm03-handoff-evidence-843693ea\owner-native\installer-metadata-blocked.png`; SHA-256 `789C2790E2694D55B0E8156FCCCDCE6F7D5D4C8A2F2A2E3F8814E468A32DAC7D`. Observation and stop recorded at approximately **2026-10-06 15:13 +08:00**.
+
+### Qualification rows
+
+| Row | Status | Evidence / boundary |
+| --- | --- | --- |
+| Candidate/package preflight | PASS | Independent SHA/tree, installer size/hash, build checkout and live exact-head CI verification above. |
+| Installer preparation | FAIL | Native Setup reported inconsistent/incomplete existing product metadata and stated installation was not changed; no root cause or route-regression attribution claimed. |
+| First standalone Spotlight → Automation → Intents | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | New candidate never launched; no activation or retry occurred. |
+| Received/readiness/navigation-applied/scoped-hide sequence | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | No fresh native handoff occurred; no new native log evidence. |
+| Standalone Spotlight → fixed Settings section | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | Not run. |
+| Rejection/stale safety | ACCEPTED DETERMINISTIC EVIDENCE | Existing remediated-candidate deterministic/hosted evidence only; no native rejection was manufactured or observed. |
+| Intents → explicit Advanced Policies → Intents | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | Not run on fresh candidate. |
+| Automation → background / same resident PID | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | Not run on fresh candidate. |
+| Real tray reopen / canonical restoration | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | Not run; no backend substitute or Owner tray action requested. |
+| Spotlight after Main recreation | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | Not run. |
+| LEGACY RULES NATIVE ROUTE | ACCEPTED DETERMINISTIC EVIDENCE | Existing frontend normalization and Rust serde evidence; no safe native alias invocation exercised. |
+| EXISTING INTENT/RULE READABILITY | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | Fresh profile counts were not obtained. Historical empty-profile counts are not new-candidate readability evidence; no executable fixtures created. |
+| Genuine new-candidate Quit and restart | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | Not run; preparation Quit of the superseded candidate does not qualify this row. |
+| Fresh before/after durable counts and DB/index growth | UNVERIFIED — TOOL/HOST CONTROL LIMITATION | No fresh live DB snapshots or new-candidate execution; cannot establish its counts/growth. |
+| Fixture integrity | PASS | Task fixture still consists of one 48-byte `pm03-sentinel.txt`, SHA-256 `BD56661516663E43D199822225725F5AC4AF39BD8BDFAD50FC75B169C2B65ED4`, matching the preserved manifest. No remediated-candidate automatic fixture mutation occurred because it never launched; complete running-candidate mutation-safety qualification remains unverified. |
+
+Global Index #323 remains separately tracked and untouched. The historical snapshot `route-stop-20261006/read-only-results.json` still reports permission_required, unreadable USN cursor, Schema 37 and zero required durable counts; this was read as historical evidence only, not a fresh running-candidate baseline. No new Global Index recovery or growth observation is claimed.
+
+Only this explicitly authorized append to the existing native evidence record and task-owned package/screenshot artifacts were written. No source/test change, build, test rerun, commit, push, Ready transition, merge or #273/#323 modification/closure occurred. Pre-existing `cargo-target/`, `npm-cache/` and `tmp/` are preserved. Owner review is required to resolve the isolated installer preparation block before any fresh-candidate qualification can proceed. No retry or repair was attempted.
+
+## Final fresh-Sandbox Owner requalification — 2026-10-07
+
+**PM-03 WINDOWS NATIVE OWNER REQUALIFICATION PASS**
+
+**HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS**.
+
+Owner's final closeout instruction accepts **native product behavior PASS + deterministic ordering evidence accepted**. The preceding route-transport blocker, failed candidate `10f638cf8f100f5aad182c670ee451749d898055` / tree `e120f83d252c93b205272208a62b2492c3b401a5`, standalone handoff remediation and dirty-Sandbox installation attempt remain historical evidence. The superseded installer hashes `E7A342E95356222BF9BC266CB1B6741060E7297C3E23EDAF06B4D85C1D5BF9F3` and `332DF1543C4286B72DAF61D596ACBD74749095B3E590505E65E47DBF35FFBD71` remain prohibited for Owner PASS.
+
+### Exact fresh candidate and isolation
+
+| Field | Accepted evidence |
+| --- | --- |
+| Production candidate SHA | `843693ea7e3612a662a5331daaedef557d40fee1` |
+| Production tree | `72b1c263650951be118a5f23e820d5dca8e4e621` |
+| Historical candidate exact-head CI | [37424135807](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37424135807) — SUCCESS; not final documentation-head CI |
+| Schema / package | 37 / 0.1.40 |
+| Installer | `Zen Canvas_0.1.40_x64-setup.exe`, 9,811,183 bytes |
+| Host and independent copied guest installer SHA-256 | `02C9ECE0B6799947D8828E7BB0D0B9F52F95166DF3030FC2C503F1688EAD21F9` |
+| Fresh guest | Windows 11 Enterprise 24H2 / 26100.9550, WDAGUtilityAccount |
+| Guest installed path | `C:\Program Files\Zen Canvas`; installed executable hash not separately captured |
+| Task evidence root | `E:\CargoTarget\pm03-fresh-owner-843693ea-20261007\evidence` |
+
+The previous dirty Sandbox was discarded completely, without cleaning it in place. Its setup error is finally classified **DIRTY SANDBOX INSTALL PRECONDITION — NOT A PM-03 PRODUCT FAILURE**, superseding the earlier unresolved installer-preparation classification. Historical screenshot/report and Global Index evidence were retained. The initial fresh-Sandbox provisioning failures on 2026-10-06 (`0x80370106`) are host preparation history, not product failures; their task evidence remains preserved.
+
+The new Sandbox naturally passed read-only ownership absence before installer copy/launch: no Zen Canvas process, install folder/uninstaller, uninstall/manufacturer product keys, ZenCanvasGlobalIndex service, production Preview Handler registration or pre-existing Zen Canvas profile database. No deletion made these checks pass. `ownership-preflight.json` records PASS_ABSENT. `guest-package-hash.json` records PASS_EXACT_PACKAGE before installer launch. Owner explicitly confirmed this fresh installation. Native setup completed successfully, app launched, and native Task Manager showed the installed Global Index service running as SYSTEM PID 7864. No incomplete/inconsistent metadata error appeared. Installer completion is the observed coherence evidence; a separate post-install registry dump was not collected.
+
+### Accepted native rows
+
+| Row | Accepted disposition / evidence filename under task evidence root |
+| --- | --- |
+| Exact fresh identity and ownership preflight | PASS — `ownership-preflight.json`, `guest-package-hash.json` |
+| Fresh native installation / launch | PASS — `install-complete.png`, `prior-main-overview.png`, `global-index-service-running.png` |
+| Real standalone Spotlight Automation command visible | PASS — `spotlight-automation-visible.png` |
+| Spotlight Main Overview → Automation → Intents; Advanced Policies not default; Search closes; no route/transport error | PASS — `spotlight-main-automation-immediate.png`, `first-handoff-intents.png`; historical false success did not recur |
+| Exact commit-before-hide ordering | ACCEPTED DETERMINISTIC ORDERING EVIDENCE — native transient trace not captured; see ordering classification below |
+| Standalone Spotlight fixed Settings command | PASS — `spotlight-fixed-theme-command.png`, `fixed-settings-general.png`; Theme command opens fixed General/Appearance target |
+| Normal Automation entry defaults to Intents | PASS — first handoff, normal Settings entry and `final-main-intents.png` |
+| Advanced Policies explicit / return to Intents | PASS — `advanced-policies-explicit.png`; explicit return succeeded; existing Rule UI empty totals 0/0/0 |
+| Normal Automation background resident lifecycle | PASS — `background-main-absent.png`; normal close dialog → minimize to background |
+| Same PID through real tray reopen | PASS — user PID 2252 before/background/after tray; `baseline-pids.png`, `background-same-pid-2252.png`, `post-tray-same-pid-2252.png` |
+| Actual Windows tray Show Main Window → Automation → Intents | PASS — `real-tray-show-main.png`, `tray-restored-automation-intents.png`; no backend substitute |
+| Post-tray standalone Spotlight Automation | PASS native behavior — `post-tray-spotlight-intents.png`; accepted deterministic ordering distinction remains |
+| Genuine Quit | PASS — `quit-pid-2252-exited.png`; user PID exits, independent SYSTEM service 7864 remains |
+| Restart / normal Automation defaults to Intents | PASS — `restart-normal-automation-intents.png`, `restart-pid-5472.png`; new user PID 5472 |
+| Business/navigation mutation counts / fixture integrity | PASS — `final-safety-comparison.json`; all required business records remain 0; fixture hash unchanged |
+| Legacy native `rules` invocation | ACCEPTED DETERMINISTIC EVIDENCE — not natively invoked, no QA hook |
+| Existing Intent / Rule readability | Empty profile native surfaces readable; 0 records in each; non-empty compatibility remains existing deterministic coverage |
+
+**ACCEPTED DETERMINISTIC ORDERING EVIDENCE** — **native product behavior PASS + deterministic ordering evidence accepted**. The real fresh-Sandbox Spotlight route changed Main Overview → Automation → Intents and the historical Search-close/Main-stays-Overview false success did not reproduce. Exact native transient ordering was not directly recorded; no native ACK trace was captured, and **NATIVE TRACE PASS is not claimed**. Owner accepted this distinction for final closeout; no additional native retry is required solely to capture the transient sequence.
+
+Production Main `src/hooks/useSearchNavigationHandoff.ts` sends positive navigation ACK only after `applySearchNavigation(...)` succeeds inside `flushSync`, committing mounted Main state. Shared Rust production orchestration in `src-tauri/src/app_control.rs` waits for the matching positive navigation ACK, revalidates the original Search session/revision, then executes original-session scoped Search hide (CAS repeated under the operation lock). The mounted regression `tests/standaloneSearchHandoff.test.tsx` proves Automation → Intents is committed while Search is still visible and Search closes only after the backend commit gate releases. The candidate's existing deterministic/hosted evidence is accepted for ordering; it is not relabelled native trace evidence.
+
+### Final safety truth
+
+Host read-only SQLite queries used URI `mode=ro` and `PRAGMA query_only=ON` on separate guest-Explorer copies of DB/WAL/SHM. Both copies have schema 37 and `quick_check=ok`. These are live filesystem copies, not atomic SQLite backup snapshots; no unobserved transient activity is inferred.
+
+| Durable record | Baseline | Final |
+| --- | ---: | ---: |
+| automation_intents | 0 | 0 |
+| automation_runs | 0 | 0 |
+| rules | 0 | 0 |
+| organization_plans | 0 | 0 |
+| organization_plan_items | 0 | 0 |
+| operation_batches | 0 | 0 |
+| operation_logs | 0 | 0 |
+| cleanup_trash_batches | 0 | 0 |
+| cleanup_trash_items | 0 | 0 |
+
+Qualification fixture contains exactly `pm03-sentinel.txt`, 48 bytes, unchanged SHA-256 `BD56661516663E43D199822225725F5AC4AF39BD8BDFAD50FC75B169C2B65ED4`.
+
+**Zen Canvas automatic qualification-fixture filesystem mutations observed = 0**.
+
+Internal SQLite / Global Index writes are separate and are not zero filesystem activity: `global_entries` 20,467 → 24,355 (+3,888); database bytes 38,453,248 → 45,477,888 (+7,024,640); WAL 13,740,232 → 13,740,232; SHM 32,768 → 32,768. Volume entry_count 18,861 → 18,936 and journal_cursor 36,609,312 → 38,053,560. No attribution of this internal growth to PM-03 navigation is claimed.
+
+### Independent issue #323 and final handoff
+
+**PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323**. Fresh qualification reproduced `permission_required` with `provider error: provider error: USN journal cursor is not continuous; a volume rebuild is required`; initial Overview also showed transient `database is locked`. Command-registry Spotlight and PM-03 route qualification remained independently functional. No rebuild/resume/service-state repair occurred; PM-03 did not fix #323.
+
+The external observation report `qualification-report.md` originally classified strict ordering as UNVERIFIED / INCOMPLETE; that contemporaneous report remains unchanged. Owner's subsequent closeout instruction explicitly accepts deterministic ordering and supersedes only that blocking disposition, not the missing-native-trace fact. Original report SHA-256: `C91D3EEC1090006AF549DB0E2F0885DBE6BED903DE700351C61686EA55174E05`. Screenshot and JSON hashes are retained in external `evidence-manifest.json`.
+
+Final native state was Main Automation Intents visible with user PID 5472, separate Global Index service PID 7864. No native retry was performed solely for transient timing evidence. PR #322 is ready for final Owner merge after fresh exact documentation-head CI; it is not merged. #273 remains open pending merge-after reconciliation; #323 remains open. No post-PM initiative or release publication is activated.

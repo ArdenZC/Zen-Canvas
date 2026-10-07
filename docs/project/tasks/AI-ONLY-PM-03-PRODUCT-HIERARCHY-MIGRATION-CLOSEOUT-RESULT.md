@@ -1,8 +1,12 @@
 # PM-03 — Product Hierarchy / Migration Closeout Result
 
-**Disposition:** **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION REQUIRED.** The standalone Search handoff source remediation is implemented on existing Draft PR #322. Exact-head hosted validation and fresh installer delivery are recorded in the final PR handoff; neither deterministic evidence nor packaging is Owner native PASS. PR #322 remains Draft/unmerged; #273 and separate Global Index #323 remain open.
+**Disposition:** **PM-03 IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE**. **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS**. Accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; Windows Owner requalification PASS with native product behavior PASS + deterministic ordering evidence accepted. No native ACK trace was captured. PR #322 is ready for final Owner merge subject to fresh final documentation-head CI; it is unmerged, has no auto-merge, and #273/#323 remain open.
 
-## Candidate identity
+## Historical implementation / remediation checkpoints
+
+Earlier dispositions below remain historical; the final Owner closeout section supersedes their pending/Draft conclusions. Failed gates, candidates and superseded package hashes are preserved.
+
+### Candidate identity
 
 - Repository: `ArdenZC/Zen-Canvas`.
 - Authorized implementation branch: `product/pm-03-product-hierarchy-migration-closeout`.
@@ -114,3 +118,23 @@ Validation and final delivery identity will be bound to the final exact HEAD in 
 | Hosted platform suites / native resident regression / fresh NSIS identity | Required at the final exact HEAD; run conclusions, skipped boundaries and package path/size/SHA-256 belong to the final PR #322 handoff. Pending/skipped jobs do not count as PASS. |
 
 Existing native failure evidence, superseded installers and separate Global Index #323 disposition remain preserved. The repaired binary requires fresh Windows Owner requalification; no such PASS has been performed by this remediation task.
+
+## Final Owner closeout — 2026-10-07
+
+**PM-03 WINDOWS NATIVE OWNER REQUALIFICATION PASS** — **HISTORICAL NATIVE FAIL → REMEDIATED → OWNER REQUALIFICATION PASS**.
+
+Accepted production candidate: `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; historical exact-candidate CI [37424135807](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37424135807) SUCCESS. Exact fresh Windows installer: 9,811,183 bytes, SHA-256 `02C9ECE0B6799947D8828E7BB0D0B9F52F95166DF3030FC2C503F1688EAD21F9`. Schema 37 / package 0.1.40 remain unchanged. The documentation successor does not rebuild or alter that production candidate.
+
+Final implementation truth: `automation` is the canonical product View; `rules` is compatibility input only. Ordinary Settings/Spotlight/restore entries open Intents; Advanced Policies is explicit. Native `SearchView::Automation` transports canonical `automation` and accepts inbound legacy `rules`. Standalone Search → Main requires navigation commit acknowledgement before original-session scoped Search close. Rule Repository V2 / Rule Proposal remain preserved. PM-02 Automation, Rule, semantic and filesystem execution authorities are unchanged.
+
+Fresh Sandbox naturally passed ownership absence before copied installer launch; exact guest hash was independently verified. Native install completed and the app/service launched. Spotlight changed Overview → Automation → Intents; fixed Settings target, explicit Advanced Policies/return, background residency, real tray reopen with same PID 2252, post-tray Spotlight, genuine Quit and restart with PID 5472 passed. See [final Windows native record](evidence/PM-03/windows-native-qualification.md) for rows, screenshot names, hashes and limitations.
+
+**ACCEPTED DETERMINISTIC ORDERING EVIDENCE** — **native product behavior PASS + deterministic ordering evidence accepted**. The real fresh-Sandbox Spotlight route changed Main Overview → Automation → Intents and the historical Search-close/Main-stays-Overview false success did not reproduce. Exact native transient ordering was not directly recorded; no native ACK trace was captured, and **NATIVE TRACE PASS is not claimed**. Owner accepted this distinction for final closeout; no additional native retry is required solely to capture the transient sequence.
+
+Production Main `src/hooks/useSearchNavigationHandoff.ts` sends positive navigation ACK only after `applySearchNavigation(...)` succeeds inside `flushSync`, committing mounted Main state. Shared Rust production orchestration in `src-tauri/src/app_control.rs` waits for the matching positive navigation ACK, revalidates the original Search session/revision, then executes original-session scoped Search hide (CAS repeated under the operation lock). The mounted regression `tests/standaloneSearchHandoff.test.tsx` proves Automation → Intents is committed while Search is still visible and Search closes only after the backend commit gate releases. The candidate's existing deterministic/hosted evidence is accepted for ordering; it is not relabelled native trace evidence.
+
+Safety: automation_intents, automation_runs, rules, organization_plans, organization_plan_items, operation_batches, operation_logs, cleanup_trash_batches and cleanup_trash_items each remain 0 → 0. `pm03-sentinel.txt` (48 bytes) remains unchanged at SHA-256 `BD56661516663E43D199822225725F5AC4AF39BD8BDFAD50FC75B169C2B65ED4`. **Zen Canvas automatic qualification-fixture filesystem mutations observed = 0**. Internal Global Index SQLite growth is separately recorded; this is not a claim of zero filesystem activity.
+
+**PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323** remains independently reproduced and open, without repair. Command-registry Spotlight and PM-03 route qualification remained functional. PM-03 does not absorb File Library/Vault compatibility retirement, legacy managed-AI queue cleanup, design-token debt, generic technical debt, Cleanup automation, autonomous filesystem mutation, Preference Memory, System One/Laya/Jev, release publication or Global Index #323.
+
+Current pre-merge state: **PM-03 IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE**. #273 remains open pending merge-after reconciliation. Final documentation HEAD/tree and fresh exact-head CI must be reported in the final PR handoff; historical CI 37424135807 is not final-head CI. Skipped jobs remain skipped. No merge, issue closure, auto-merge or post-PM activation is authorized.
