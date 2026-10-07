@@ -476,6 +476,11 @@ try {
         # Keep original background-client route/idle accounting independent.
         Clear-Content -LiteralPath $tracePath
         if (-not $script:evidence.recovery.pausedViaPipe -or -not $script:evidence.recovery.rebuildRequiredViaPipe -or $script:evidence.recovery.nextAdmittedRebuildCount -ne 1 -or $script:evidence.recovery.finalStatus -ne "ready") { throw "installed service recovery proof incomplete" }
+        # Retain only the bounded recovery evidence outside the disposable task root.
+        $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
+        New-Item -ItemType Directory -Path $retainedEvidenceDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $recoveryReport -Destination (Join-Path $retainedEvidenceDirectory "service-recovery.json")
+        Copy-Item -LiteralPath (Join-Path $taskRoot "recovery-trace.log") -Destination (Join-Path $retainedEvidenceDirectory "recovery-trace.log")
     } finally {
         if (-not $recoveryProcess.HasExited) { $recoveryProcess.Kill($true); $recoveryProcess.WaitForExit(5000) | Out-Null }
         $recoveryProcess.Dispose()

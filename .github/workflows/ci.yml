@@ -603,16 +603,30 @@ jobs:
         run: |
           $candidate = Join-Path $PWD "src-tauri/target/release/zen-canvas.exe"
           $probe = Join-Path $PWD "src-tauri/target/release/zb05-global-index-qa.exe"
-          $evidence = Join-Path $env:RUNNER_TEMP "zb05-global-index-service-evidence.json"
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP "zb05-global-index-service-evidence-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $evidence = Join-Path $evidenceRoot "zb05-global-index-service-evidence.json"
           & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe $candidate -ProbeExe $probe -EvidencePath $evidence
           if ($LASTEXITCODE -ne 0) { throw "Windows Global Index service qualification failed with exit code $LASTEXITCODE" }
+      - name: Require retained exact-service qualification evidence
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP "zb05-global-index-service-evidence-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          foreach ($name in @("zb05-global-index-service-evidence.json", "service-recovery.json", "recovery-trace.log")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $evidenceRoot $name) -PathType Leaf)) { throw "missing required qualification evidence: $name" }
+          }
+          if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log")) -cnotcontains "windows_recovery_rebuild_admitted") { throw "retained recovery trace lacks Background admission evidence" }
       - name: Upload exact-service qualification evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-global-index-service-qualification
-          path: ${{ runner.temp }}/zb05-global-index-service-evidence.json
-          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/zb05-global-index-service-evidence-${{ github.run_id }}-${{ github.run_attempt }}/zb05-global-index-service-evidence.json
+            ${{ runner.temp }}/zb05-global-index-service-evidence-${{ github.run_id }}-${{ github.run_attempt }}/service-recovery.json
+            ${{ runner.temp }}/zb05-global-index-service-evidence-${{ github.run_id }}-${{ github.run_attempt }}/recovery-trace.log
+          if-no-files-found: error
       - name: Stop disposable service and remove task profile
         if: ${{ always() }}
         shell: pwsh
