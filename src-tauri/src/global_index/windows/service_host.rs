@@ -11,9 +11,8 @@ use super::service::{
 use super::{volumes, DirectWindowsGlobalIndexProvider};
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use crate::global_index::models::{
-    GlobalEntry, GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_ERROR,
-    INDEX_STATUS_PAUSED, INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED,
-    PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
+    GlobalEntry, GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_PAUSED,
+    INDEX_STATUS_READY, PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
 };
 use std::path::Path;
 use std::ptr;
@@ -212,12 +211,16 @@ impl ServiceRuntime {
             );
         }
         let operation_result = (|| {
-            let _operation_guard = self
-                .operation_lock
-                .lock()
-                .map_err(|_| "index_service_operation_lock_poisoned".to_string())?;
+            let _operation_guard = self.operation_lock.lock().map_err(|_| {
+                (
+                    "index_failed",
+                    "index_service_operation_lock_poisoned".to_string(),
+                )
+            })?;
             let source_id = source_id(&command);
-            let source = self.validated_source(source_id, request.source.as_ref())?;
+            let source = self
+                .validated_source(source_id, request.source.as_ref())
+                .map_err(|message| ("index_failed", message))?;
             self.cancel.store(false, Ordering::Release);
             self.set_state("indexing", None);
             let mut sink = PipeSink {
@@ -243,17 +246,12 @@ impl ServiceRuntime {
                     Ok(())
                 }
                 Err(error) => {
-                    let status = if matches!(error, GlobalIndexError::Paused)
-                        || self.cancel.load(Ordering::Acquire)
-                    {
-                        INDEX_STATUS_PAUSED
-                    } else if source.volume.index_status == INDEX_STATUS_REBUILD_REQUIRED {
-                        INDEX_STATUS_REBUILD_REQUIRED
-                    } else {
-                        INDEX_STATUS_ERROR
-                    };
-                    self.set_state(status, Some(error.to_string()));
-                    Err(error.to_string())
+                    let (code, status) = super::service_errors::classify(&error);
+                    self.set_state(
+                        status,
+                        (!matches!(error, GlobalIndexError::Paused)).then(|| error.to_string()),
+                    );
+                    Err((code, error.to_string()))
                 }
             }
         })();
@@ -266,7 +264,7 @@ impl ServiceRuntime {
                 None,
                 Some(self.status()),
             )),
-            Err(error) => self.send_error(&request, connection, "index_failed", error),
+            Err((code, message)) => self.send_error(&request, connection, code, message),
         }
     }
 

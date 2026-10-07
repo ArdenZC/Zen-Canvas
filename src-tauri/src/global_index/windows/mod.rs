@@ -1,6 +1,9 @@
 pub mod fallback;
 pub mod mft;
+#[cfg(feature = "native-qa")]
+pub mod recovery_qa;
 pub mod service;
+mod service_errors;
 pub mod service_host;
 pub mod usn;
 pub mod volumes;
@@ -82,36 +85,8 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
             return Ok(());
         }
         sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_MFT_USN)?;
-        let result = match usn::sync_volume(source, sink, cancel) {
-            Ok(result) => result,
-            Err(GlobalIndexError::Paused) => return Err(GlobalIndexError::Paused),
-            Err(error) if error.to_string().contains("rebuild required") => return Err(error),
-            Err(error) => {
-                let message = error.to_string();
-                sink.set_source_state(
-                    &source.volume.id,
-                    INDEX_STATUS_PERMISSION_REQUIRED,
-                    Some(&message),
-                )?;
-                return Err(error);
-            }
-        };
-        if result.directory_path_changed {
-            // A directory rename changes every descendant path. USN gives us
-            // the durable signal. Queue an admitted MFT rebuild on the next
-            // coordinator cycle instead of scanning inside this incremental
-            // drain.
-            sink.mark_volume_entries_stale(&source.volume.id)?;
-            sink.set_source_state(
-                &source.volume.id,
-                INDEX_STATUS_REBUILD_REQUIRED,
-                Some("USN directory rename requires an MFT reconciliation"),
-            )?;
-            return Err(GlobalIndexError::Provider(
-                "USN directory rename requires an MFT reconciliation".to_string(),
-            ));
-        }
-        Ok(())
+        let result = usn::sync_volume(source, sink, cancel);
+        finish_incremental_result(&source.volume.id, sink, result)
     }
 
     fn pause(&self) -> Result<(), GlobalIndexError> {
@@ -124,6 +99,34 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
 
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         Ok(())
+    }
+}
+
+fn finish_incremental_result(
+    volume_id: &str,
+    sink: &mut dyn GlobalIndexSink,
+    result: Result<usn::UsnSyncResult, GlobalIndexError>,
+) -> Result<(), GlobalIndexError> {
+    match result {
+        Ok(result) if result.directory_path_changed => {
+            sink.mark_volume_entries_stale(volume_id)?;
+            usn::require_rebuild(
+                volume_id,
+                sink,
+                "USN directory rename requires an MFT reconciliation",
+            )
+        }
+        Ok(_) => Ok(()),
+        Err(GlobalIndexError::Paused) => Err(GlobalIndexError::Paused),
+        Err(error @ GlobalIndexError::RebuildRequired(_)) => Err(error),
+        Err(error) => {
+            sink.set_source_state(
+                volume_id,
+                INDEX_STATUS_PERMISSION_REQUIRED,
+                Some(&error.to_string()),
+            )?;
+            Err(error)
+        }
     }
 }
 
@@ -317,13 +320,7 @@ impl WindowsGlobalIndexProvider {
     }
 
     fn service_response_error(response: &IndexServiceResponse) -> GlobalIndexError {
-        GlobalIndexError::Provider(
-            response
-                .message
-                .clone()
-                .or_else(|| response.error_code.clone())
-                .unwrap_or_else(|| "Windows index service request failed".to_string()),
-        )
+        service_errors::decode(response)
     }
 
     fn source_request(
@@ -624,6 +621,7 @@ mod tests {
 
     #[derive(Default)]
     struct SourceStateSink {
+        database: Option<crate::db::Database>,
         status: Option<String>,
         error: Option<String>,
     }
@@ -652,6 +650,9 @@ mod tests {
             status: &str,
             error: Option<&str>,
         ) -> Result<(), GlobalIndexError> {
+            if let Some(db) = &self.database {
+                db.update_global_volume_state(_volume_id, status, error, None, None, None, None)?;
+            }
             self.status = Some(status.to_string());
             self.error = error.map(str::to_string);
             Ok(())
@@ -691,7 +692,7 @@ mod tests {
     #[test]
     fn empty_initial_mft_baseline_marks_direct_provider_rebuild_required() {
         let mut sink = SourceStateSink::default();
-        let error = GlobalIndexError::Provider(
+        let error = GlobalIndexError::RebuildRequired(
             "windows_mft_baseline_empty: staged_records=0 resolved_entries=0 emitted_entries=0 checkpoint_usn=0"
                 .to_string(),
         );
@@ -700,10 +701,9 @@ mod tests {
 
         assert!(returned.is_err());
         assert_eq!(sink.status.as_deref(), Some(INDEX_STATUS_REBUILD_REQUIRED));
-        assert!(sink
-            .error
-            .as_deref()
-            .is_some_and(|error| error.starts_with("provider error: windows_mft_baseline_empty:")));
+        assert!(sink.error.as_deref().is_some_and(
+            |error| error.starts_with("rebuild required: windows_mft_baseline_empty:")
+        ));
     }
 
     #[test]
@@ -821,4 +821,5 @@ mod tests {
         );
         assert_eq!(request.source, Some(source.volume));
     }
+    include!("recovery_tests.rs");
 }

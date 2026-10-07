@@ -34,6 +34,7 @@ if (-not $CandidateExe.StartsWith([IO.Path]::GetFullPath($PWD.Path), [StringComp
 }
 
 $script:evidence = [ordered]@{
+    recovery = $null
     sourceHead = $null
     sourceTree = (& git rev-parse 'HEAD^{tree}').Trim()
     profileRoot = $profileRoot
@@ -460,6 +461,24 @@ try {
     $script:evidence.serviceCurrentExe = $serviceCurrentExe
     if (-not $serviceCurrentExe.Equals($CandidateExe, [StringComparison]::OrdinalIgnoreCase)) {
         throw "service current_exe mismatch: candidate=$CandidateExe service=$serviceCurrentExe"
+    }
+
+    # Same installed executable / actual v3 service pipe; no force-direct test.
+    $recoveryReport = Join-Path $taskRoot "service-recovery.json"
+    $recoveryProcess = Start-Process -FilePath $CandidateExe -ArgumentList @("--global-index-recovery-qa", $profileRoot, $script:evidence.expectedQualificationSourceId, $recoveryReport) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $taskRoot "recovery-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "recovery-stdout.log")
+    try {
+        if (-not $recoveryProcess.WaitForExit(180000)) { throw "installed service recovery regression timed out" }
+        if ($recoveryProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $recoveryReport)) { throw "installed service recovery regression failed: $(Get-Content -LiteralPath (Join-Path $taskRoot 'recovery-stderr.log') -Raw)" }
+        $script:evidence.recovery = Get-Content -LiteralPath $recoveryReport -Raw | ConvertFrom-Json
+        $recoveryTrace = @(Get-Content -LiteralPath $tracePath)
+        if ($recoveryTrace -cnotcontains "windows_recovery_rebuild_admitted") { throw "recovery did not pass the existing Background admission gate" }
+        Copy-Item -LiteralPath $tracePath -Destination (Join-Path $taskRoot "recovery-trace.log")
+        # Keep original background-client route/idle accounting independent.
+        Clear-Content -LiteralPath $tracePath
+        if (-not $script:evidence.recovery.pausedViaPipe -or -not $script:evidence.recovery.rebuildRequiredViaPipe -or $script:evidence.recovery.nextAdmittedRebuildCount -ne 1 -or $script:evidence.recovery.finalStatus -ne "ready") { throw "installed service recovery proof incomplete" }
+    } finally {
+        if (-not $recoveryProcess.HasExited) { $recoveryProcess.Kill($true); $recoveryProcess.WaitForExit(5000) | Out-Null }
+        $recoveryProcess.Dispose()
     }
 
     $client = Start-Process -FilePath $CandidateExe -ArgumentList @("--background") -WorkingDirectory (Get-Location).Path -WindowStyle Hidden -RedirectStandardError (Join-Path $taskRoot "resident-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "resident-stdout.log") -PassThru

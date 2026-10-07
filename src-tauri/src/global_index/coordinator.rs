@@ -21,6 +21,10 @@ pub enum GlobalIndexError {
     Database(#[from] DbError),
     #[error("provider error: {0}")]
     Provider(String),
+    #[error("rebuild required: {0}")]
+    RebuildRequired(String),
+    #[error("Windows I/O failed (Win32 error {0})")]
+    WindowsIo(u32),
     #[error("indexing paused")]
     Paused,
 }
@@ -424,6 +428,20 @@ fn run_index(
     Ok(())
 }
 
+#[cfg(all(windows, feature = "native-qa"))]
+pub(crate) fn run_service_recovery_qa_cycle(
+    provider: &dyn GlobalIndexProvider,
+    db: &Database,
+) -> Result<(), GlobalIndexError> {
+    run_index_cycle(
+        provider,
+        db,
+        &Arc::new(AtomicBool::new(false)),
+        &GlobalIndexWakeSlot::default(),
+    )
+    .map(|_| ())
+}
+
 type SourceTopologySignature = Vec<(String, String, String, String, String, String, bool)>;
 
 fn run_index_cycle(
@@ -583,7 +601,7 @@ fn run_index_cycle(
                     preserved_error,
                     None,
                     None,
-                    if volume.last_full_index_at.is_some() && !source_reappeared {
+                    if volume.last_full_index_at.is_some() && !source_reappeared && !is_rebuild {
                         None
                     } else {
                         Some(now)
@@ -591,7 +609,7 @@ fn run_index_cycle(
                     Some(now),
                 )?;
             }
-            Err(GlobalIndexError::Paused) if cancel.load(Ordering::Acquire) => {
+            Err(GlobalIndexError::Paused) => {
                 db.update_global_volume_state(
                     &volume.id,
                     INDEX_STATUS_PAUSED,
@@ -602,6 +620,20 @@ fn run_index_cycle(
                     None,
                 )?;
                 break;
+            }
+            Err(GlobalIndexError::RebuildRequired(message)) => {
+                db.update_global_volume_state(
+                    &volume.id,
+                    INDEX_STATUS_REBUILD_REQUIRED,
+                    Some(&message),
+                    None,
+                    None,
+                    None,
+                    None,
+                )?;
+                if !is_rebuild {
+                    wake.notify(GlobalIndexWakeReason::RecoveryRequired);
+                }
             }
             Err(error) => {
                 let current_status = db
@@ -676,6 +708,9 @@ fn run_with_background_admission(
                 GlobalIndexError::Provider(format!("background admission failed: {error}"))
             }
         })?;
+    if rebuild {
+        super::qa_trace::record("windows_recovery_rebuild_admitted");
+    }
     let _qos = scope_thread_qos(WorkClass::Background);
     run_provider_operation(provider, source, sink, cancel, initial, rebuild)
 }
@@ -1819,4 +1854,5 @@ mod tests {
         drop(db);
         drop(path);
     }
+    include!("coordinator_recovery_tests.rs");
 }
