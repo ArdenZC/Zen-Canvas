@@ -89,7 +89,7 @@ Final authority:
 
 ### Windows Global Index Recovery Remediation
 
-Status: **ACTIVATION UNDER OWNER REVIEW / IMPLEMENTATION NOT ACTIVE — issue #323.**
+Status: **ACTIVATION PR #325 UNDER OWNER REVIEW / IMPLEMENTATION NOT ACTIVE — issue #323.**
 
 Authority: [initiative](initiatives/windows-global-index-recovery.md) and [activation taskbook](tasks/WINDOWS-GLOBAL-INDEX-RECOVERY-323-ACTIVATION.md). Baseline `master@cfdde76db2e339f1572e889fa586170361e2d796` / tree `d9dbf3f65ccacf4ab0201fab59ed36eb7825b53b`; merge-after CI 37563539120 SUCCESS.
 
