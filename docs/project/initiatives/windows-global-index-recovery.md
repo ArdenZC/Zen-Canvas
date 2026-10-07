@@ -1,6 +1,6 @@
 # Windows Global Index Recovery Remediation
 
-Status: **ACTIVATION UNDER OWNER REVIEW / IMPLEMENTATION NOT ACTIVE**
+Status: **ACTIVATION PR #325 UNDER OWNER REVIEW / IMPLEMENTATION NOT ACTIVE**
 
 Issue: [#323 — Windows Global Index recovery loses paused/rebuild state across service transport](https://github.com/ArdenZC/Zen-Canvas/issues/323)
 
