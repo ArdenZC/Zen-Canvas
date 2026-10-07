@@ -1,6 +1,6 @@
 # Windows Global Index Recovery Remediation
 
-Status: **ACTIVATION PR #325 UNDER OWNER REVIEW / IMPLEMENTATION NOT ACTIVE**
+Status: **ACTIVATED / IMPLEMENTATION ACTIVE — PR #325 MERGED / MERGE-AFTER CI SUCCESS**
 
 Issue: [#323 — Windows Global Index recovery loses paused/rebuild state across service transport](https://github.com/ArdenZC/Zen-Canvas/issues/323)
 
@@ -60,4 +60,4 @@ This initiative does not activate:
 - Cleanup automation;
 - autonomous filesystem mutation.
 
-Implementation begins only after the activation is merged.
+Activation PR #325 is merged as `master@dbf05d3c503a1b79695186b9a8376143b8748305` / tree `1e9914c5c2d5567d6413cd35ee720b877469a405`; merge-after CI 37569675862 is **SUCCESS**. Implementation is ACTIVE and must start from the post-activation reconciliation master.

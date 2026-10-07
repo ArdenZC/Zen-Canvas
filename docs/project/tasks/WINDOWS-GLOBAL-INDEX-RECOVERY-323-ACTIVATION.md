@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-07
 
-Status: **OWNER REVIEW PENDING ON PR #325 — MERGE ACTIVATES #323 IMPLEMENTATION ONLY**
+Status: **OWNER REVIEW PASSED / ACTIVATED — PR #325 MERGED; #323 IMPLEMENTATION ACTIVE**
 
 Issue: [#323 — Windows Global Index recovery loses paused/rebuild state across service transport](https://github.com/ArdenZC/Zen-Canvas/issues/323)
 
@@ -572,6 +572,6 @@ Merge of this activation authorizes only:
 
 **Windows Global Index Recovery Remediation — issue #323**
 
-Until activation merges:
+Activation closeout: PR #325 squash-merged as `master@dbf05d3c503a1b79695186b9a8376143b8748305` / tree `1e9914c5c2d5567d6413cd35ee720b877469a405`; merge-after CI 37569675862 is **SUCCESS**.
 
-**#323 implementation remains NOT ACTIVE.**
+**#323 implementation is ACTIVE.**
