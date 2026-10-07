@@ -1,6 +1,6 @@
 # AI-only Product Migration
 
-Status: **ACTIVE INITIATIVE — PM-01, PM-02A and PM-02B COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE; #273 OPEN PENDING MERGE-AFTER RECONCILIATION**
+Status: **ACTIVE INITIATIVE / IMPLEMENTATION CLOSEOUT — PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED; PM-03 merge-after master CI 37561509211 SUCCESS; #273 OPEN PENDING FINAL OWNER CLOSURE**
 
 Issue: [#273 — AI-only Product Migration](https://github.com/ArdenZC/Zen-Canvas/issues/273)
 
@@ -153,7 +153,7 @@ Generic technical-debt retirement, File Library/Vault compatibility retirement, 
 
 ## Historical PM-03 implementation and Owner-requested remediation
 
-Implementation branch `product/pm-03-product-hierarchy-migration-closeout` started from the exact authorized baseline above. [Draft PR #322](https://github.com/ArdenZC/Zen-Canvas/pull/322) remains unmerged and does not close issue #273. The frontend candidate makes `automation` canonical, normalizes historical `rules` at URL/cross-window input, defaults ordinary entries to Intents and keeps Rule Repository V2 behind explicit Advanced Policies.
+Implementation branch `product/pm-03-product-hierarchy-migration-closeout` started from the exact authorized baseline above. [PR #322](https://github.com/ArdenZC/Zen-Canvas/pull/322) is **COMPLETE / MERGED** as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; merge-after master CI 37561509211 is **SUCCESS**. Issue #273 remains open only for final initiative closure after this reconciliation. The frontend candidate makes `automation` canonical, normalizes historical `rules` at URL/cross-window input, defaults ordinary entries to Intents and keeps Rule Repository V2 behind explicit Advanced Policies.
 
 Owner review marked candidate `47ef02922d58329e035eaf8391feaaa4d9523cbf` **CHANGES REQUESTED** before Windows qualification: Rust `SearchView` still used `Rules`, failed to deserialize canonical `automation`, and emitted `view=rules` on resident Main restoration. Owner authorized only the native transport correction: canonical `SearchView::Automation`, inbound serde alias `rules`, and canonical restore query. No semantic, Automation runtime, Rule, filesystem or permission authority changes are authorized. The earlier installer SHA-256 `E7A342E95356222BF9BC266CB1B6741060E7297C3E23EDAF06B4D85C1D5BF9F3` is superseded and must not be used for Owner qualification.
 
@@ -162,10 +162,10 @@ The browser-mock integration evidence is recorded in [PM-03 browser evidence](..
 
 ## PM-03 final Owner closeout — 2026-10-07
 
-**PM-03 IMPLEMENTATION COMPLETE / OWNER REVIEW PASSED / PR #322 READY FOR FINAL MERGE**. Accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; Schema 37 / package 0.1.40. Fresh Windows Sandbox requalification is **PASS**, using **native product behavior PASS + deterministic ordering evidence accepted**; exact native transient ordering / ACK trace was not recorded. See [result](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) and [native record](../tasks/evidence/PM-03/windows-native-qualification.md) for preserved transport/handoff failures, remediations, dirty-Sandbox precondition and successful fresh install/native rows.
+**PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED / MERGE-AFTER MASTER CI SUCCESS**. Accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`; Schema 37 / package 0.1.40. Fresh Windows Sandbox requalification is **PASS**, using **native product behavior PASS + deterministic ordering evidence accepted**; exact native transient ordering / ACK trace was not recorded. See [result](../tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) and [native record](../tasks/evidence/PM-03/windows-native-qualification.md) for preserved transport/handoff failures, remediations, dirty-Sandbox precondition and successful fresh install/native rows.
 
 Canonical `automation`, inbound-only `rules`, ordinary Intents default, explicit Advanced Policies and unchanged Rule Repository V2 / Rule Proposal are implemented. Standalone Search → Main closes only through the navigation commit ACK / original-session scoped-hide gate. No PM-02 Automation, Rule, semantic or filesystem execution authority changed.
 
-PR #322 remains unmerged pending fresh final documentation-head CI and final Owner merge; historical production-candidate CI 37424135807 is not final-head CI. #273 remains open pending merge-after reconciliation. **PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323** remains independently tracked, not fixed or closed; command-registry Spotlight and PM-03 routes remained usable despite index degradation.
+PR #322 squash-merged as `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; merge-after master CI [37561509211](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37561509211) is **SUCCESS**. Historical production-candidate CI 37424135807 remains candidate evidence only. #273 is eligible for final Owner closure after this reconciliation. **PRE-EXISTING GLOBAL INDEX RECOVERY DEFECT — ISSUE #323** remains independently tracked, not fixed or closed; command-registry Spotlight and PM-03 routes remained usable despite index degradation.
 
 PM-03 does not absorb File Library/Vault compatibility retirement, legacy managed-AI queue cleanup, design-token debt, generic technical debt, Cleanup automation, autonomous filesystem mutation, Preference Memory, System One/Laya/Jev, release publication or #323. No post-PM initiative is activated.
