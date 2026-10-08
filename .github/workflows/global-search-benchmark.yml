@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 180
     env:
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
-      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: .ci-evidence/global-search-baseline.jsonl
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ci-evidence/global-search-baseline.jsonl
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
@@ -65,6 +65,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: global-search-baseline-${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES }}-rows-${{ github.run_id }}
-          path: .ci-evidence/global-search-baseline.jsonl
+          path: ci-evidence/global-search-baseline.jsonl
           if-no-files-found: warn
           retention-days: 30

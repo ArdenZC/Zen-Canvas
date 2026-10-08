@@ -1,6 +1,6 @@
 # Global Search 合成基准与回归证据基线
 
-状态：**Windows Hosted Runner 结果待完成；未据此授权生产搜索优化。**
+状态：**100k Windows 合成基准已测出 FTS 子串查询严重超出 100ms p95 门槛；500k/1m 未运行。未修改生产搜索代码。**
 
 Issue：[#342 Global Search benchmark and regression evidence baseline](https://github.com/ArdenZC/Zen-Canvas/issues/342)
 
@@ -78,7 +78,7 @@ PR 会在 Windows Hosted Runner 执行 100k；`workflow_dispatch` 可选 100k/50
 
 ```powershell
 $env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES = "500000"
-$env:ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT = ".ci-evidence/global-search-baseline.jsonl"
+$env:ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT = "ci-evidence/global-search-baseline.jsonl"
 cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::tests::global_search_benchmark::global_search_synthetic_benchmark_baseline -- --ignored --exact --nocapture --test-threads=1
 ```
 
@@ -86,17 +86,34 @@ cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib
 
 ## 6. 基准结果
 
-**Windows Hosted Runner 的测量结果待修复后的当前提交实际运行后填写。** 不把 Linux Cloud 或合成路径结果表述成 NTFS/APFS 性能。
+Windows Server 2025 Hosted Runner，x86_64；合成 Windows 形态路径，仅覆盖 SQLite Global Index 查询。来源 SHA `ff48085ad02e7049a9438d3026d49295a0c746a5`，run [37814520555](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37814520555)。测试步骤总耗时 4,889.11 秒后以 p95 回归断言失败，故 100k 是**部分查询矩阵结果**，不是整个测试通过。
 
-| 行数 | Windows Hosted 来源 SHA / Run | fixture 生成 ms | SQLite 写入 ms | DB 主库 + WAL bytes | 查询 p50/p95/p99 | 正确性 |
-| ---: | --- | ---: | ---: | ---: | --- | --- |
-| 100,000 | 待运行 | — | — | — | — | 待运行 |
-| 500,000 | 待运行 | — | — | — | — | 待运行 |
-| 1,000,000 | 待运行 | — | — | — | — | 待运行 |
+| 行数 | fixture 生成 ms | SQLite 写入 ms | DB 主库 + WAL bytes | 正确性 / 状态 |
+| ---: | ---: | ---: | ---: | --- |
+| 100,000 | 233.177 | 130,804.155 | 151,283,288 | 12/12 count oracle 命中；候选窗分页正确；FTS p95 门槛失败 |
+| 500,000 | — | — | — | 未运行：100k FTS 查询已触发严重 p95 超限，先定位热点 |
+| 1,000,000 | — | — | — | 未运行：不对当前实测外推 |
 
-首次 100k Hosted 尝试（run `37812750902`，source SHA `f61179285ffbc7fcb616c2c9dbe4242f2ff19124`）在测试编译阶段失败，尚未执行 fixture 或查询：benchmark 的独立 SQLite count oracle 引用了生产模块私有的 `escape_glob`，触发 Rust E0425；因此没有 JSONL artifact 或性能数据。当前修正只在 benchmark 测试模块内添加本地 GLOB escape helper，没有改变生产代码。该尝试不计入性能结果，修复后的提交必须重新跑完整要求规模。
+### 100k 查询分位数
 
-各查询类逐项分位、SQL 计划和原始样本以 PR 附件 JSONL 为准；报告在读取精确 source SHA 的 hosted artifacts 后更新。跑不到的规模会保留为未测，不插值或外推。
+单位为 ms。`warm` 经 `Database::search_global_entries` 并包含池 checkout；`reopen` 每次打开 SQLite connection，但打开 connection 的耗时不计入查询计时。当前失败前只完成前四种查询：
+
+| 查询类 | 预期总命中 | warm p50 / p95 / p99 | reopened p50 / p95 / p99 |
+| --- | ---: | ---: | ---: |
+| 精确文件名 | 1 | 0.782 / 0.848 / 0.901 | 1.121 / 1.228 / 1.323 |
+| 常见名称前缀 | 5,000 | 43.297 / 44.804 / 47.291 | 34.395 / 35.317 / 37.733 |
+| 高扇出前缀 `IMG_` | 4,999 | 43.999 / 46.067 / 48.405 | 35.422 / 36.775 / 37.432 |
+| FTS 子串 `report` | 5,000 | 30,323.674 / **31,213.728** / 40,973.640 | 30,013.657 / **30,475.092** / 35,320.060 |
+
+12 个独立 count oracle 全部与 fixture 匹配，FTS trigger 中 `report` 行数为 5,000，volume count 为 100,000；`IMG_` 候选窗的前两页、offset 4090 和 offset 4096 边界断言通过。已完成的四个 query result ID 和顺序均与预期一致。测试在 `fts_substring_report` 的 warmed p95 超出 100 ms 后停止，因此 `invoice` 及其后的查询没有性能分位数。Windows run 最终失败的明确原因是 `31,213.728ms > 100ms`。
+
+FTS 镜像查询计划为：先经 `idx_global_volumes_enabled` 找 volume，再经 `idx_global_entries_volume(volume_id, is_stale)` 扫描该 volume 的条目，随后执行 FTS 虚拟表扫描、相关 managed 子查询及临时排序。计划来源是与 `search.rs::candidate_sql` 同形的 `EXPLAIN` 镜像 SQL，并非运行时私有语句的自动捕获；结合报告查询约 30 秒 p50，它是最优先复核的候选原因，仍需下一阶段对 join 顺序及虚拟表访问做专门验证。本任务没有改生产 SQL。
+
+首次 100k Hosted 尝试（run `37812750902`，source SHA `f61179285ffbc7fcb616c2c9dbe4242f2ff19124`）在测试编译阶段失败，尚未执行 fixture：benchmark count oracle 引用了生产模块私有的 `escape_glob`，触发 E0425。修正是在测试模块添加本地 GLOB escape helper。
+
+100k run `37814520555` 的 Rust cache 记录为完整 key hit，并恢复 710,998,689 bytes（约 678 MiB）；Cargo registry 与 `src-tauri/target` 均被复用。该 run 的 JSONL 已由测试打印到 GitHub Actions job log，但未生成可下载 artifact：输出路径当时是隐藏目录 `.ci-evidence`，而 `upload-artifact` 默认忽略隐藏文件。当前工作流已改为上传非隐藏路径 `ci-evidence/global-search-baseline.jsonl`。报告中的 100k 数字来自该精确 SHA 的 job log，而不是伪称已下载的 artifact。
+
+由于 100k FTS 查询耗时远超预算，继续执行其余 8 类查询会显著增加 Hosted runner 时间；500k/1m 未运行。没有插值、线性外推，也没有把合成 SQLite 结果解释为 NTFS/APFS 搜索性能。
 
 ### Cloud Linux 尝试
 
@@ -106,7 +123,7 @@ Cloud 中已按仓库 `rust-toolchain.toml` 安装 Rust 1.97.1；Rust/Cargo regi
 
 | 能力 | 状态 | 证据边界 |
 | --- | --- | --- |
-| SQLite Global Search 查询代码 | Windows Hosted Runner 待验证 | synthetic SQLite fixture；不含 native filesystem enumeration |
+| SQLite Global Search 查询代码 | **部分已验证** | 100k synthetic SQLite fixture；测试在 FTS p95 门槛失败后停止，只有前四类完整分位数 |
 | Windows NTFS/MFT/USN 初次或增量发现 | **NOT VERIFIED** | 合成数据库不会触发 MFT/USN 或访问 NTFS 文件 |
 | macOS APFS/FSEvents、隐私权限和预览 | **NOT VERIFIED** | 本任务不提供 macOS native runner 证据 |
 | 冷盘读取 | **NOT VERIFIED** | reopen 模式不清 OS page cache |
@@ -116,6 +133,6 @@ Windows Hosted Runner 可以证明代码在该 runner 上对合成 SQLite fixtur
 
 ## 8. 结果解释与后续决策
 
-本 Issue 的职责是先建立可复现基线。**在 100k/500k/1m 精确结果与查询计划到齐前，不声称已有实测瓶颈，也不据此开启 SoA、SIMD、查询缓存或搜索算法改造。** 若某查询类在暖查询中逼近/超过历史 100 ms p95，或数据库在扩展规模出现显著写入/存储代价，下一任务应先复核该查询 SQL/计划和结果分布，并只针对实测热点拆出一个独立任务。仅有总体平均值变好不构成更换搜索架构的证据。
+本次已获得一个明确的 100k 合成热点：FTS `report` 子串搜索 warm p95 为 31.2 秒，name prefix warm p95 为 44.8 ms。下一项最小风险代码任务应单独核查 `search_fts` 的 SQLite join order，并对比 `EXPLAIN QUERY PLAN` 中 volume-first 与 FTS-first 计划；保持结果排序、去重、候选窗和 AI 边界不变，再用本基准验证。这个结论只涉及当前合成 SQLite 查询，不代表真实文件发现速度。
 
-本次预计唯一新回归权威是该 ignored 合成 benchmark 与随 run 保存的 JSONL artifact；不会新增生产指标或用户设置。Owner 实机验收若以后需要，应单独指定真实 NTFS/APFS fixture、机器规格、权限状态和 cold/warm 规程；本报告不替代该验收。
+不建议根据这次数据直接重构 SoA 或引入 SIMD：主要异常出在 FTS SQL 查询计划，而非字符串扫描的已证瓶颈。该 ignored 合成 benchmark 与 JSONL artifact 是本任务唯一新增的搜索性能证据路径；不会新增生产指标或用户设置。Windows NTFS/MFT/USN、macOS APFS/FSEvents、权限覆盖率、冷盘读取及真实文件系统增量恢复仍需 Owner 实机验收，且不由本报告代替。
