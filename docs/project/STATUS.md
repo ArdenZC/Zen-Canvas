@@ -32,9 +32,9 @@ Last verified: 2026-10-08
 
 **Post-#323 Historical Audit Residual & Technical Debt Reconciliation — Owner Gate**
 
-Status: **ACTIVE — OWNER GOVERNANCE / READ-ONLY RECONCILIATION; NO PRODUCTION IMPLEMENTATION AUTHORIZED.**
+Status: **ACTIVE — SPECIFICATION ONLY / OWNER GOVERNANCE; NO PRODUCTION IMPLEMENTATION AUTHORIZED.**
 
-Authority: [issue #330](https://github.com/ArdenZC/Zen-Canvas/issues/330) and [Owner matrix](tasks/POST-323-AUDIT-RESIDUAL-TECH-DEBT-RECONCILIATION-RESULT.md). Baseline is `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after CI 37722150775 SUCCESS.
+Authority: [initiative](initiatives/post-323-audit-residual-technical-debt-reconciliation.md), [issue #330](https://github.com/ArdenZC/Zen-Canvas/issues/330) and [Owner matrix](tasks/POST-323-AUDIT-RESIDUAL-TECH-DEBT-RECONCILIATION-RESULT.md). Baseline is `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after CI 37722150775 SUCCESS.
 
 This gate reconciles open product defects #328/#329, retained W6 residuals, current TECH_DEBT exit conditions, #270/#283, release-only evidence gaps and current documentation drift before the Post-AI-only Product / Architecture Rebaseline. It does not authorize an omnibus refactor, new Files features, AI Eligibility implementation, System One/Preference production, or release publication.
 
