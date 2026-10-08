@@ -1036,7 +1036,7 @@ mod settings_save_tests {
             .expect("borrow pooled connection")
             .query_row(
                 "SELECT COUNT(*) FROM scan_roots WHERE normalized_path = ?1",
-                [root_path.to_string_lossy().as_ref()],
+                [root_path.to_string_lossy().replace('\\', "/")],
                 |row| row.get(0),
             )
             .expect("verify failed root sync rolled back its inserted root");
