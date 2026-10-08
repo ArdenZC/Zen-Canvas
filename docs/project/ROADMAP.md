@@ -101,8 +101,8 @@ Current minimum sequence:
 2. #329 clean-install Onboarding scan-scope persistence — **FIX BEFORE REBASELINE**.
 3. #328 transient SQLite lock/unavailable — **FIX BEFORE REBASELINE**.
 4. Reconcile historical Global Index zero-source residual against #328 evidence.
-5. Freeze File Authority / compatibility retirement ADR for TD-001 + TD-015 before new File Workspace implementation.
-6. Freeze Managed AI Eligibility / queue authority ADR for TD-006 before AI Eligibility implementation.
+5. Freeze [ADR-0012 / #332](DECISIONS/0012-files-authority-and-compatibility-retirement.md) for TD-001 + TD-015 before new File Workspace implementation.
+6. Freeze [ADR-0013 / #333](DECISIONS/0013-managed-ai-eligibility-and-queue-authority.md) for TD-006 before AI Eligibility implementation.
 7. Activate Post-AI-only Product / Architecture Rebaseline only after the minimum blockers close.
 
 #270 remains a separate macOS compatibility blocker for supported macOS resident/release claims. #283 research remains PAUSED at `INCONCLUSIVE_LOW_DELTA`. Release publication remains deferred.
