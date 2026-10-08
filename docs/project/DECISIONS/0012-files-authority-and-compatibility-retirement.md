@@ -54,7 +54,26 @@ src/views/vault/VaultView.tsx
 src/views/vault/components/FileClassificationDetails.tsx
 ```
 
-This list is a baseline caller inventory, not a statement that every caller consumes the same legacy fact. Stage F1 must classify the exact field/action used by each caller before migration.
+This list is a baseline caller inventory, not a statement that every caller consumes the same legacy fact. The reviewed baseline already supports the following coarse migration classes:
+
+| Caller | Current compatibility use | Owning replacement direction |
+| --- | --- | --- |
+| `AppRuntimeProviders.tsx` | legacy library refresh coordination after runtime events | Query V2/source-owner refresh projection; no new library authority |
+| `AppShell.tsx` | legacy stats + scope presentation | backend/query health/count projections + presentation-only scope label |
+| `useSearchNavigationHandoff.ts` | legacy selected-file mirror/setter during Search → Main handoff | LibrarySelectionV1 / File Library activation handoff |
+| `cleanupRestoreController.ts` | post-restore legacy refresh | canonical Library query invalidation/refresh |
+| `operationExecutionController.ts` | legacy scope fallback + post-operation refresh | authoritative operation preview scope + canonical query projection |
+| `operationRestoreController.ts` | post-restore legacy refresh | canonical Library query invalidation/refresh |
+| `useBackgroundIndexerStore.ts` | refresh after accepted background-index terminal state | canonical query/root revision invalidation |
+| `useScanManagerStore.ts` | current-scan compatibility scope + refresh | durable scan session/root identity + Query V2 scope |
+| `librarySourceOwner.ts` | legacy scope/stats/setScope compatibility beside Query V2 | Query V2 + backend health/count; source owner remains projection coordinator |
+| `RuleProposalWorkspace.tsx` | legacy Library scope resolved before proposal preview | canonical durable Query V2/managed-scope resolution for the requested review scope |
+| `RulesView.tsx` | legacy scope + legacy needs-confirmation stats | canonical review/query projection; Rules remain policy domain |
+| `ScannerView.tsx` | legacy scope/stats/AI progress presentation | scan ledger + query/count/Managed AI progress projections |
+| `VaultView.tsx` | legacy scope/stats/setScope beside Query V2 | FileLibraryWorkspace/Query V2/Selection owners; staged TD-015 retirement |
+| `FileClassificationDetails.tsx` | legacy refresh after confirm/correction | canonical query/detail invalidation after authoritative classification mutation |
+
+This table is a migration map, not implementation authorization. A future retirement task must recheck exact field/action usage at its own baseline because callers may disappear or change before that task starts.
 
 Additional current compatibility surfaces:
 
