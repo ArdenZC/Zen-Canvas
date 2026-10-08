@@ -1,6 +1,6 @@
 # ADR-0013 — Managed AI Eligibility and Queue Authority Boundary
 
-Status: **Proposed — Owner freeze candidate under #333; no AI Eligibility implementation authorized by this ADR draft.**
+Status: **Accepted by Owner for PR #334 — effective only when merged; no AI Eligibility implementation is authorized by this ADR itself.**
 
 Parent governance gate: [#330](https://github.com/ArdenZC/Zen-Canvas/issues/330)  
 Tracking issue: [#333](https://github.com/ArdenZC/Zen-Canvas/issues/333)
