@@ -35,6 +35,11 @@ interface UseAppSettingsOptions {
   formatSaveError?: (error: unknown) => string;
 }
 
+export interface SettingsUpdateResult {
+  settings: AppSettings;
+  persisted: boolean;
+}
+
 type SettingsPersistenceApi = Pick<typeof tauriApi, "getSettings" | "saveSettings">;
 
 type SettingsLoadGate = {
@@ -174,7 +179,8 @@ export function defaultScanRootSettingsEqual(
 function scanRootSettingsByPath(roots: readonly ScanRootSetting[]) {
   const byPath = new Map<string, boolean>();
   for (const root of roots) {
-    const path = normalizePathLike(normalizeScanRootPath(root.path));
+    const normalizedPath = normalizeScanRootPath(root.path);
+    const path = normalizePathLike(normalizedPath) || normalizedPath;
     if (!path) return null;
     const existingEnabled = byPath.get(path);
     if (existingEnabled !== undefined && existingEnabled !== root.enabled) return null;
@@ -257,7 +263,8 @@ function enabledRootPaths(roots: Array<ScanRootSetting | SearchRootSetting>): st
 }
 
 function normalizeScanRootPath(path: string) {
-  return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "");
+  const normalized = path.trim().replace(/\\+/g, "/");
+  return normalized.replace(/\/+$/g, "") || normalized;
 }
 
 function sameScanRootPath(left: string, right: string) {
@@ -382,7 +389,7 @@ export function useAppSettings({
     };
   }, [isDatabaseReady]);
 
-  const updateSettings = useCallback(
+  const updateSettingsWithResult = useCallback(
     async (partial: Partial<AppSettings>) => {
       const requestId = saveRequestIdRef.current + 1;
       saveRequestIdRef.current = requestId;
@@ -431,7 +438,7 @@ export function useAppSettings({
             latestSettingsRef.current = saved.settings;
             setSettings(saved.settings);
           }
-          return saved.settings;
+          return { settings: saved.settings, persisted: true };
         } catch (error) {
             const latest = await reconcileFailedSettingsSave(
               tauriApi,
@@ -447,7 +454,7 @@ export function useAppSettings({
               latestSettingsRef.current = persistedSettingsRef.current;
               setSettings(persistedSettingsRef.current);
             }
-            return persistedSettingsRef.current;
+            return { settings: persistedSettingsRef.current, persisted: false };
         }
       };
 
@@ -461,9 +468,18 @@ export function useAppSettings({
     [isDatabaseReady]
   );
 
+  const updateSettings = useCallback(
+    async (partial: Partial<AppSettings>) => {
+      const result = await updateSettingsWithResult(partial);
+      return result.settings;
+    },
+    [updateSettingsWithResult]
+  );
+
   return {
     settings,
     isLoadingSettings: isLoadingSettings || (isDatabaseReady && !settingsLoadedRef.current),
-    updateSettings
+    updateSettings,
+    updateSettingsWithResult
   };
 }

@@ -105,7 +105,12 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     formatLoadError: formatSettingsLoadError,
     formatSaveError: formatSettingsSaveError
   });
-  const { settings: appSettings, isLoadingSettings, updateSettings } = appSettingsState;
+  const {
+    settings: appSettings,
+    isLoadingSettings,
+    updateSettings,
+    updateSettingsWithResult
+  } = appSettingsState;
   const appChrome = useAppChrome({
     theme,
     setTheme,
@@ -202,10 +207,10 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   );
   const setDefaultScanFolders = useCallback(
     async (next: ScanRootSetting[]) => {
-      const savedSettings = await updateSettings({ defaultScanFolders: next });
-      return defaultScanRootSettingsEqual(savedSettings.defaultScanFolders, next);
+      const result = await updateSettingsWithResult({ defaultScanFolders: next });
+      return result.persisted && defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next);
     },
-    [updateSettings]
+    [updateSettingsWithResult]
   );
   const setRestoreRetentionDays = useCallback(
     async (next: RestoreRetentionDays) => {

@@ -183,6 +183,14 @@ describe("app settings helpers", () => {
     ], requested)).toBe(false);
   });
 
+  it("preserves filesystem-root paths during scan-root semantic comparison", () => {
+    const requested = [createScanRootSetting("/", "2026-10-08T00:00:00.000Z")];
+    const persisted = [{ ...requested[0], path: "/", id: "backend-root-id" }];
+
+    expect(requested[0].path).toBe("/");
+    expect(defaultScanRootSettingsEqual(persisted, requested)).toBe(true);
+  });
+
   it("generates distinct IDs for paths whose slugs collide", () => {
     const first = createScanRootSetting("C:/A+B", "2026-07-10T00:00:00.000Z");
     const second = createScanRootSetting("C:/A B", "2026-07-10T00:00:00.000Z");
@@ -243,7 +251,10 @@ describe("app settings helpers", () => {
     expect(mainSource).toContain("reload_file_watcher_for_settings");
     expect(settingsSource).toContain("watcher_manager: State<'_, FileWatcherManager>");
     expect(settingsSource).toContain("reload_file_watcher_for_settings");
-    expect(runtimeProvidersSource).toContain("defaultScanRootSettingsEqual(savedSettings.defaultScanFolders, next)");
+    expect(runtimeProvidersSource).toContain("updateSettingsWithResult({ defaultScanFolders: next })");
+    expect(runtimeProvidersSource).toContain(
+      "result.persisted && defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next)"
+    );
     expect(i18nSource).not.toContain("file watching updates after restarting the app");
     expect(i18nSource).not.toContain("文件监听会在重启应用后更新");
   });

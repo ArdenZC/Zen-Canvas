@@ -12,6 +12,7 @@ import {
 import { OnboardingDialog } from "../src/components/OnboardingDialog";
 import { makeTranslator } from "../src/i18n";
 import {
+  createScanRootSetting,
   DEFAULT_APP_SETTINGS,
   defaultScanRootSettingsEqual,
   useAppSettings
@@ -45,8 +46,8 @@ function PersistedOnboardingHarness({ setView }: { setView: (view: string) => vo
     formatSaveError: (error) => String(error)
   });
   const setDefaultScanFolders = async (next: VersionedAppSettings["settings"]["defaultScanFolders"]) => {
-    const saved = await state.updateSettings({ defaultScanFolders: next });
-    return defaultScanRootSettingsEqual(saved.defaultScanFolders, next);
+    const result = await state.updateSettingsWithResult({ defaultScanFolders: next });
+    return result.persisted && defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next);
   };
   const unusedSetter = async () => true;
   const settingsValue = {
@@ -226,6 +227,34 @@ describe("Onboarding settings persistence boundary", () => {
     expect(apiMocks.onError).toHaveBeenCalledWith(expect.stringContaining(backendError));
     expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("First-run settings were not saved");
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
+    expect(setView).not.toHaveBeenCalledWith("library");
+  });
+
+  it("fails closed when rollback returns an already equivalent enabled root", async () => {
+    const backendError = "file watcher reload failed: injected watcher restart failure; settings were restored";
+    const priorRoot = {
+      ...createScanRootSetting("C:\\OwnerQualification\\fixture", "2026-10-08T00:00:00.000Z"),
+      id: "backend-owned-root-id",
+      path: "c:/ownerqualification/fixture/",
+      label: "Fixture"
+    };
+    apiMocks.getSettings.mockResolvedValue({
+      settings: { ...DEFAULT_APP_SETTINGS, defaultScanFolders: [priorRoot] },
+      revision: 7
+    });
+    apiMocks.saveSettings.mockRejectedValue(new Error(backendError));
+    renderOnboarding();
+    await flushAsync();
+    await selectFolderAtOnboardingStep();
+
+    await clickNext();
+
+    expect(apiMocks.getSettings).toHaveBeenCalledTimes(2);
+    expect(apiMocks.saveSettings).toHaveBeenCalledOnce();
+    expect(apiMocks.onError).toHaveBeenCalledWith(expect.stringContaining(backendError));
+    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
     expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
     expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
     expect(setView).not.toHaveBeenCalledWith("library");
