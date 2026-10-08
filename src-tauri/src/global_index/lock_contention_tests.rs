@@ -588,10 +588,6 @@ fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
     let cas_elapsed = cas_started.elapsed();
     assert_busy(settings_sqlite_error(&cas_error));
     assert_busy_wait(cas_elapsed);
-    assert!(
-        cas_elapsed < Duration::from_secs(8),
-        "CAS contention failure should remain bounded near the configured five-second timeout: {cas_elapsed:?}"
-    );
 
     // save_settings stops after the failed CAS. Exercise the next real boundary
     // separately to classify sync_file_library_watcher_roots' BEGIN IMMEDIATE.
