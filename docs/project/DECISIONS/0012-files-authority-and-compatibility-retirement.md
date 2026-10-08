@@ -216,11 +216,13 @@ Rejected: WorkspaceSession is disposable navigation/presentation state.
 
 No implementation task may claim this ADR authorizes broad File Workspace coding until Owner accepts the ADR.
 
-After acceptance:
+After acceptance, this ADR freezes the allowed architecture but **still does not authorize product code by itself**. A separate Owner-reviewed implementation activation is required for each bounded caller-retirement or File Workspace track.
 
-- Codex Cloud may implement bounded caller migrations or File Workspace tracks using only canonical owners;
-- Windows local remains native acceptance only;
-- any new durable file authority or source-merging proposal requires a new ADR/Owner review.
+Any later implementation activation must:
+
+- use only the canonical owners frozen here;
+- keep Windows local as frozen-candidate native acceptance only;
+- return for a new ADR/Owner review before adding a durable file authority or merging source authorities.
 
 ## Exit / review evidence
 
