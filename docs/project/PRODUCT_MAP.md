@@ -18,7 +18,7 @@ This map describes product ownership. Durable implementation authority is define
 
 | Workspace | User purpose | Product boundary |
 | --- | --- | --- |
-| Automation | Save reusable file scopes, configure Manual/Schedule/Managed files changed, enable/pause and prepare plans for review | PM-02B Schema 37 implementation under Owner review: organize_plan/review-required/never-auto-execute. Run now works for every enabled trigger; next due and actual receipt source come from backend state. Existing Rules and Rule Proposal remain reachable through Advanced Rules. Entry remains in Settings/Spotlight. |
+| Automation | Save reusable file scopes, configure Manual/Schedule/Managed files changed, enable/pause and prepare plans for review | Schema 37 Automation is merged and Owner-reviewed: `organize_plan`, review-required and never-auto-execute remain fixed. Manual/Schedule/Managed-scope-changed prepare reviewable Organization Plans; existing Rule Repository / Rule Proposal remain explicit Advanced Policies compatibility surfaces, not semantic fallback for new Organize/Cleanup. Entry remains in Settings/Spotlight. |
 | Settings | Configure app, search, indexing, AI/provider, lifecycle and diagnostics | Persisted settings/provider contracts; technical detail remains secondary to task language |
 
 ### Files workspace ownership

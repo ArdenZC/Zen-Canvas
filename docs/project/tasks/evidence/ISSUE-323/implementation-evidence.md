@@ -29,3 +29,10 @@ Original native root `E:/CargoTarget/issue323-hyperv-owner-native-20261007`: 105
 - [#328](https://github.com/ArdenZC/Zen-Canvas/issues/328) separately tracks transient SQLite-lock/unavailable degradation; [#329](https://github.com/ArdenZC/Zen-Canvas/issues/329) tracks clean-install Onboarding scan-scope save failure. Recovery/dismissal does not establish either fixed. Tracking only; no new implementation activated.
 
 Successor validation is retained in `E:/CargoTarget/issue323-owner-documentation-closeout-20261008`: exact successor identity, production blob/tree equivalence, fresh CI run/conclusion, merge-integration tree and applicable artifacts. The documentation commit does not self-reference a future SHA/run or promote prior validation to its new HEAD. No native rerun or production/runtime change is performed. Stop: **#323 FINAL DOCUMENTATION CLOSEOUT CANDIDATE — READY FOR OWNER REVIEW**.
+
+
+## Post-merge closure record — 2026-10-08
+
+Approved documentation successor `4ceafaba64f0bdfbc19385eed471ae107c3fe466` was squash-merged through PR #327 as `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c`, tree `70c1e97eb68a01506a796140277af640a5e0fe60`. Merge-after master CI 37722150775 is **SUCCESS**. Issue #323 is **CLOSED / completed**.
+
+This closure preserves every earlier evidence classification. The original 105-file package and historical INCOMPLETE qualification report remain immutable; closure does not promote the missing Phase-A PID or uncaptured seeded `rebuild_required` transient to native PASS. #328 and #329 remain separate OPEN product defects.

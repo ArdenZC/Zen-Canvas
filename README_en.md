@@ -43,7 +43,7 @@
 - **Storage Cleanup**: analyzes durable cleanup findings and moves confirmed candidates through the Safe Trash path, preserving recovery records.
 - **Preview & Execute**: groups plans by main folders and subfolders. Moves, renames, cleanup actions, and eligible permanent deletion all require an authoritative preview and explicit confirmation.
 - **History / Restore**: review operations and cleanup records created by Zen Canvas, then restore eligible outcomes after identity revalidation. Operation logs are persisted in SQLite, recent records load by default, and the saved retention setting controls automatic pruning.
-- **Automation**: built-in and user rules both participate in classification. User rules are persisted in SQLite, while Zustand only holds runtime UI state.
+- **Automation**: Manual / Schedule / Managed files changed triggers only prepare reviewable Organization Plans and remain review-required / never-auto-execute. Rule Repository / Rule Proposal stay available as Advanced Policies compatibility surfaces and are not semantic fallback for new Organize / Cleanup.
 - **Content Understanding**: extract and understand managed content under explicit policy and consent; its results do not authorize filesystem mutation.
 
 ## Search
@@ -85,9 +85,9 @@ Eligible managed files may also enter a separate permanent-delete review. It is 
 - Safe Trash moves eligible cleanup findings into the controlled recovery path; History / Restore exposes the durable outcome.
 - Restore operations are identity-bound and update the managed index and FTS after successful file operations.
 
-## Rule Classification
+## Advanced Rules / Compatibility Classification
 
-- Classification uses built-in rules plus user rules. User rules are persisted in the SQLite rules table; Zustand only manages current-session runtime state and UI interactions.
+- Built-in and user rules still serve existing Rule/Policy, watcher-classification, and compatibility behavior. User rules persist in the SQLite `rules` table. After the AI-only migration they are **not** semantic fallback for new Organize / Cleanup and do not authorize filesystem mutation.
 - `rule_version` uses a stable hash and no longer relies on `DefaultHasher`.
 - The `files` table stores classification fingerprints: `last_classified_at`, `classified_rule_version`, `last_classified_mtime`, and `last_classified_size`.
 - `execute_rules_on_inbox` only considers files where `lifecycle = Inbox` and `is_stale = 0`, and skips records whose rule version, mtime, and size have not changed.

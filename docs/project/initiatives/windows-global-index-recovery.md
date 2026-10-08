@@ -1,6 +1,6 @@
 # Windows Global Index Recovery Remediation
 
-Status: **ACTIVE / IMPLEMENTATION COMPLETE / OWNER CODE AND CI REVIEW PENDING.** Current disposition is owned by [STATUS](../STATUS.md).
+Status: **COMPLETE / MERGED / CLOSED — SCOPED WINDOWS NATIVE RECOVERY OWNER ACCEPTED WITH EVIDENCE EXCEPTIONS; MERGE-AFTER MASTER CI SUCCESS.** Current disposition is owned by [STATUS](../STATUS.md).
 
 Issue: [#323 — Windows Global Index recovery loses paused/rebuild state across service transport](https://github.com/ArdenZC/Zen-Canvas/issues/323)
 
@@ -20,12 +20,14 @@ AI-only Product Migration #273 is complete and closed.
 
 The remaining open work is intentionally separated:
 
-- #323 is a reproduced Windows product-correctness defect with a known state-machine/transport root cause;
+- #323 is CLOSED / completed through PR #327 with scoped Owner acceptance and explicit evidence exceptions;
+- #328 tracks transient SQLite-lock/unavailable degradation observed during #323 native qualification;
+- #329 tracks clean-install Onboarding scan-scope save failure observed during the same qualification;
 - #270 blocks future macOS resident/release qualification but does not block the current Windows product path;
 - #283 is research-only and explicitly paused at `INCONCLUSIVE_LOW_DELTA`;
-- open technical-debt items retain their own exit conditions and are not feature blockers by existence alone.
+- open technical-debt items retain their own exit conditions and are being reconciled under #330 rather than treated as automatic feature blockers.
 
-Therefore #323 is the next production remediation initiative.
+Post-#323 sequencing is owned by #330; this initiative is no longer active.
 
 ## Scope
 
@@ -60,6 +62,6 @@ This initiative does not activate:
 - Cleanup automation;
 - autonomous filesystem mutation.
 
-Activation PR #325 is merged as `master@dbf05d3c503a1b79695186b9a8376143b8748305` / tree `1e9914c5c2d5567d6413cd35ee720b877469a405`; merge-after CI 37569675862 is **SUCCESS**. Implementation is ACTIVE and must start from the post-activation reconciliation master.
+Activation PR #325 merged as `master@dbf05d3c503a1b79695186b9a8376143b8748305` / tree `1e9914c5c2d5567d6413cd35ee720b877469a405`; merge-after CI 37569675862 is **SUCCESS**. Implementation later completed and PR #327 squash-merged as `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after master CI 37722150775 is **SUCCESS**. Issue #323 is CLOSED / completed.
 
-Implementation result: [issue #323 result](../tasks/WINDOWS-GLOBAL-INDEX-RECOVERY-323-RESULT.md). The candidate starts at post-activation reconciliation `e41fda178c6e6c8af48f8af63cc06453e8339c48` / tree `bb74979786955592473f01e76b74d62a3d4ed9b5`. Hosted code/CI review and separately authorized native Owner qualification remain distinct; #323 stays open.
+Implementation result: [issue #323 result](../tasks/WINDOWS-GLOBAL-INDEX-RECOVERY-323-RESULT.md). Hosted deterministic/service evidence and scoped native Owner acceptance remain distinct; the historical native qualification report remains INCOMPLETE with its explicit evidence exceptions.
