@@ -87,11 +87,11 @@ Final authority:
 
 ## Current
 
-### Post-#323 Historical Audit Residual & Technical Debt Reconciliation
+### Post-#323 Historical Audit Residual & Technical Debt Reconciliation — Owner Gate
 
-Status: **ACTIVE — OWNER GOVERNANCE / READ-ONLY RECONCILIATION ONLY; NO PRODUCTION IMPLEMENTATION AUTHORIZED.**
+Status: **ACTIVE — SPECIFICATION ONLY / OWNER GOVERNANCE; NO PRODUCTION IMPLEMENTATION AUTHORIZED.**
 
-Authority: [issue #330](https://github.com/ArdenZC/Zen-Canvas/issues/330) and [Owner reconciliation matrix](tasks/POST-323-AUDIT-RESIDUAL-TECH-DEBT-RECONCILIATION-RESULT.md).
+Authority: [initiative](initiatives/post-323-audit-residual-technical-debt-reconciliation.md), [issue #330](https://github.com/ArdenZC/Zen-Canvas/issues/330) and [Owner reconciliation matrix](tasks/POST-323-AUDIT-RESIDUAL-TECH-DEBT-RECONCILIATION-RESULT.md).
 
 Accepted starting point: `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after master CI [37722150775](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37722150775) SUCCESS.
 
@@ -107,10 +107,9 @@ Current minimum sequence:
 
 #270 remains a separate macOS compatibility blocker for supported macOS resident/release claims. #283 research remains PAUSED at `INCONCLUSIVE_LOW_DELTA`. Release publication remains deferred.
 
-### Windows Global Index Recovery Remediation — #323
+## Completed Windows Global Index Recovery — #323
 
 **COMPLETE / MERGED / CLOSED.** PR #327 squash-merged as `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after master CI 37722150775 is SUCCESS. Scoped Windows Paused/automatic-rebuild recovery is Owner accepted with explicit evidence exceptions; historical native qualification remains INCOMPLETE. #328 and #329 are separate OPEN defects.
-
 
 ## Resident / Interactive Performance Qualification
 
