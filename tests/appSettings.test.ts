@@ -137,9 +137,11 @@ describe("app settings helpers", () => {
     const projects = createScanRootSetting("D:/Work/Projects", createdAt);
     const roots = upsertDefaultScanRoot([downloads], "D:/Work/Projects", createdAt);
     const disabled = toggleDefaultScanRoot(roots, projects.id, false);
+    const reenabled = toggleDefaultScanRoot(disabled, projects.id, true);
 
     expect(roots).toEqual([downloads, projects]);
     expect(enabledScanRootPaths(disabled)).toEqual(["F:/Downloads"]);
+    expect(enabledScanRootPaths(reenabled)).toEqual(["F:/Downloads", "D:/Work/Projects"]);
     expect(upsertDefaultScanRoot(disabled, "d:/work/projects", createdAt)[1].enabled).toBe(true);
     expect(removeDefaultScanRoot(roots, downloads.id)).toEqual([projects]);
   });
@@ -244,6 +246,14 @@ describe("app settings helpers", () => {
     expect(runtimeProvidersSource).toContain("defaultScanRootSettingsEqual(savedSettings.defaultScanFolders, next)");
     expect(i18nSource).not.toContain("file watching updates after restarting the app");
     expect(i18nSource).not.toContain("文件监听会在重启应用后更新");
+  });
+
+  it("routes Settings add, enable/disable, and delete through authoritative scan-root persistence", () => {
+    const settingsViewSource = readFileSync(resolve("src/views/settings/SettingsView.tsx"), "utf8");
+
+    expect(settingsViewSource).toContain("setDefaultScanFolders(upsertDefaultScanRoot(defaultScanFolders, path))");
+    expect(settingsViewSource).toContain("setDefaultScanFolders(toggleDefaultScanRoot(defaultScanFolders, root.id, enabled))");
+    expect(settingsViewSource).toContain("setDefaultScanFolders(removeDefaultScanRoot(defaultScanFolders, root.id))");
   });
 
   it("surfaces persisted global hotkey registration status in settings", () => {
