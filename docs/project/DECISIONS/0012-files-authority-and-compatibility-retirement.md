@@ -33,6 +33,37 @@ Current compatibility debt remains material:
 
 The existence of these adapters does not mean they are durable authorities. The risk is that a new File Workspace generation could accidentally build new features on them and make retirement harder.
 
+## Exact reviewed compatibility inventory at baseline
+
+Repository search on the baseline found **14 external production files** importing `useFileLibraryStore` (store definition excluded):
+
+```text
+src/components/AppRuntimeProviders.tsx
+src/components/AppShell.tsx
+src/hooks/useSearchNavigationHandoff.ts
+src/store/operationQueue/cleanupRestoreController.ts
+src/store/operationQueue/operationExecutionController.ts
+src/store/operationQueue/operationRestoreController.ts
+src/store/useBackgroundIndexerStore.ts
+src/store/useScanManagerStore.ts
+src/views/fileLibrary/library/librarySourceOwner.ts
+src/views/rules/RuleProposalWorkspace.tsx
+src/views/rules/RulesView.tsx
+src/views/scanner/ScannerView.tsx
+src/views/vault/VaultView.tsx
+src/views/vault/components/FileClassificationDetails.tsx
+```
+
+This list is a baseline caller inventory, not a statement that every caller consumes the same legacy fact. Stage F1 must classify the exact field/action used by each caller before migration.
+
+Additional current compatibility surfaces:
+
+- `src/views/fileLibrary/library/LibraryMode.tsx` consumes `useLibraryContentCompatibility`;
+- `src/views/vault/VaultView.tsx` remains in the production tree and export surface;
+- `FileLibraryInspector` / `FileLibraryPreviewDialog` still represent Vault/File Library compatibility behavior on current paths.
+
+The older TD-001-P3 inventory is useful history but is not substituted for this exact-baseline inventory.
+
 ## Decision
 
 ### 1. One durable owner per file-domain fact
