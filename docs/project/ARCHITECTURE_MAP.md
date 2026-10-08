@@ -214,7 +214,7 @@ Two proposed ADRs are under Owner review before the next Product / Architecture 
 - [ADR-0012 — Files Authority and Compatibility Retirement Boundary](DECISIONS/0012-files-authority-and-compatibility-retirement.md), tracked by [#332](https://github.com/ArdenZC/Zen-Canvas/issues/332). It freezes new dependency on TD-001 `useFileLibraryStore` and TD-015 Vault/File Library compatibility for future File Workspace work while preserving Query V2, LibrarySelectionV1, BrowseService, WorkspaceSession, Preview and mutation authority separation.
 - [ADR-0013 — Managed AI Eligibility and Queue Authority Boundary](DECISIONS/0013-managed-ai-eligibility-and-queue-authority.md), tracked by [#333](https://github.com/ArdenZC/Zen-Canvas/issues/333). It preserves one `ai_jobs` queue, one ManagedAiWorker and existing WorkScheduler while separating Index, Managed Scope, AI Eligibility, current-assessment reuse, analysis and mutation eligibility.
 
-Both ADRs are **Proposed** until Owner acceptance. They do not authorize File Workspace or AI Eligibility implementation and do not change current runtime truth merely by existing in the repository.
+Both ADRs are **Owner-accepted for PR #334 and become effective only when that PR merges**. They do not authorize File Workspace or AI Eligibility implementation and do not change current runtime truth before merge.
 
 ## Compatibility bridges
 
