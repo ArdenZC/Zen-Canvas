@@ -74,7 +74,7 @@ Issue：[#342 Global Search benchmark and regression evidence baseline](https://
 
 每个运行导出 JSONL artifact，包含 source SHA、runner OS/架构、entry 数、fixture 生成耗时、直接向 Global Index 表写入合成记录的 SQLite 耗时、512 行事务耗时分布、触发器清单、FTS 与逐查询 count-oracle 验证数量、SQLite page count/page size、主库/WAL/SHM 字节、查询计划和每类查询两种连接模式的 p50/p95/p99/min/max。它不测生产 provider 写入吞吐、RSS 或扫描吞吐。
 
-PR 会在 Windows Hosted Runner 执行 100k；`workflow_dispatch` 可选 100k/500k/1m/2m/5m。workflow 使用固定 `shared-key` 的 `Swatinem/rust-cache` 缓存 Rust registry、依赖构建产物和 target，允许不同规模及后续 PR 工作流复用已下载依赖；Cloud 工作区的 Cargo registry 与 target 同样保留在 `/home/agent/.cargo`。行动与 artifact 定义见 `.github/workflows/global-search-benchmark.yml`。手动复现命令：
+PR 会在 Windows Hosted Runner 执行 100k；`workflow_dispatch` 可选 100k/500k/1m/2m/5m。workflow 使用固定 `shared-key` 的 `Swatinem/rust-cache` 缓存 Rust registry、依赖构建产物和 target，允许不同规模及后续 PR 工作流复用已下载依赖。Cloud 工作区的 Cargo registry 位于 `/home/agent/.cargo`，项目 build target 位于 `src-tauri/target`。行动与 artifact 定义见 `.github/workflows/global-search-benchmark.yml`。手动复现命令：
 
 ```powershell
 $env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES = "500000"
