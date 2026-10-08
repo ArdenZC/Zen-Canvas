@@ -258,7 +258,7 @@ will be removed before commit; it is not part of this change.
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests` | Exit 0; 7 existing warnings on the library (including the four unused variables and dead code); no warning originated in the new test module |
 | `npm run test:governance` | PASS |
 | `npm run test:performance:architecture` | PASS on final report tree; architecture guard and 30 tests passed |
-| `npm run test:docs` with `DOCS_DIFF_BASE=7a2e1b31bb4ac49aa8e8d2378fc9adb6bb64034f` | Pending after the report is committed so the documentation diff is included |
+| `npm run test:docs` with `DOCS_DIFF_BASE=7a2e1b31bb4ac49aa8e8d2378fc9adb6bb64034f` | PASS; documentation validation covered the one changed Markdown file, and governance passed |
 | Codex Review | Attempted on the current diff; blocked before review by CLI authentication errors (401 token refresh and 451 `no_biscuit_no_service`). No review findings were returned. |
 | Repository-routed Windows/macOS CI | Pending exact-head Draft PR |
 
