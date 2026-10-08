@@ -90,3 +90,12 @@ These are independent tracking defects, not absorbed remediation scope or activa
 The successor changes only this result, the #323 implementation evidence and the applicable STATUS entries. Production code, package 0.1.40, Schema 37, IPC v3 and runtime behavior remain byte-identical to the accepted product candidate `251a6371fb9e9bee7d88cb585c233c9c34b86fcd`; the already accepted workflow/hosted-qualification retention follow-up remains unchanged from frozen HEAD `2e0d75416c6ebdfb37df753632d31c479875759b`. Exact blob/tree equivalence and fresh successor-HEAD CI are recorded externally in `E:/CargoTarget/issue323-owner-documentation-closeout-20261008`, including run ID/conclusion, source and merge-integration identities and applicable downloaded artifacts. Earlier CI is not promoted to a successor exact-head claim; skipped lanes stay SKIPPED.
 
 No native qualification rerun, rebuild, reinstall, metadata seed, production/source/CI-routing change, PR Ready transition, merge, #323 closure or new initiative is authorized. Final stop: **#323 FINAL DOCUMENTATION CLOSEOUT CANDIDATE — READY FOR OWNER REVIEW**.
+
+
+## Post-merge reconciliation — 2026-10-08
+
+PR [#327](https://github.com/ArdenZC/Zen-Canvas/pull/327) was Owner-reviewed, marked Ready and squash-merged as `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`. Merge-after master CI [37722150775](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37722150775) completed **SUCCESS** on the exact master SHA. Issue [#323](https://github.com/ArdenZC/Zen-Canvas/issues/323) is **CLOSED / completed**.
+
+Final disposition: **#323 COMPLETE / MERGED / CLOSED — SCOPED WINDOWS NATIVE RECOVERY OWNER ACCEPTED WITH EVIDENCE EXCEPTIONS — MERGE-AFTER MASTER CI SUCCESS.** This does not rewrite the historical native qualification report as 24/24 PASS. The missing initial Phase-A desktop PID remains UNVERIFIED/waived, the seeded transient `rebuild_required` remains not directly captured, and deterministic/hosted evidence remains separately classified. Independent issues [#328](https://github.com/ArdenZC/Zen-Canvas/issues/328) and [#329](https://github.com/ArdenZC/Zen-Canvas/issues/329) remain OPEN and are not claimed fixed.
+
+Post-#323 project sequencing is owned by [#330](https://github.com/ArdenZC/Zen-Canvas/issues/330); no release publication or new product feature is activated by this closeout.
