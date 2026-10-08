@@ -546,9 +546,11 @@ fn settings_cas_waits_for_a_short_writer_and_saves_one_revision() {
     let persisted = get_versioned_app_settings(&database).expect("reload persisted settings");
     assert_eq!(saved.revision, previous.revision + 1);
     assert_eq!(persisted.revision, previous.revision + 1);
+    let mut expected_scan_root = next.default_scan_folders[0].clone();
+    expected_scan_root.path = expected_scan_root.path.replace('\\', "/");
     assert_eq!(
         persisted.settings.default_scan_folders,
-        next.default_scan_folders
+        vec![expected_scan_root]
     );
     println!(
         "issue_329_correlation holder=synthetic_second_pooled_connection_BEGIN_IMMEDIATE cas_operation=save_app_settings_cas stage=BEGIN_IMMEDIATE_acquisition result=success elapsed_ms={} timeout_ms={} correlation=POSSIBLE_SHARED_CONTENTION",
