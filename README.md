@@ -43,7 +43,7 @@
 - **Storage Cleanup**：分析持久化清理发现，确认后的候选项通过 Safe Trash 路径处理，并保留恢复记录。
 - **Preview & Execute**：按主文件夹和子文件夹展示整理方案；移动、重命名、清理和符合条件的永久删除都必须经过权威预览与显式确认。
 - **History / Restore**：查看 Zen Canvas 自己执行的操作与清理记录，并在身份重新校验通过后恢复仍可恢复的结果；记录持久化在 SQLite 中，并按设置的保留天数自动清理。
-- **Automation**：内置规则与用户规则共同参与分类；用户规则已持久化到 SQLite，Zustand 只作为运行时状态。
+- **Automation**：Manual / Schedule / Managed files changed 触发只负责准备可审核的 Organization Plan，始终 review-required / never-auto-execute；Rule Repository / Rule Proposal 保留在 Advanced Policies，不能作为新的 Organize / Cleanup 语义 fallback。
 - **Content Understanding**：在已管理文件范围内，根据明确的策略与同意提取和理解内容；结果不会成为文件系统变更权限。
 
 ## 搜索能力
@@ -87,9 +87,9 @@
 - 应用启动时会从 SQLite 读取最近 operation logs，恢复记录不再只是 React state。
 - execute / restore 成功后会同步更新 `files` 表和 FTS，确保文件库和搜索结果指向真实路径。
 
-## 规则分类
+## Advanced Rules / 兼容分类
 
-- 分类使用内置规则 + 用户规则；用户规则持久化在 SQLite rules 表中，Zustand 只负责当前会话的运行时状态和 UI 交互。
+- 内置规则与用户规则仍服务于既有 Rule/Policy、watcher 分类与兼容场景；用户规则持久化在 SQLite `rules` 表中。AI-only 迁移后，它们**不是**新的 Organize / Cleanup 语义 fallback，也不具有文件系统执行权。
 - `rule_version` 使用稳定 hash，不依赖 `DefaultHasher`。
 - `files` 表保存分类指纹：`last_classified_at`、`classified_rule_version`、`last_classified_mtime`、`last_classified_size`。
 - `execute_rules_on_inbox` 只处理 `lifecycle = Inbox` 且 `is_stale = 0` 的文件，并跳过 rule version、mtime、size 都未变化的记录。
