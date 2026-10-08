@@ -82,10 +82,11 @@ describe("useAppSettings load and save epochs", () => {
       });
     const container = document.createElement("div");
     root = createRoot(container);
-    root.render(createElement(SettingsHarness, { onState: (state) => { latest = state; } }));
+    act(() => root?.render(createElement(SettingsHarness, { onState: (state) => { latest = state; } })));
     await flushPromises();
 
     expect(latest?.isLoadingSettings).toBe(true);
+    expect(settingsMocks.getSettings).toHaveBeenCalledOnce();
     const saving = latest?.updateSettings({ defaultScanFolders: [selectedRoot] });
     expect(settingsMocks.saveSettings).not.toHaveBeenCalled();
     settingsMocks.getSettings.mockResolvedValueOnce({ settings: newerSettings, revision: 8 });
