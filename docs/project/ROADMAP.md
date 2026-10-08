@@ -89,11 +89,13 @@ Final authority:
 
 ### Windows Global Index Recovery Remediation
 
-Status: **ACTIVATED / IMPLEMENTATION ACTIVE — issue #323.**
+Status: **ACTIVE / IMPLEMENTATION COMPLETE / OWNER CODE AND CI REVIEW PENDING — issue #323; DRAFT IMPLEMENTATION PR; NATIVE OWNER QUALIFICATION NOT PERFORMED.**
 
 Authority: [initiative](initiatives/windows-global-index-recovery.md) and [activation taskbook](tasks/WINDOWS-GLOBAL-INDEX-RECOVERY-323-ACTIVATION.md). Baseline `master@cfdde76db2e339f1572e889fa586170361e2d796` / tree `d9dbf3f65ccacf4ab0201fab59ed36eb7825b53b`; merge-after CI 37563539120 SUCCESS.
 
 Activation PR #325 squash-merged as `master@dbf05d3c503a1b79695186b9a8376143b8748305` / tree `1e9914c5c2d5567d6413cd35ee720b877469a405`; merge-after CI 37569675862 is SUCCESS. The bounded remediation preserves typed Paused/rebuild-required semantics across the Windows Global Index service boundary and restores automatic admitted MFT rebuild after USN history discontinuity. It does not activate #270, #283, generic technical-debt retirement or release publication.
+
+[Implementation result](tasks/WINDOWS-GLOBAL-INDEX-RECOVERY-323-RESULT.md): exact start `e41fda178c6e6c8af48f8af63cc06453e8339c48` / tree `bb74979786955592473f01e76b74d62a3d4ed9b5`; typed recovery uses existing v3 error_code and the existing Background-admitted MFT path. #323 remains open pending Owner code/CI review and separately authorized native qualification.
 
 ## Completed initiative history
 

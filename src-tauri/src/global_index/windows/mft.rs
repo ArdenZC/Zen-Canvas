@@ -452,7 +452,7 @@ fn stream_staged_entries(
 
 fn validate_initial_baseline(stats: MftBaselineStats) -> Result<(), GlobalIndexError> {
     if stats.emitted_entries == 0 {
-        return Err(GlobalIndexError::Provider(format!(
+        return Err(GlobalIndexError::RebuildRequired(format!(
             "windows_mft_baseline_empty: staged_records={} resolved_entries={} emitted_entries={} checkpoint_usn={}",
             stats.staged_records,
             stats.resolved_entries,
@@ -592,12 +592,11 @@ fn parse_name(bytes: &[u8], offset: usize, length: usize) -> Result<String, Glob
 }
 
 pub(crate) fn mft_integrity_error(message: impl Into<String>) -> GlobalIndexError {
-    GlobalIndexError::Provider(format!("mft_integrity: {}", message.into()))
+    GlobalIndexError::RebuildRequired(format!("mft_integrity: {}", message.into()))
 }
 
 pub(crate) fn is_integrity_error(error: &GlobalIndexError) -> bool {
-    let message = error.to_string();
-    message.contains("mft_integrity:") || message.contains("windows_mft_baseline_empty:")
+    matches!(error, GlobalIndexError::RebuildRequired(_))
 }
 
 fn join_windows_path(parent: &str, name: &str) -> String {
@@ -672,7 +671,7 @@ pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, Globa
 }
 
 pub(crate) fn is_win32_error(error: &GlobalIndexError, code: u32) -> bool {
-    error.to_string().contains(&format!("Win32 error {code}"))
+    matches!(error, GlobalIndexError::WindowsIo(actual) if *actual == code)
 }
 
 pub(crate) unsafe fn device_io_control_bytes(
@@ -693,10 +692,7 @@ pub(crate) unsafe fn device_io_control_bytes(
         ptr::null_mut(),
     );
     if ok == 0 {
-        return Err(GlobalIndexError::Provider(format!(
-            "DeviceIoControl 0x{code:08x} failed (Win32 error {})",
-            GetLastError()
-        )));
+        return Err(GlobalIndexError::WindowsIo(GetLastError()));
     }
     Ok(returned as usize)
 }

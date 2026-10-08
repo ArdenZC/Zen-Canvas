@@ -40,6 +40,19 @@ fn main() {
         );
     }
 
+    #[cfg(all(windows, feature = "native-qa"))]
+    if launch_args
+        .get(1)
+        .is_some_and(|argument| argument == "--global-index-recovery-qa")
+    {
+        let result = zen_canvas_tauri::global_index::windows::recovery_qa::run(&launch_args[2..]);
+        if let Err(error) = result {
+            eprintln!("Global Index service recovery QA failed: {error}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+
     let background_launch = zen_canvas_tauri::app_control::is_background_launch_args(&launch_args);
 
     tauri::Builder::default()

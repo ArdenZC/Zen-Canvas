@@ -62,24 +62,14 @@ fn sync_with_handle(
     cancel: &AtomicBool,
 ) -> Result<UsnSyncResult, GlobalIndexError> {
     let journal = query_journal(handle)?;
-    if let Some(saved_id) = source.volume.journal_id.as_deref() {
-        if saved_id != journal.UsnJournalID.to_string() {
-            sink.set_source_state(
-                &source.volume.id,
-                crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
-                Some("USN Journal ID changed; a volume rebuild is required"),
-            )?;
-            return Err(GlobalIndexError::Provider(
-                "USN Journal ID changed".to_string(),
-            ));
-        }
-    }
-    let Some(saved_cursor) = source
-        .volume
-        .journal_cursor
-        .as_deref()
-        .and_then(|value| value.parse::<i64>().ok())
-    else {
+    let saved_cursor = validate_checkpoint(
+        source,
+        sink,
+        journal.UsnJournalID,
+        journal.FirstUsn,
+        journal.NextUsn,
+    )?;
+    let Some(saved_cursor) = saved_cursor else {
         sink.checkpoint(
             &source.volume.id,
             Some(&journal.UsnJournalID.to_string()),
@@ -89,16 +79,6 @@ fn sync_with_handle(
             directory_path_changed: false,
         });
     };
-    if saved_cursor < journal.FirstUsn || saved_cursor > journal.NextUsn {
-        sink.set_source_state(
-            &source.volume.id,
-            crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
-            Some("USN Journal cursor is outside the available history"),
-        )?;
-        return Err(GlobalIndexError::Provider(
-            "USN Journal cursor is no longer readable".to_string(),
-        ));
-    }
 
     let mut cursor = saved_cursor;
     if cursor == journal.NextUsn {
@@ -136,55 +116,16 @@ fn sync_with_handle(
         } {
             Ok(bytes) => bytes,
             Err(error) if mft::is_win32_error(&error, ERROR_HANDLE_EOF) => break,
-            Err(error) if is_journal_history_error(&error) => {
-                let message = format!(
-                    "USN journal history is no longer readable; a volume rebuild is required: {error}"
-                );
-                sink.set_source_state(
-                    &source.volume.id,
-                    crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
-                    Some(&message),
-                )?;
-                return Err(GlobalIndexError::Provider(message));
-            }
-            Err(error) => return Err(error),
+            Err(error) => return classify_read_error(&source.volume.id, sink, error),
         };
-        if bytes < 8 {
-            let message = format!(
-                "USN journal data is shorter than the continuation cursor; a volume rebuild is required: {}",
-                mft_integrity_error("USN page is shorter than the continuation cursor")
-            );
-            sink.set_source_state(
-                &source.volume.id,
-                crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
-                Some(&message),
-            )?;
-            return Err(GlobalIndexError::Provider(message));
-        }
-        let (next_cursor, records) = match parse_mft_page(&output[..bytes]) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                let message = format!(
-                    "USN journal data could not be parsed; a volume rebuild is required: {error}"
-                );
-                sink.set_source_state(
-                    &source.volume.id,
-                    crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
-                    Some(&message),
-                )?;
-                return Err(GlobalIndexError::Provider(message));
-            }
-        };
-        if next_cursor as i64 <= cursor || next_cursor as i64 > journal.NextUsn {
-            let message =
-                "USN journal cursor is not continuous; a volume rebuild is required".to_string();
-            sink.set_source_state(
-                &source.volume.id,
-                crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
-                Some(&message),
-            )?;
-            return Err(GlobalIndexError::Provider(message));
-        }
+        let (next_cursor, records) = parse_sync_page(
+            &source.volume.id,
+            sink,
+            &output[..bytes],
+            cursor,
+            journal.NextUsn,
+        )?;
+
         for record in records {
             if cancel.load(Ordering::Acquire) {
                 return Err(GlobalIndexError::Paused);
@@ -235,6 +176,88 @@ fn sync_with_handle(
     })
 }
 
+pub(crate) fn require_rebuild<T>(
+    volume_id: &str,
+    sink: &mut dyn GlobalIndexSink,
+    message: impl Into<String>,
+) -> Result<T, GlobalIndexError> {
+    let message = message.into();
+    sink.set_source_state(
+        volume_id,
+        crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
+        Some(&message),
+    )?;
+    Err(GlobalIndexError::RebuildRequired(message))
+}
+
+pub(super) fn validate_checkpoint(
+    source: &GlobalSourceDescriptor,
+    sink: &mut dyn GlobalIndexSink,
+    journal_id: u64,
+    first_usn: i64,
+    next_usn: i64,
+) -> Result<Option<i64>, GlobalIndexError> {
+    if source
+        .volume
+        .journal_id
+        .as_deref()
+        .is_some_and(|saved| saved != journal_id.to_string())
+    {
+        return require_rebuild(
+            &source.volume.id,
+            sink,
+            "USN Journal ID changed; a volume rebuild is required",
+        );
+    }
+    let cursor = source
+        .volume
+        .journal_cursor
+        .as_deref()
+        .and_then(|value| value.parse::<i64>().ok());
+    if cursor.is_some_and(|cursor| cursor < first_usn || cursor > next_usn) {
+        return require_rebuild(
+            &source.volume.id,
+            sink,
+            "USN Journal cursor is outside the available history",
+        );
+    }
+    Ok(cursor)
+}
+
+pub(super) fn parse_sync_page(
+    volume_id: &str,
+    sink: &mut dyn GlobalIndexSink,
+    page: &[u8],
+    cursor: i64,
+    next_usn: i64,
+) -> Result<(u64, Vec<MftRecord>), GlobalIndexError> {
+    if page.len() < 8 {
+        return require_rebuild(
+            volume_id,
+            sink,
+            mft_integrity_error("USN page is shorter than the continuation cursor").to_string(),
+        );
+    }
+    let (next_cursor, records) = match parse_mft_page(page) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return require_rebuild(
+                volume_id,
+                sink,
+                format!("USN journal data could not be parsed: {error}"),
+            )
+        }
+    };
+    if next_cursor as i64 <= cursor || next_cursor as i64 > next_usn {
+        return require_rebuild(
+            volume_id,
+            sink,
+            "USN journal cursor is not continuous; a volume rebuild is required",
+        );
+    }
+    Ok((next_cursor, records))
+}
+
 fn classify_usn_change(reason: u32) -> UsnChangeAction {
     if reason & (USN_REASON_RENAME_OLD_NAME | USN_REASON_FILE_DELETE) != 0 {
         UsnChangeAction::Stale
@@ -245,9 +268,24 @@ fn classify_usn_change(reason: u32) -> UsnChangeAction {
     }
 }
 
+pub(super) fn classify_read_error<T>(
+    volume_id: &str,
+    sink: &mut dyn GlobalIndexSink,
+    error: GlobalIndexError,
+) -> Result<T, GlobalIndexError> {
+    if is_journal_history_error(&error) {
+        require_rebuild(
+            volume_id,
+            sink,
+            format!("USN journal history is no longer readable: {error}"),
+        )
+    } else {
+        Err(error)
+    }
+}
+
 fn is_journal_history_error(error: &GlobalIndexError) -> bool {
-    let message = error.to_string();
-    message.contains("1181") || message.contains("1178") || message.contains("1179")
+    matches!(error, GlobalIndexError::WindowsIo(1181 | 1178 | 1179))
 }
 
 fn resolve_change_path(
@@ -406,17 +444,12 @@ mod tests {
 
     #[test]
     fn journal_history_errors_are_rebuild_signals() {
-        assert!(is_journal_history_error(&GlobalIndexError::Provider(
-            "DeviceIoControl failed (Win32 error 1181)".to_string()
-        )));
-        assert!(is_journal_history_error(&GlobalIndexError::Provider(
-            "DeviceIoControl failed (Win32 error 1178)".to_string()
-        )));
-        assert!(is_journal_history_error(&GlobalIndexError::Provider(
-            "DeviceIoControl failed (Win32 error 1179)".to_string()
-        )));
+        for code in [1181, 1178, 1179] {
+            assert!(is_journal_history_error(&GlobalIndexError::WindowsIo(code)));
+        }
+        assert!(!is_journal_history_error(&GlobalIndexError::WindowsIo(5)));
         assert!(!is_journal_history_error(&GlobalIndexError::Provider(
-            "DeviceIoControl failed (Win32 error 5)".to_string()
+            "Win32 error 1181".into()
         )));
     }
 }
