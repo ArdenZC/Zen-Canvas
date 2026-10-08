@@ -87,40 +87,30 @@ Final authority:
 
 ## Current
 
-### Windows Global Index Recovery Remediation
+### Post-#323 Historical Audit Residual & Technical Debt Reconciliation
 
-Status: **ACTIVE / IMPLEMENTATION COMPLETE / OWNER CODE AND CI REVIEW PENDING — issue #323; DRAFT IMPLEMENTATION PR; NATIVE OWNER QUALIFICATION NOT PERFORMED.**
+Status: **ACTIVE — OWNER GOVERNANCE / READ-ONLY RECONCILIATION ONLY; NO PRODUCTION IMPLEMENTATION AUTHORIZED.**
 
-Authority: [initiative](initiatives/windows-global-index-recovery.md) and [activation taskbook](tasks/WINDOWS-GLOBAL-INDEX-RECOVERY-323-ACTIVATION.md). Baseline `master@cfdde76db2e339f1572e889fa586170361e2d796` / tree `d9dbf3f65ccacf4ab0201fab59ed36eb7825b53b`; merge-after CI 37563539120 SUCCESS.
+Authority: [issue #330](https://github.com/ArdenZC/Zen-Canvas/issues/330) and [Owner reconciliation matrix](tasks/POST-323-AUDIT-RESIDUAL-TECH-DEBT-RECONCILIATION-RESULT.md).
 
-Activation PR #325 squash-merged as `master@dbf05d3c503a1b79695186b9a8376143b8748305` / tree `1e9914c5c2d5567d6413cd35ee720b877469a405`; merge-after CI 37569675862 is SUCCESS. The bounded remediation preserves typed Paused/rebuild-required semantics across the Windows Global Index service boundary and restores automatic admitted MFT rebuild after USN history discontinuity. It does not activate #270, #283, generic technical-debt retirement or release publication.
+Accepted starting point: `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after master CI [37722150775](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37722150775) SUCCESS.
 
-[Implementation result](tasks/WINDOWS-GLOBAL-INDEX-RECOVERY-323-RESULT.md): exact start `e41fda178c6e6c8af48f8af63cc06453e8339c48` / tree `bb74979786955592473f01e76b74d62a3d4ed9b5`; typed recovery uses existing v3 error_code and the existing Background-admitted MFT path. #323 remains open pending Owner code/CI review and separately authorized native qualification.
+Current minimum sequence:
 
-## Completed initiative history
+1. Truth/matrix reconciliation.
+2. #329 clean-install Onboarding scan-scope persistence — **FIX BEFORE REBASELINE**.
+3. #328 transient SQLite lock/unavailable — **FIX BEFORE REBASELINE**.
+4. Reconcile historical Global Index zero-source residual against #328 evidence.
+5. Freeze File Authority / compatibility retirement ADR for TD-001 + TD-015 before new File Workspace implementation.
+6. Freeze Managed AI Eligibility / queue authority ADR for TD-006 before AI Eligibility implementation.
+7. Activate Post-AI-only Product / Architecture Rebaseline only after the minimum blockers close.
 
-### AI-only Product Migration — completed
+#270 remains a separate macOS compatibility blocker for supported macOS resident/release claims. #283 research remains PAUSED at `INCONCLUSIVE_LOW_DELTA`. Release publication remains deferred.
 
-Status: **COMPLETE / CLOSED — issue #273. PM-01, PM-02A, PM-02B and PM-03 COMPLETE / MERGED / OWNER REVIEW PASSED.**
+### Windows Global Index Recovery Remediation — #323
 
-Authority: [AI-only Product Migration](initiatives/ai-only-product-migration.md), accepted [PM-02A result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md), and current [PM-02B activation taskbook](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-ACTIVATION.md). PM-01 historical authority remains [PM-01 taskbook](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-ACTIVATION.md) and [deep-audit closure](tasks/AI-ONLY-PM-01-DEEP-AUDIT-CLOSURE.md).
+**COMPLETE / MERGED / CLOSED.** PR #327 squash-merged as `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after master CI 37722150775 is SUCCESS. Scoped Windows Paused/automatic-rebuild recovery is Owner accepted with explicit evidence exceptions; historical native qualification remains INCOMPLETE. #328 and #329 are separate OPEN defects.
 
-Result: [PM-01 Core Experience Result](tasks/AI-ONLY-PM-01-CORE-EXPERIENCE-RESULT.md). Final reviewed PR head `3d91c6689bb62d10eddf343419f00c4abaea9fee` passed exact-head CI [36439052294](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36439052294); PR #287 squash-merged as `master@ee3347dbc9963067851378da2acd0fd0d85d114c`; merge-after master CI [36447256280](https://github.com/ArdenZC/Zen-Canvas/actions/runs/36447256280) / run #1623 is **SUCCESS**. Owner Review passed after direct code/CI/evidence inspection.
-
-Current production / research sequence:
-
-1. Pre-PM foundations #272 / #276 / #279 / #285 — **COMPLETE / MERGED**.
-2. Post-Pre-PM Sequencing Review #282 — **COMPLETE / MERGED**.
-3. **PM-01 AI-only Core Experience — COMPLETE / MERGED through PR #287; Owner Review PASS; merge-after master CI SUCCESS.**
-4. **ZenDecisionBench Phase 1 / ZDB-03 research checkpoint — COMPLETE THROUGH THE BOUNDED 120-CASE SCREEN / PAUSED at INCONCLUSIVE_LOW_DELTA. >=300 Stage-B and ZDB-04+ remain NOT ACTIVE.**
-5. **PM-02A Automation Intent Foundation — COMPLETE / MERGED through PR #313; OWNER REVIEW PASSED; merge-after master CI 36821813846 SUCCESS.** [Result](tasks/AI-ONLY-PM-02A-AUTOMATION-INTENT-FOUNDATION-RESULT.md): Schema 36, reusable Query V2 scope, manual Intent-to-Plan handoff and existing Managed AI admission; Windows native + restart acceptance PASS; no automatic execution.
-6. **PM-02B Event / Schedule Triggers — COMPLETE / MERGED through PR #317; OWNER REVIEW PASSED; merge-after master CI 37265536740 SUCCESS.** [Result](tasks/AI-ONLY-PM-02B-EVENT-SCHEDULE-TRIGGER-RESULT.md): squash merge `master@fc433f305aafbc2326a15a39eb93476ebd4da20d` / tree `f7ce37786816b1af31a43f70e351430067790f6d`; accepted production candidate 823edc2b87c958f4bfdf7f6ba4211328140ccca2 / tree 63918653f3791386cb86f7208b01deda96ea7f89; Schema 37, package 0.1.40. Core Windows native evidence is PASS. Pending-at-exit recovery and real suspend/resume remain accepted UNVERIFIED evidence limitations. PM-03 was subsequently activated through PR #320.
-7. **PM-03 Product Hierarchy / Migration Closeout — COMPLETE / MERGED through PR #322; OWNER REVIEW PASSED; merge-after master CI 37561509211 SUCCESS.** Squash merge `master@4848e51dc9cfd1b87b6f4281aac7717452840cd8` / tree `e5a225a0e2c35d2a509c3e540b29862840c023aa`; accepted production candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621`. Windows Owner requalification PASS remains native product behavior PASS + deterministic ordering evidence accepted (no native ACK trace). Historical failures/remediations remain in the [result](tasks/AI-ONLY-PM-03-PRODUCT-HIERARCHY-MIGRATION-CLOSEOUT-RESULT.md) and [native record](tasks/evidence/PM-03/windows-native-qualification.md). Schema 37 / package 0.1.40 unchanged. Issue #273 is CLOSED / completed; independent #323 is the next bounded production remediation.
-8. System One / production Preference Memory — **NOT AUTHORIZED** without later evidence and architecture review.
-
-PM-01 consumed rather than recreated the #276/#279/#285 backend currentness/readiness/consent foundations. Old #274 remains closed/superseded. PM-03 implementation and Owner review are complete; PR #322 is merged and merge-after master CI 37561509211 is SUCCESS; it does not authorize Preference Memory, System One/Laya/Jev or release publication.
-
-#270 remains separate. Release publication remains deferred.
 
 ## Resident / Interactive Performance Qualification
 
