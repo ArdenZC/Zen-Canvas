@@ -258,7 +258,10 @@ fn side_effect_rollback_restores_settings_and_disables_the_synchronized_root() {
     )
     .expect_err("watcher side-effect failure remains visible after rollback");
 
-    assert!(error.to_string().contains("restoring runtime state failed"));
+    assert_eq!(
+        error.to_string(),
+        "settings side-effect reconciliation failed"
+    );
     let reloaded = get_versioned_app_settings(&db).expect("reload rolled-back settings");
     assert!(reloaded.settings.default_scan_folders.is_empty());
     let conn = Connection::open(db.path()).expect("open synchronized root database");
