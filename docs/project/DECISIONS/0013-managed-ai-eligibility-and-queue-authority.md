@@ -2,7 +2,7 @@
 
 Status: **Accepted by Owner for PR #334 — effective only when merged; no AI Eligibility implementation is authorized by this ADR itself.**
 
-Parent governance gate: [#330](https://github.com/ArdenZC/Zen-Canvas/issues/330)  
+Parent governance gate: [#330](https://github.com/ArdenZC/Zen-Canvas/issues/330)
 Tracking issue: [#333](https://github.com/ArdenZC/Zen-Canvas/issues/333)
 
 Baseline:
