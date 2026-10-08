@@ -1,6 +1,6 @@
 # ADR-0012 — Files Authority and Compatibility Retirement Boundary
 
-Status: **Proposed — Owner freeze candidate under #332; no product implementation authorized by this ADR draft.**
+Status: **Accepted by Owner for PR #334 — effective only when merged; no product implementation is authorized by this ADR itself.**
 
 Parent governance gate: [#330](https://github.com/ArdenZC/Zen-Canvas/issues/330)  
 Tracking issue: [#332](https://github.com/ArdenZC/Zen-Canvas/issues/332)
