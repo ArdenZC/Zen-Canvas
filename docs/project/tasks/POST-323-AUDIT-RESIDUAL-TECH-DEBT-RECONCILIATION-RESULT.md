@@ -111,8 +111,8 @@ Before any AI Eligibility production task:
 2. **#329 first** — clean-install Onboarding scan-scope persistence, because first-run Managed Scope truth is a direct prerequisite for the next product/AI-scope architecture.
 3. **#328 second** — transient SQLite lock/unavailable, because Global Index health is foundational to Files/Search and future candidate admission.
 4. Reconcile W6R-03 against the #328 root cause/evidence; create a separate issue only if a distinct current zero-source defect is proved.
-5. Freeze the **Files Authority / Compatibility Retirement ADR** covering TD-001 + TD-015 before File Workspace feature implementation.
-6. Freeze the **Managed AI Eligibility / Queue Authority ADR** covering TD-006 and the new eligibility proposal before AI Eligibility implementation.
+5. Freeze [ADR-0012 / #332 — Files Authority & Compatibility Retirement](../DECISIONS/0012-files-authority-and-compatibility-retirement.md) covering TD-001 + TD-015 before File Workspace feature implementation.
+6. Freeze [ADR-0013 / #333 — Managed AI Eligibility & Queue Authority](../DECISIONS/0013-managed-ai-eligibility-and-queue-authority.md) covering TD-006 and the new eligibility proposal before AI Eligibility implementation.
 7. Then activate the Post-AI-only Product / Architecture Rebaseline.
 8. Only after that may File Workspace Foundation implementation begin.
 
