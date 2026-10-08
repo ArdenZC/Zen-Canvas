@@ -355,7 +355,7 @@ fn actual_match_count(conn: &Connection, query_case: QueryCase) -> i64 {
     let value = match query_case.match_rule {
         MatchRule::ExactName(name) => SqlValue::Text(name.to_string()),
         MatchRule::NamePrefix(prefix) | MatchRule::ExtensionPrefix(prefix) => {
-            SqlValue::Text(format!("{}*", escape_glob(prefix)))
+            SqlValue::Text(format!("{}*", benchmark_escape_glob(prefix)))
         }
         MatchRule::FtsSubstring(value) => {
             SqlValue::Text(format!("\"{}\"", value.replace('"', "\"\"")))
@@ -370,6 +370,22 @@ fn actual_match_count(conn: &Connection, query_case: QueryCase) -> i64 {
                 "count oracle failed for class={}, query={:?}: {error}",
                 query_case.class, query_case.query
             )
+        })
+}
+
+// Keep the count oracle self-contained: the production search helper is
+// intentionally private, and the oracle should build its own expected GLOB.
+fn benchmark_escape_glob(value: &str) -> String {
+    value
+        .chars()
+        .fold(String::with_capacity(value.len()), |mut result, ch| {
+            match ch {
+                '*' => result.push_str("[*]"),
+                '?' => result.push_str("[?]"),
+                '[' => result.push_str("[[]"),
+                _ => result.extend(ch.to_lowercase()),
+            }
+            result
         })
 }
 

@@ -74,7 +74,7 @@ Issue：[#342 Global Search benchmark and regression evidence baseline](https://
 
 每个运行导出 JSONL artifact，包含 source SHA、runner OS/架构、entry 数、fixture 生成耗时、直接向 Global Index 表写入合成记录的 SQLite 耗时、512 行事务耗时分布、触发器清单、FTS 与逐查询 count-oracle 验证数量、SQLite page count/page size、主库/WAL/SHM 字节、查询计划和每类查询两种连接模式的 p50/p95/p99/min/max。它不测生产 provider 写入吞吐、RSS 或扫描吞吐。
 
-PR 会在 Windows Hosted Runner 执行 100k；`workflow_dispatch` 可选 100k/500k/1m/2m/5m。行动与 artifact 定义见 `.github/workflows/global-search-benchmark.yml`。手动复现命令：
+PR 会在 Windows Hosted Runner 执行 100k；`workflow_dispatch` 可选 100k/500k/1m/2m/5m。workflow 使用固定 `shared-key` 的 `Swatinem/rust-cache` 缓存 Rust registry、依赖构建产物和 target，允许不同规模及后续 PR 工作流复用已下载依赖；Cloud 工作区的 Cargo registry 与 target 同样保留在 `/home/agent/.cargo`。行动与 artifact 定义见 `.github/workflows/global-search-benchmark.yml`。手动复现命令：
 
 ```powershell
 $env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES = "500000"
@@ -86,13 +86,15 @@ cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib
 
 ## 6. 基准结果
 
-**当前提交的 Windows Hosted Runner 结果待工作流实际运行后填写。** 不把 Linux Cloud 或合成路径结果表述成 NTFS/APFS 性能。
+**Windows Hosted Runner 的测量结果待修复后的当前提交实际运行后填写。** 不把 Linux Cloud 或合成路径结果表述成 NTFS/APFS 性能。
 
 | 行数 | Windows Hosted 来源 SHA / Run | fixture 生成 ms | SQLite 写入 ms | DB 主库 + WAL bytes | 查询 p50/p95/p99 | 正确性 |
 | ---: | --- | ---: | ---: | ---: | --- | --- |
 | 100,000 | 待运行 | — | — | — | — | 待运行 |
 | 500,000 | 待运行 | — | — | — | — | 待运行 |
 | 1,000,000 | 待运行 | — | — | — | — | 待运行 |
+
+首次 100k Hosted 尝试（run `37812750902`，source SHA `f61179285ffbc7fcb616c2c9dbe4242f2ff19124`）在测试编译阶段失败，尚未执行 fixture 或查询：benchmark 的独立 SQLite count oracle 引用了生产模块私有的 `escape_glob`，触发 Rust E0425；因此没有 JSONL artifact 或性能数据。当前修正只在 benchmark 测试模块内添加本地 GLOB escape helper，没有改变生产代码。该尝试不计入性能结果，修复后的提交必须重新跑完整要求规模。
 
 各查询类逐项分位、SQL 计划和原始样本以 PR 附件 JSONL 为准；报告在读取精确 source SHA 的 hosted artifacts 后更新。跑不到的规模会保留为未测，不插值或外推。
 
