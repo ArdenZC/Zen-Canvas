@@ -48,6 +48,30 @@ describe("app settings helpers", () => {
     });
   });
 
+  it("rebases once when the stable support code identifies a revision conflict", async () => {
+    const latest = { settings: { ...DEFAULT_APP_SETTINGS, searchHotkey: "Ctrl+K" }, revision: 7 };
+    const saveSettings = vi.fn()
+      .mockRejectedValueOnce(new Error("settings_save_failure:revision_conflict"))
+      .mockResolvedValueOnce({
+        settings: { ...latest.settings, restoreRetentionDays: 90 },
+        revision: 8
+      });
+    const getSettings = vi.fn().mockResolvedValue(latest);
+
+    await expect(saveSettingsIntent(
+      { getSettings, saveSettings },
+      { settings: DEFAULT_APP_SETTINGS, revision: 6 },
+      { restoreRetentionDays: 90 }
+    )).resolves.toMatchObject({ revision: 8, settings: { searchHotkey: "Ctrl+K" } });
+
+    expect(getSettings).toHaveBeenCalledOnce();
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(saveSettings).toHaveBeenLastCalledWith({
+      settings: { ...latest.settings, restoreRetentionDays: 90 },
+      expectedRevision: latest.revision
+    });
+  });
+
   it("fails closed after a second revision conflict", async () => {
     const getSettings = vi.fn().mockResolvedValue({ settings: DEFAULT_APP_SETTINGS, revision: 8 });
     const saveSettings = vi.fn().mockRejectedValue(new Error("settings_revision_conflict"));
@@ -253,8 +277,9 @@ describe("app settings helpers", () => {
     expect(settingsSource).toContain("reload_file_watcher_for_settings");
     expect(runtimeProvidersSource).toContain("updateSettingsWithResult({ defaultScanFolders: next })");
     expect(runtimeProvidersSource).toContain(
-      "result.persisted && defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next)"
+      "const rootsMatch = defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next)"
     );
+    expect(runtimeProvidersSource).toContain("return result.persisted && rootsMatch");
     expect(i18nSource).not.toContain("file watching updates after restarting the app");
     expect(i18nSource).not.toContain("文件监听会在重启应用后更新");
   });

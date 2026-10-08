@@ -90,7 +90,9 @@ export async function saveSettingsIntent(
 }
 
 function isSettingsRevisionConflict(error: unknown) {
-  return String(error).includes("settings_revision_conflict");
+  const message = String(error);
+  return message.includes("settings_revision_conflict")
+    || message.includes("settings_save_failure:revision_conflict");
 }
 
 export function mergeAppSettings(

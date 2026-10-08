@@ -214,7 +214,7 @@ describe("Onboarding settings persistence boundary", () => {
   });
 
   it("keeps Onboarding incomplete after a backend side-effect rollback", async () => {
-    const backendError = "file watcher reload failed: sqlite error: database is locked; settings were restored";
+    const backendError = "settings_save_failure:watcher_runtime_failure";
     apiMocks.saveSettings.mockRejectedValue(new Error(backendError));
     renderOnboarding();
     await flushAsync();

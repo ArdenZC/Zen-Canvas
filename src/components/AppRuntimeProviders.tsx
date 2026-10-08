@@ -84,7 +84,12 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     [t]
   );
   const formatSettingsSaveError = useCallback(
-    (error: unknown) => `${t("settingsSaveFailed")}：${localizedStableError(error, t)}`,
+    (error: unknown) => {
+      const detail = localizedStableError(error, t);
+      return detail.startsWith(t("settingsSaveFailed"))
+        ? detail
+        : `${t("settingsSaveFailed")}：${detail}`;
+    },
     [t]
   );
   const formatRuleSyncError = useCallback(() => t("ruleSyncFailed"), [t]);
@@ -208,9 +213,13 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const setDefaultScanFolders = useCallback(
     async (next: ScanRootSetting[]) => {
       const result = await updateSettingsWithResult({ defaultScanFolders: next });
-      return result.persisted && defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next);
+      const rootsMatch = defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next);
+      if (result.persisted && !rootsMatch) {
+        showError(`${t("settingsSaveFailed")} (${t("settingsFailureCode")}: unknown_failure)`);
+      }
+      return result.persisted && rootsMatch;
     },
-    [updateSettingsWithResult]
+    [showError, t, updateSettingsWithResult]
   );
   const setRestoreRetentionDays = useCallback(
     async (next: RestoreRetentionDays) => {
