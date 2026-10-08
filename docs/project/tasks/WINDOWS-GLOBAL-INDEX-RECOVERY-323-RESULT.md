@@ -1,8 +1,10 @@
 # Windows Global Index Recovery Remediation — #323 implementation result
 
-Date: 2026-10-07 (Asia/Shanghai)
+Last closeout update: 2026-10-08 (Asia/Shanghai)
 
-Disposition: **IMPLEMENTATION COMPLETE — OWNER CODE / CI REVIEW PENDING**. Draft implementation PR only. Native Owner qualification is not authorized or performed; issue #323 remains OPEN. AI-only Product Migration #273 remains completed/closed.
+Disposition: **#323 SCOPED WINDOWS NATIVE RECOVERY OWNER ACCEPTED WITH EVIDENCE EXCEPTIONS — DOCUMENTATION CLOSEOUT AUTHORIZED**. Owner accepted frozen HEAD `2e0d75416c6ebdfb37df753632d31c479875759b` / tree `dd7cb01c31ac5edc5f65de6742b467f735f99735`. [PR #327](https://github.com/ArdenZC/Zen-Canvas/pull/327) remains OPEN / Draft; issue #323 remains OPEN. Acceptance is scoped to Windows Paused and automatic rebuild recovery, with the exceptions below. AI-only Product Migration #273 remains completed/closed.
+
+The implementation-stage statements below describe the original code/CI task. Its native stage was subsequently authorized and performed separately; the original qualification report remains historical INCOMPLETE. This documentation closeout records the Owner disposition without rewriting that evidence.
 
 ## Identity and frozen boundaries
 
@@ -53,8 +55,38 @@ Admission is proved by the existing production Background gate trace. Recovery t
 
 The evidence-only follow-up preserves exactly `zb05-global-index-service-evidence.json`, `service-recovery.json` and `recovery-trace.log` in a sibling task-owned `RUNNER_TEMP/zb05-global-index-service-evidence-<run_id>-<run_attempt>` directory, outside disposable profile/VHD cleanup. The named `windows-global-index-service-qualification` artifact explicitly uploads those three files. Missing any file, or missing the exact `windows_recovery_rebuild_admitted` trace event, fails the job; empty uploads are errors. Product source remains byte-identical to the accepted candidate. Fresh follow-up exact-head CI and downloaded artifact verification are recorded in the PR handoff; the earlier CI is not evidence for a later HEAD.
 
-## Review limitations and stop
+## Historical implementation review limitations and stop
 
 The deterministic suite and automated hosted service regression are separate from native Owner qualification. No installation or recovery test was performed on the Owner's Sandbox/real-user profile in this task. Owner code/CI review must authorize that later native stage. The real concurrent service Pause regression passed the accepted product candidate's hosted gate; that automated evidence is separate from Owner native acceptance.
 
 Historical PM-03 Global Index degradation evidence remains unchanged. #323 remains OPEN; Draft PR remains Draft/unmerged. Stop at **#323 IMPLEMENTATION COMPLETE — READY FOR OWNER CODE / CI REVIEW**; no native Owner qualification, Ready transition, merge, issue closure or release publication.
+
+## Owner-accepted scoped native closeout
+
+On 2026-10-08 the Owner explicitly accepted the scoped Windows native recovery behavior with evidence exceptions and authorized documentation/issue tracking only. The independent audit reconciled 24 required records and verified 105/105 original payload sizes and SHA-256 hashes, with no missing/unlisted payloads. Evidence root: `E:/CargoTarget/issue323-hyperv-owner-native-20261007`; manifest SHA-256 `255BD18271B1A5CD614ADC7688DBC904894F85DA017C26FEE09B601032948F20`. The manifest and detached digest are two explicit exclusions from the 105 payload count. The original `qualification-report.json` remains INCOMPLETE and unchanged; no original artifact is amended or overwritten. The independent review and preservation proof are retained in `E:/CargoTarget/issue323-owner-evidence-audit-20261008-024155`.
+
+| Accepted record / exception | Disposition and retained boundary |
+| --- | --- |
+| Phase A normal application Quit | Original execution attestation, native active/exit screenshots, original source timeline and post-Quit JSON/raw snapshot corroborate active indexing to durable `paused / NULL`; only service PID 9492 remains in the post-Quit process list. The exact Quit input has no standalone input trace. |
+| Missing Phase-A pre-Quit desktop PID | **Explicitly waived by Owner** for this scoped acceptance; the missing fact remains UNVERIFIED. Neither restart PID 6328 nor Phase-B PID 8960 substitutes for it. |
+| Phase B seeded checkpoint and recovered result | Original same-source before/after rows preserve identity/T0 while changing journal ID/cursor to impossible values. Timeline reaches repaired `ready / NULL` at `2026-10-07T07:56:41.4231579-07:00`; full-index timestamp advances from 1791384773 to 1791385000, journal ID becomes 134359024628821469 and cursor 93767936. Subsequent live query corroborates ready and legitimate cursor advancement. |
+| Initial seeded transient | **`rebuild_required` NOT DIRECTLY OBSERVED** before first repaired ready. Accepted as an evidence exception, not manufactured native PASS. The natural `rebuild_required` at `2026-10-07T09:26:34.4858581-07:00` is separately attributed and never substituted for the seeded transition. |
+| Deterministic / hosted transport and Background admission | **ACCEPTED DETERMINISTIC EVIDENCE**, retained separately from native observations; typed Paused/rebuild-required propagation and admitted recovery remain backed by accepted product CI 37575501916 and the evidence-retention successor. The 105-file native package does not contain the three hosted raw artifacts. |
+| Automatic recovery attribution | Recorded execution attests no manual Rebuild/Resume, service/VM restart or additional profile write after the seed; stable service identity and checkpoint progression corroborate it. There is no exhaustive UI/SCM/SQL-action journal, nor native instrumentation of every private admission event. Owner acceptance retains this supporting-evidence boundary. |
+| Bounded mutation safety | Sentinel path/59-byte size/historical SHA-256 agree before, live and final; raw sentinel content is not retained. All nine business tables remain zero across five independently queried DB/WAL audit copies. This is measured invariance, not an OS-wide or transient-transaction audit. Automatic user-file mutation authority added remains zero. |
+| Internal writes / overwritten supporting report | Global Index/FTS rows, SQLite DB/WAL and observer evidence writes are separately accounted internal activity. The initial count-report was overwritten by the restarted observer; it is not a first-start baseline. Original pre-Pause DB/WAL restores the nine-count baseline. Reprocessed completion receipts and non-atomic live snapshot limitations are preserved; original live query/timeline establish ready, while the raw live copy reads syncing. |
+
+No unresolved evidence gap materially invalidates the accepted observed Paused or automatic full-index recovery outcome within these explicit boundaries. This is scoped Owner acceptance with exceptions, not retrospective completion of every qualification record, full-product acceptance or native macOS qualification.
+
+Independent unresolved defects, checked against all 35 existing open/closed issue titles and bodies before creation:
+
+- [#328 — Windows Global Index transient unavailable on SQLite lock during startup/recovery](https://github.com/ArdenZC/Zen-Canvas/issues/328): `unavailable / database error: sqlite error: database is locked` at `07:55:32.4049526-07:00`, followed by indexing/NULL 654.7605 ms later. Subsequent recovery does not prove the lock failure fixed; root cause/repeatability remain unverified.
+- [#329 — Windows clean-install Onboarding scan-scope save failure](https://github.com/ArdenZC/Zen-Canvas/issues/329): `onboarding_scan_scope_save_failed` for `C:\OwnerQualification\fixture`. Escape dismissal did not fix persistence; no successful-save/remediation evidence is retained.
+
+These are independent tracking defects, not absorbed remediation scope or activated initiatives. Neither is silently classified as fixed.
+
+## Documentation-successor delivery boundary
+
+The successor changes only this result, the #323 implementation evidence and the applicable STATUS entries. Production code, package 0.1.40, Schema 37, IPC v3 and runtime behavior remain byte-identical to the accepted product candidate `251a6371fb9e9bee7d88cb585c233c9c34b86fcd`; the already accepted workflow/hosted-qualification retention follow-up remains unchanged from frozen HEAD `2e0d75416c6ebdfb37df753632d31c479875759b`. Exact blob/tree equivalence and fresh successor-HEAD CI are recorded externally in `E:/CargoTarget/issue323-owner-documentation-closeout-20261008`, including run ID/conclusion, source and merge-integration identities and applicable downloaded artifacts. Earlier CI is not promoted to a successor exact-head claim; skipped lanes stay SKIPPED.
+
+No native qualification rerun, rebuild, reinstall, metadata seed, production/source/CI-routing change, PR Ready transition, merge, #323 closure or new initiative is authorized. Final stop: **#323 FINAL DOCUMENTATION CLOSEOUT CANDIDATE — READY FOR OWNER REVIEW**.
