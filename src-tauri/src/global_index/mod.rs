@@ -24,3 +24,6 @@ pub use search::search_global_entries;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod lock_contention_tests;
