@@ -28,18 +28,23 @@ The next architecture needs an explicit distinction between discovering files an
 
 ## Exact reviewed Managed AI queue surfaces at baseline
 
-Current repository search shows the durable queue authority in `ai_jobs` and these production surfaces that must be included in any future eligibility implementation audit:
+Current repository search shows the durable queue authority in `ai_jobs` and the following production queue-entry surfaces:
 
-- `src-tauri/src/global_index/repository.rs` — canonical Global Index queue helpers / enqueue logic;
-- `src-tauri/src/global_index/managed_scope.rs` — Managed Scope membership/backfill and initial bounded enqueue;
-- `src-tauri/src/global_index/legacy_queue.rs` — TD-006 compatibility adapter into the same durable queue;
-- `src-tauri/src/db/queries/organization/mod.rs` — Organization semantic readiness/job production paths;
-- `src-tauri/src/db/queries/rule_proposals/mod.rs` — Rule Proposal semantic job path;
-- `src-tauri/src/global_index/managed_worker_hardened.rs` — claim/reconcile/execute/currentness lifecycle; it is the worker/consumer, not a second producer authority.
+- `src-tauri/src/global_index/repository.rs` — canonical queue helpers used by Global Index/update paths and explicit managed-file enqueue; this is where durable `ai_jobs` / `ai_job_items` rows are created or reactivated;
+- `src-tauri/src/global_index/managed_scope.rs` — Managed Scope membership/backfill and the initial bounded enqueue through the canonical repository helper;
+- `src-tauri/src/global_index/legacy_queue.rs` — TD-006 compatibility adapter used by legacy File Library AI classification/cancel flows; it resolves current Global Index + Managed Scope coverage and then calls the same canonical repository helper;
+- `src-tauri/src/db/queries/organization/mod.rs` — production Organization missing-semantic analysis calls `enqueue_managed_ai_for_library_files`; direct `INSERT INTO ai_jobs` occurrences in this module are test/benchmark fixtures and are **not** a separate production queue writer;
+- `src-tauri/src/global_index/managed_worker_hardened.rs` — claim/reconcile/execute/currentness lifecycle; it is the worker/consumer, not a producer authority.
+
+Explicitly outside the Managed AI durable queue:
+
+- Rule Proposal generation does **not** write `ai_jobs`; it retains its separately bounded interactive provider/proposal lifecycle;
+- Cleanup AI retains Analysis Finding/evidence authority and its separate consent path;
+- Content Understanding retains Content Run/Artifact authority and its separate content-disclosure consent.
 
 The worker already joins jobs to Managed Scope, managed entry, Global Index entry/volume and current analysis state, revalidates policy/currentness and is admitted through the existing WorkScheduler.
 
-This inventory is the minimum audited set. A later implementation activation must rerun repository-wide producer search at its exact baseline and add any newly introduced producer before code changes.
+This inventory is the minimum audited set. A later implementation activation must rerun repository-wide producer search at its exact baseline and add any newly introduced producer before code changes. It must not route intentionally separate Rule Proposal, Cleanup or Content AI domains into `ai_jobs` merely to make eligibility look uniform.
 
 ## Decision
 
