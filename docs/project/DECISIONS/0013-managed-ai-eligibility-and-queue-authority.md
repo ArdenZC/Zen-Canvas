@@ -26,6 +26,21 @@ Current production logic can enqueue work from Global Index/Managed Scope and re
 
 The next architecture needs an explicit distinction between discovering files and deciding which files deserve AI work.
 
+## Exact reviewed Managed AI queue surfaces at baseline
+
+Current repository search shows the durable queue authority in `ai_jobs` and these production surfaces that must be included in any future eligibility implementation audit:
+
+- `src-tauri/src/global_index/repository.rs` — canonical Global Index queue helpers / enqueue logic;
+- `src-tauri/src/global_index/managed_scope.rs` — Managed Scope membership/backfill and initial bounded enqueue;
+- `src-tauri/src/global_index/legacy_queue.rs` — TD-006 compatibility adapter into the same durable queue;
+- `src-tauri/src/db/queries/organization/mod.rs` — Organization semantic readiness/job production paths;
+- `src-tauri/src/db/queries/rule_proposals/mod.rs` — Rule Proposal semantic job path;
+- `src-tauri/src/global_index/managed_worker_hardened.rs` — claim/reconcile/execute/currentness lifecycle; it is the worker/consumer, not a second producer authority.
+
+The worker already joins jobs to Managed Scope, managed entry, Global Index entry/volume and current analysis state, revalidates policy/currentness and is admitted through the existing WorkScheduler.
+
+This inventory is the minimum audited set. A later implementation activation must rerun repository-wide producer search at its exact baseline and add any newly introduced producer before code changes.
+
 ## Decision
 
 ### 1. Five different states must never be collapsed
