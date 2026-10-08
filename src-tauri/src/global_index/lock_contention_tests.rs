@@ -486,7 +486,10 @@ fn deferred_settings_cas_reproduces_the_immediate_upgrade_failure_baseline() {
     );
     let persisted = get_versioned_app_settings(&database).expect("reload baseline settings");
     assert_eq!(persisted.revision, previous.revision);
-    assert_eq!(persisted.settings, previous.settings);
+    assert_eq!(
+        serde_json::to_value(&persisted.settings).expect("serialize persisted settings"),
+        serde_json::to_value(&previous.settings).expect("serialize previous settings")
+    );
     println!(
         "issue_329_correlation baseline=deferred_settings_cas stage=read_to_write_upgrade result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} configured_busy_timeout_ms={} correlation=POSSIBLE_SHARED_CONTENTION",
         cas_elapsed.as_millis(),

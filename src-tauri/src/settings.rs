@@ -1082,7 +1082,10 @@ mod settings_save_tests {
         assert_eq!(reload_calls.get(), 2, "initial reload and rollback reload");
         let persisted = get_versioned_app_settings(&database).expect("read compensated settings");
         assert_eq!(persisted.revision, initial.revision + 2);
-        assert_eq!(persisted.settings, initial.settings);
+        assert_eq!(
+            serde_json::to_value(&persisted.settings).expect("serialize compensated settings"),
+            serde_json::to_value(&initial.settings).expect("serialize initial settings")
+        );
     }
 
     #[test]
@@ -1119,7 +1122,10 @@ mod settings_save_tests {
         assert_eq!(reload_calls.get(), 2, "initial reload and rollback reload");
         let persisted = get_versioned_app_settings(&database).expect("read rolled-back settings");
         assert_eq!(persisted.revision, initial.revision + 2);
-        assert_eq!(persisted.settings, initial.settings);
+        assert_eq!(
+            serde_json::to_value(&persisted.settings).expect("serialize rolled-back settings"),
+            serde_json::to_value(&initial.settings).expect("serialize initial settings")
+        );
     }
 
     #[test]
