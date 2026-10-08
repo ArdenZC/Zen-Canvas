@@ -122,16 +122,21 @@ export function upsertDefaultScanRoot(
 
   if (existingIndex === -1) return [...current, nextRoot];
 
-  return current.map((root, index) =>
-    index === existingIndex
-      ? {
-          ...root,
-          path: nextRoot.path,
-          label: root.label || nextRoot.label,
-          enabled: true
-        }
-      : root
-  );
+  const existing = current[existingIndex];
+  const updated = {
+    ...existing,
+    path: nextRoot.path,
+    label: existing.label || nextRoot.label,
+    enabled: true
+  };
+  return current.reduce<ScanRootSetting[]>((roots, root, index) => {
+    if (!sameScanRootPath(root.path, nextRoot.path)) {
+      roots.push(root);
+    } else if (index === existingIndex) {
+      roots.push(updated);
+    }
+    return roots;
+  }, []);
 }
 
 export function toggleDefaultScanRoot(
@@ -151,6 +156,31 @@ export function removeDefaultScanRoot(
 
 export function enabledScanRootPaths(roots: ScanRootSetting[]): string[] {
   return enabledRootPaths(roots);
+}
+
+export function defaultScanRootSettingsEqual(
+  actual: readonly ScanRootSetting[],
+  expected: readonly ScanRootSetting[]
+): boolean {
+  const actualByPath = scanRootSettingsByPath(actual);
+  const expectedByPath = scanRootSettingsByPath(expected);
+  if (!actualByPath || !expectedByPath || actualByPath.size !== expectedByPath.size) return false;
+  for (const [path, enabled] of expectedByPath) {
+    if (actualByPath.get(path) !== enabled) return false;
+  }
+  return true;
+}
+
+function scanRootSettingsByPath(roots: readonly ScanRootSetting[]) {
+  const byPath = new Map<string, boolean>();
+  for (const root of roots) {
+    const path = normalizePathLike(normalizeScanRootPath(root.path));
+    if (!path) return null;
+    const existingEnabled = byPath.get(path);
+    if (existingEnabled !== undefined && existingEnabled !== root.enabled) return null;
+    byPath.set(path, root.enabled);
+  }
+  return byPath;
 }
 
 export function upsertSearchRoot(

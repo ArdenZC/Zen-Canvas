@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { tauriApi } from "../api/tauriApi";
 import { ChromeProvider, RulesProvider, RuntimeCapabilitiesProvider, SettingsProvider } from "../contexts/AppContexts";
 import { useAppChrome } from "../hooks/useAppChrome";
-import { enabledScanRootPaths, enabledSearchRootPaths, useAppSettings } from "../hooks/useAppSettings";
+import { defaultScanRootSettingsEqual, enabledScanRootPaths, enabledSearchRootPaths, useAppSettings } from "../hooks/useAppSettings";
 import { useFsWatcher } from "../hooks/useFsWatcher";
 import { useRulePersistence } from "../hooks/useRulePersistence";
 import { useWindowBehavior } from "../hooks/useWindowBehavior";
@@ -203,7 +203,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const setDefaultScanFolders = useCallback(
     async (next: ScanRootSetting[]) => {
       const savedSettings = await updateSettings({ defaultScanFolders: next });
-      return arraysEqual(savedSettings.defaultScanFolders, next);
+      return defaultScanRootSettingsEqual(savedSettings.defaultScanFolders, next);
     },
     [updateSettings]
   );

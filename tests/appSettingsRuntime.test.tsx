@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_APP_SETTINGS, useAppSettings } from "../src/hooks/useAppSettings";
+import { createScanRootSetting, DEFAULT_APP_SETTINGS, useAppSettings } from "../src/hooks/useAppSettings";
 
 const settingsMocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -61,6 +61,49 @@ describe("useAppSettings load and save epochs", () => {
       expectedRevision: 7
     });
     expect(latest?.settings.searchHotkey).toBe("Ctrl+Shift+P");
+  });
+
+  it("preserves the first-run scan scope across delayed load and a CAS conflict", async () => {
+    const loaded = deferred<ReturnType<typeof versionedSettings>>();
+    const selectedRoot = createScanRootSetting(
+      "C:/OwnerQualification/fixture",
+      "2026-10-08T00:00:00.000Z"
+    );
+    const newerSettings = {
+      ...DEFAULT_APP_SETTINGS,
+      backgroundIndexOnStartup: false
+    };
+    settingsMocks.getSettings.mockReturnValue(loaded.promise);
+    settingsMocks.saveSettings
+      .mockRejectedValueOnce(new Error("settings_revision_conflict"))
+      .mockResolvedValueOnce({
+        settings: { ...newerSettings, defaultScanFolders: [selectedRoot] },
+        revision: 9
+      });
+    const container = document.createElement("div");
+    root = createRoot(container);
+    root.render(createElement(SettingsHarness, { onState: (state) => { latest = state; } }));
+    await flushPromises();
+
+    expect(latest?.isLoadingSettings).toBe(true);
+    const saving = latest?.updateSettings({ defaultScanFolders: [selectedRoot] });
+    expect(settingsMocks.saveSettings).not.toHaveBeenCalled();
+    settingsMocks.getSettings.mockResolvedValueOnce({ settings: newerSettings, revision: 8 });
+
+    loaded.resolve({ settings: DEFAULT_APP_SETTINGS, revision: 7 });
+    await saving;
+    await flushPromises();
+
+    expect(settingsMocks.saveSettings).toHaveBeenNthCalledWith(1, {
+      settings: { ...DEFAULT_APP_SETTINGS, defaultScanFolders: [selectedRoot] },
+      expectedRevision: 7
+    });
+    expect(settingsMocks.saveSettings).toHaveBeenNthCalledWith(2, {
+      settings: { ...newerSettings, defaultScanFolders: [selectedRoot] },
+      expectedRevision: 8
+    });
+    expect(latest?.settings.defaultScanFolders).toEqual([selectedRoot]);
+    expect(latest?.settings.backgroundIndexOnStartup).toBe(false);
   });
 
   it("serializes fast partial updates against the latest persisted revision", async () => {

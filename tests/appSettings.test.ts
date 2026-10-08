@@ -5,6 +5,7 @@ import {
   DEFAULT_APP_SETTINGS,
   createSearchRootSetting,
   createScanRootSetting,
+  defaultScanRootSettingsEqual,
   enabledScanRootPaths,
   enabledSearchRootPaths,
   mergeAppSettings,
@@ -143,6 +144,43 @@ describe("app settings helpers", () => {
     expect(removeDefaultScanRoot(roots, downloads.id)).toEqual([projects]);
   });
 
+  it("upserts an equivalent existing path without retaining duplicate roots", () => {
+    const original = createScanRootSetting("F:/Downloads", "2026-06-22T00:00:00.000Z");
+    const duplicate = {
+      ...original,
+      id: "legacy-downloads-root",
+      path: "f:\\downloads",
+      enabled: false
+    };
+
+    const roots = upsertDefaultScanRoot([original, duplicate], "f:/downloads", "2026-10-08T00:00:00.000Z");
+
+    expect(roots).toHaveLength(1);
+    expect(roots[0]).toMatchObject({ id: original.id, enabled: true, path: "f:/downloads" });
+  });
+
+  it("compares authoritative scan roots by path and enabled state while allowing backend normalization", () => {
+    const requested = [createScanRootSetting(
+      "C:\\OwnerQualification\\fixture",
+      "2026-10-08T00:00:00.000Z"
+    )];
+    const normalized = [{
+      ...requested[0],
+      id: "backend-owned-root-id",
+      path: "c:/ownerqualification/fixture/",
+      label: "Fixture",
+      createdAt: "2026-10-08T00:00:01.000Z"
+    }];
+
+    expect(defaultScanRootSettingsEqual(normalized, requested)).toBe(true);
+    expect(defaultScanRootSettingsEqual([], requested)).toBe(false);
+    expect(defaultScanRootSettingsEqual([{ ...normalized[0], enabled: false }], requested)).toBe(false);
+    expect(defaultScanRootSettingsEqual([
+      ...normalized,
+      createScanRootSetting("D:/Unrelated", "2026-10-08T00:00:00.000Z")
+    ], requested)).toBe(false);
+  });
+
   it("generates distinct IDs for paths whose slugs collide", () => {
     const first = createScanRootSetting("C:/A+B", "2026-07-10T00:00:00.000Z");
     const second = createScanRootSetting("C:/A B", "2026-07-10T00:00:00.000Z");
@@ -196,12 +234,14 @@ describe("app settings helpers", () => {
   it("restarts the backend file watcher when saved scan roots change", () => {
     const settingsSource = readFileSync(resolve("src-tauri/src/settings.rs"), "utf8");
     const mainSource = readFileSync(resolve("src-tauri/src/main.rs"), "utf8");
+    const runtimeProvidersSource = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
     const i18nSource = readFileSync(resolve("src/i18n/dictionary.ts"), "utf8");
 
     expect(mainSource).toContain("FileWatcherManager::default()");
     expect(mainSource).toContain("reload_file_watcher_for_settings");
     expect(settingsSource).toContain("watcher_manager: State<'_, FileWatcherManager>");
     expect(settingsSource).toContain("reload_file_watcher_for_settings");
+    expect(runtimeProvidersSource).toContain("defaultScanRootSettingsEqual(savedSettings.defaultScanFolders, next)");
     expect(i18nSource).not.toContain("file watching updates after restarting the app");
     expect(i18nSource).not.toContain("文件监听会在重启应用后更新");
   });
