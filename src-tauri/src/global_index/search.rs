@@ -262,6 +262,47 @@ fn search_fts(
     collect_candidates(&mut statement, params![fts_query, limit])
 }
 
+/// Test-only access to the exact production FTS query for the staged latency
+/// diagnostic. This wrapper does not change the runtime search path.
+#[cfg(test)]
+pub(crate) fn diagnostic_search_fts(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    search_fts(conn, query, limit)
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_search_fts_sql() -> String {
+    candidate_sql(
+        "global_entries_fts JOIN global_entries ge ON ge.rowid = global_entries_fts.rowid JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "global_entries_fts MATCH ?1 AND gv.enabled = 1 AND ge.is_stale = 0",
+        "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
+        "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
+        "?2",
+    )
+}
+
+/// Run one of the real production search tiers in isolation so no-result
+/// latency can be attributed to the tier that consumes it.
+#[cfg(test)]
+pub(crate) fn diagnostic_search_tier(
+    conn: &Connection,
+    tier: &str,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    match tier {
+        "exact_name" => search_exact_name(conn, query, limit),
+        "name_prefix" => search_name_prefix(conn, query, limit),
+        "exact_extension" => search_exact_extension(conn, query, limit),
+        "extension_prefix" => search_extension_prefix(conn, query, limit),
+        "fts" => search_fts(conn, query, limit),
+        _ => panic!("unknown diagnostic search tier: {tier}"),
+    }
+}
+
 fn search_punctuation_prefix(
     conn: &Connection,
     prefix: &str,

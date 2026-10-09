@@ -18,22 +18,31 @@ on:
           - "1000000"
           - "2000000"
           - "5000000"
+      mode:
+        description: Run the official benchmark or the focused FTS diagnostic
+        required: true
+        type: choice
+        default: baseline
+        options:
+          - baseline
+          - fts_diagnostic
 
 permissions:
   contents: read
 
 concurrency:
-  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
+  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}-${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
   cancel-in-progress: false
 
 jobs:
   synthetic-global-search:
-    name: Synthetic Global Search (${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
+    name: Global Search ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
     env:
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
       ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-baseline.jsonl
+      ZC_GLOBAL_SEARCH_BENCHMARK_MODE: ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
@@ -51,18 +60,27 @@ jobs:
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
-      - name: Run isolated synthetic benchmark and correctness assertions
+      - name: Run official synthetic benchmark and correctness assertions
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'baseline' }}
         run: >-
           cargo test --manifest-path src-tauri/Cargo.toml
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::global_search_synthetic_benchmark_baseline
           -- --ignored --exact --nocapture --test-threads=1
+      - name: Run focused FTS query-stage diagnostic
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'fts_diagnostic' }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::fts_diagnostic::global_search_fts_latency_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
       - name: Upload benchmark evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: global-search-baseline-${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES }}-rows-${{ github.run_id }}
+          name: global-search-${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE }}-${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES }}-rows-${{ github.run_id }}
           path: ci-evidence/global-search-baseline.jsonl
           if-no-files-found: warn
           retention-days: 30
