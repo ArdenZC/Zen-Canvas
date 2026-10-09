@@ -3731,7 +3731,10 @@ mod tests {
         started_rx
             .recv_timeout(Duration::from_secs(2))
             .expect("batch writer reaches the real Database API");
-        let error = match result_rx.recv_timeout(Duration::from_secs(8)) {
+        // Keep the production busy timeout unchanged; hosted Apple runners need
+        // extra scheduling margin, but this remains bounded before the holder's
+        // 20 s fail-safe release.
+        let error = match result_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Err(error)) => error,
             Ok(Ok(_)) => panic!("batch persistence unexpectedly passed under a held writer"),
             Err(error) => panic!("batch persistence did not fail boundedly: {error}"),
@@ -3764,6 +3767,10 @@ mod tests {
         contender.join().expect("batch writer contender joins");
 
         assert!(elapsed >= Duration::from_secs(4));
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "batch BUSY result was not bounded: {elapsed:?}"
+        );
         assert_eq!(after_failure.dto.revision, claimed.dto.revision);
         assert_eq!(after_failure.dto.scanned_files, 0);
         assert_eq!(session_after_failure.revision, claimed.session_revision);
