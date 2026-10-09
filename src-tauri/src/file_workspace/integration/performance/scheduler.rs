@@ -343,6 +343,34 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
             })
             .unwrap_or(false)
     });
+    let scan_run_failure_diagnostics = if scan_runs_settled_without_failure {
+        None
+    } else {
+        Some(
+            scan_run_ids
+                .iter()
+                .map(|run_id| match scan_db.get_scan_run_record(run_id) {
+                    Ok(record) => json!({
+                        "run_id": run_id,
+                        "status": record.dto.status,
+                        "phase": record.dto.phase,
+                        "error_code": record.dto.error_code,
+                        "error_message": record.dto.error_message,
+                        "scanned_files": record.dto.scanned_files,
+                        "scanned_directories": record.dto.scanned_directories,
+                        "processed_bytes": record.dto.processed_bytes,
+                        "revision": record.dto.revision,
+                        "last_checkpoint_at": record.dto.last_checkpoint_at,
+                    }),
+                    Err(error) => json!({
+                        "run_id": run_id,
+                        "status": "unavailable",
+                        "read_error": error.to_string(),
+                    }),
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
     let settled_snapshot = scheduler.snapshot();
     let scheduler_settled = settled_snapshot.running == initial_snapshot.running
         && settled_snapshot.queued == initial_snapshot.queued;
@@ -474,6 +502,12 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
         ),
         ("fixture_root_scope".to_string(), json!("repository-local")),
     ];
+    if let Some(diagnostics) = scan_run_failure_diagnostics {
+        pressure_metrics.push((
+            "scan_run_failure_diagnostics".to_string(),
+            json!(diagnostics),
+        ));
+    }
     if !background_progressed {
         pressure_metrics.push((
             "background_progress_failure_diagnostics".to_string(),
