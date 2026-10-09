@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-08
+Last verified: 2026-10-09
 
 ## Current execution truth
 
@@ -45,6 +45,12 @@ Workflow ownership is now binding: Owner/ChatGPT owns architecture and GitHub go
 Status: **COMPLETE / MERGED / CLOSED — SCOPED WINDOWS NATIVE RECOVERY OWNER ACCEPTED WITH EVIDENCE EXCEPTIONS; MERGE-AFTER MASTER CI SUCCESS.**
 
 PR #327 squash-merged as `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after master CI [37722150775](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37722150775) is **SUCCESS**. Issue #323 is CLOSED / completed. The original native qualification remains historically INCOMPLETE and its explicit evidence exceptions are preserved. Issues #328 and #329 remain independent OPEN defects.
+
+### Issue #329 V2 native failure remediation
+
+Status: **IMPLEMENTATION COMPLETE — SOURCE VALIDATION LANES PASS; THREE AGGREGATE CI CHECKS FAIL ON A SEPARATE VALIDATION-PLAN INPUT DEFECT; COMPLETED REVIEW FINDINGS RESOLVED; NO FURTHER CODEX-REVIEW AUTHORIZED BY USER.** Issue #329 remains OPEN; PR #335 remains OPEN / Draft. Source candidate `c85257940c591035d1a5520b50df33292fd38142` is on the existing `fix/issue-329-onboarding-scan-scope-save` branch. Exact-head Windows/macOS hosted CI is [run 37861489174](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37861489174): all source validation lanes pass, while three aggregate checks fail because their validation-plan invocation omits required head/lane result inputs. Rerunning those jobs reproduced the helper call-contract failure. The workflow/helper are outside this bounded scope and remain a separate Owner gate. Completed independent review findings were resolved, including the false-negative Windows rollback-root assertion fixed by normalizing its query path. The attempted post-fix review returned the Codex CLI usage-limit error; per the user's instruction, no further codex-review will be run. The frozen native install was not touched. No installer build or Owner-driven native product qualification was initiated; hosted CI's disposable Windows Global Index service gate is separate. See [Issue #329 V2 remediation report](tasks/ISSUE-329-V2-NATIVE-FAILURE-ROOT-CAUSE-REMEDIATION.md).
+
+The current production Settings CAS writer-contention mechanism is reproduced and boundedly repaired; the historical native event's exact stage remains **INFERRED** because it exposed only a generic save failure. V2 reports **#329 ROOT CAUSE CORRELATES WITH #328 SQLITE WRITER CONTENTION** for the reproduced current-path mechanism while keeping #328 administratively separate. This status does not authorize Ready, merge, native qualification, or issue closure.
 
 ## Completed AI-only Product Migration
 
