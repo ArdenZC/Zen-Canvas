@@ -667,7 +667,16 @@ fn assert_adversarial_results(results: &[GlobalSearchResult]) {
     );
     assert_eq!(results[0].modified_at_fs, results[1].modified_at_fs);
     assert!(!results[0].managed && results[1].managed);
-    assert!(results.iter().all(|entry| entry.volume_id != "gv_disabled"));
+    assert!(results.iter().all(|entry| {
+        entry.volume_id != "gv_disabled"
+            && !entry.id.starts_with("ge_disabled_")
+            && !entry.id.starts_with("ge_stale_")
+    }));
+    let unique_ids = results
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(unique_ids.len(), results.len());
 }
 
 fn assert_variant_page_equivalence(
@@ -717,7 +726,8 @@ fn profile_variants(
             let (samples, results, policy) =
                 measure(|| run_variant(conn, sql, query, SEARCH_RESULT_LIMIT));
             assert_eq!(
-                results, production,
+                results.as_slice(),
+                production.as_slice(),
                 "{variant} must preserve every result field for {query}"
             );
             let values = vec![
@@ -769,6 +779,29 @@ fn profile_variants(
         } else {
             assert_variant_page_equivalence(conn, query, limit, offset, &expected)
         };
+        if query == "report" && offset == 40 {
+            let first_page_ids = production_results[0]
+                .iter()
+                .take(40)
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>();
+            let second_page_ids = expected
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>();
+            assert!(first_page_ids
+                .iter()
+                .all(|id| !second_page_ids.contains(id)));
+            let mut concatenated_pages = first_page_ids;
+            concatenated_pages.extend(second_page_ids);
+            assert_eq!(
+                concatenated_pages,
+                production_results[0]
+                    .iter()
+                    .map(|entry| entry.id.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
         emit_record(&json!({
             "schema_version": 1,
             "record_type": "variant_semantic_gate",
@@ -781,6 +814,19 @@ fn profile_variants(
             "pagination_and_candidate_cap_equal": true
         }));
     }
+    let after_cap = search_global_entries_on_connection(conn, "report", 80, 4_096)
+        .expect("verify production search after candidate cap");
+    assert!(after_cap.is_empty());
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "candidate_window_contract",
+        "context": context,
+        "query": "report",
+        "candidate_limit": 4096,
+        "concatenated_first_80_match": true,
+        "duplicate_ids_across_pages": false,
+        "offset_at_candidate_cap_empty": true
+    }));
 
     let production = &production_results[0];
     let unsafe_rows = run_variant(conn, VARIANT_UNSAFE_POSTFILTER, "report", 80);
