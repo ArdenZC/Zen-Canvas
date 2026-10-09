@@ -250,9 +250,13 @@ fn search_fts(
     query: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    // SQLite can reorder the ordinary JOINs into volume -> entries -> FTS.
+    // CROSS JOIN is SQLite's documented join-order fence: keep the selective
+    // MATCH cursor outermost, while applying active-volume and stale filters
+    // before ORDER BY/LIMIT so filtered rows never underfill the page.
     let sql = candidate_sql(
-        "global_entries_fts JOIN global_entries ge ON ge.rowid = global_entries_fts.rowid JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "global_entries_fts MATCH ?1 AND gv.enabled = 1 AND ge.is_stale = 0",
+        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
         "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "?2",
@@ -276,8 +280,8 @@ pub(crate) fn diagnostic_search_fts(
 #[cfg(test)]
 pub(crate) fn diagnostic_search_fts_sql() -> String {
     candidate_sql(
-        "global_entries_fts JOIN global_entries ge ON ge.rowid = global_entries_fts.rowid JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "global_entries_fts MATCH ?1 AND gv.enabled = 1 AND ge.is_stale = 0",
+        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
         "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "?2",

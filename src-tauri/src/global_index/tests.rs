@@ -576,6 +576,11 @@ fn global_search_fts_layer_fills_remaining_page_and_offset_is_stable() {
         .collect::<Vec<_>>();
     assert_eq!(repeated_ids, full_ids);
 
+    assert!(db
+        .search_global_entries("zzznomatchtoken", 20, 0)
+        .expect("zero-match FTS search")
+        .is_empty());
+
     drop(db);
     let _ = std::fs::remove_file(path);
 }
