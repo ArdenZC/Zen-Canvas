@@ -268,8 +268,8 @@ fn generated_entry(index: u64) -> SyntheticEntry {
         created_at_fs: 1_600_000_000 + (index as i64 / 2),
         modified_at_fs: 1_600_000_000 + index as i64,
         file_attributes: (index % 16) as i64,
-        is_hidden: index % 97 == 0,
-        is_system: index % 997 == 0,
+        is_hidden: index.is_multiple_of(97),
+        is_system: index.is_multiple_of(997),
     }
 }
 
