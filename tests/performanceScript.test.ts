@@ -40,6 +40,12 @@ const WORKSPACE_BENCHMARK_TEST_NAMES = {
     "file_workspace::integration::performance::browse::browse_session_capacity_remains_bounded",
   workspace_foundation_scheduler_pressure:
     "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
+  workspace_foundation_sqlite_admission_wait:
+    "db::queries::scan::tests::managed_scan_admission_waits_for_a_short_real_writer_lock",
+  workspace_foundation_sqlite_admission_timeout:
+    "db::queries::scan::tests::managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority",
+  workspace_foundation_sqlite_batch_busy:
+    "db::queries::scan::tests::managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release",
   workspace_foundation_scan_writer_contention:
     "scanner::tests::issue345_concurrent_real_managed_scan_writers_hold_and_release_authority",
   workspace_foundation_resource_steady_state:
@@ -115,6 +121,9 @@ describe("performance profile and manifest contract", () => {
     expect(ids.has("workspace_foundation_browse_100k")).toBe(true);
     expect(ids.has("workspace_foundation_browse_session_capacity")).toBe(true);
     expect(ids.has("workspace_foundation_scheduler_pressure")).toBe(true);
+    expect(ids.has("workspace_foundation_sqlite_admission_wait")).toBe(true);
+    expect(ids.has("workspace_foundation_sqlite_admission_timeout")).toBe(true);
+    expect(ids.has("workspace_foundation_sqlite_batch_busy")).toBe(true);
     expect(ids.has("workspace_foundation_scan_writer_contention")).toBe(true);
     expect(ids.has("workspace_foundation_resource_steady_state")).toBe(true);
     expect(ids.has("preview_shell_first_visible")).toBe(true);
@@ -134,11 +143,22 @@ describe("performance profile and manifest contract", () => {
       read("src-tauri/src/file_workspace/integration/performance/browse.rs"),
       read("src-tauri/src/file_workspace/integration/performance/scheduler.rs"),
       read("src-tauri/src/file_workspace/integration/performance/steady_state.rs"),
+      read("src-tauri/src/db/queries/scan.rs"),
       read("src-tauri/src/scanner.rs"),
     ].join("\n");
     for (const [id, testName] of Object.entries(WORKSPACE_BENCHMARK_TEST_NAMES)) {
       expect(benchmarks.find((benchmark) => benchmark.id === id)?.testName).toBe(testName);
       expect(source).toContain(`fn ${testName.split("::").at(-1)}(`);
+    }
+    for (const id of [
+      "workspace_foundation_sqlite_admission_wait",
+      "workspace_foundation_sqlite_admission_timeout",
+      "workspace_foundation_sqlite_batch_busy",
+    ]) {
+      expect(benchmarks.find((benchmark) => benchmark.id === id)).toMatchObject({
+        ignored: false,
+        testThreads: 1,
+      });
     }
   });
 
