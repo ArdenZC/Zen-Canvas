@@ -11,6 +11,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[path = "global_search_fts_diagnostic.rs"]
+mod fts_diagnostic;
+
 const DEFAULT_ENTRIES: u64 = 100_000;
 const ALLOWED_ENTRIES: [u64; 5] = [100_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
 const INSERT_BATCH_SIZE: u64 = 512;
@@ -752,8 +755,8 @@ fn capture_query_plans(conn: &Connection, context: &JsonValue) -> Vec<JsonValue>
         "?3",
     );
     let fts_sql = candidate_plan_sql(
-        "global_entries_fts JOIN global_entries ge ON ge.rowid = global_entries_fts.rowid JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "global_entries_fts MATCH ?1 AND gv.enabled = 1 AND ge.is_stale = 0",
+        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
         "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "?2",
