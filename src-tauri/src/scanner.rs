@@ -2146,11 +2146,15 @@ mod tests {
             .cpu
             .min(background_policy.effective_capacity.io)
             .max(1) as usize;
+        let available_scan_capacity =
+            concurrent_scan_capacity.saturating_sub(initial_snapshot.running_background);
         assert!(background_policy.allow_background);
         assert!(
-            concurrent_scan_capacity >= 2,
-            "D4 requires two real concurrent background leases; effective capacity was {concurrent_scan_capacity}"
+            available_scan_capacity >= 2,
+            "D4 requires two available real background leases; effective capacity was {concurrent_scan_capacity}, initially running {}",
+            initial_snapshot.running_background
         );
+        let filler_count = available_scan_capacity.saturating_sub(2);
 
         let db = test_db("issue345-d4-concurrent-writers");
         let fixture_root =
@@ -2158,7 +2162,13 @@ mod tests {
         let owner_root = fixture_root.join("owner");
         let contender_root = fixture_root.join("contender");
         let replacement_root = fixture_root.join("replacement");
-        for root in [&owner_root, &contender_root, &replacement_root] {
+        let filler_roots = (0..filler_count)
+            .map(|index| fixture_root.join(format!("capacity-filler-{index}")))
+            .collect::<Vec<_>>();
+        for root in [&owner_root, &contender_root, &replacement_root]
+            .into_iter()
+            .chain(filler_roots.iter())
+        {
             fs::create_dir_all(root).expect("create isolated D4 managed scan root");
             fs::write(root.join("one.txt"), b"issue345 fixture")
                 .expect("create D4 managed scan file");
@@ -2167,6 +2177,17 @@ mod tests {
         let owner_run_id = format!("issue345-d4-owner-{}", new_job_id("run"));
         let contender_run_id = format!("issue345-d4-contender-{}", new_job_id("run"));
         let replacement_run_id = format!("issue345-d4-replacement-{}", new_job_id("run"));
+        let filler_run_ids = (0..filler_count)
+            .map(|index| format!("issue345-d4-filler-{index}-{}", new_job_id("run")))
+            .collect::<Vec<_>>();
+        let mut filler_release_senders = Vec::with_capacity(filler_count);
+        let mut filler_release_receivers = std::collections::HashMap::with_capacity(filler_count);
+        for run_id in &filler_run_ids {
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            filler_release_senders.push(release_tx);
+            filler_release_receivers.insert(run_id.clone(), release_rx);
+        }
+        let filler_release_receivers = Arc::new(std::sync::Mutex::new(filler_release_receivers));
         let (events_tx, events_rx) = std::sync::mpsc::channel::<(&'static str, String)>();
         let (owner_begin_tx, owner_begin_rx) = std::sync::mpsc::channel();
         let (contender_begin_tx, contender_begin_rx) = std::sync::mpsc::channel();
@@ -2183,6 +2204,8 @@ mod tests {
 
         let owner_id_for_hook = owner_run_id.clone();
         let contender_id_for_hook = contender_run_id.clone();
+        let filler_ids_for_hook = filler_run_ids.clone();
+        let filler_receivers_for_hook = Arc::clone(&filler_release_receivers);
         let hook_events = events_tx.clone();
         set_managed_scan_write_test_hook(Some(Arc::new(move |run_id, point| {
             if run_id == owner_id_for_hook && point == ManagedScanWriteTestPoint::BeforeTransaction
@@ -2212,6 +2235,19 @@ mod tests {
                 && point == ManagedScanWriteTestPoint::TransactionAcquired
             {
                 let _ = hook_events.send(("contender_transaction_acquired", run_id.to_string()));
+            } else if point == ManagedScanWriteTestPoint::BeforeTransaction
+                && filler_ids_for_hook
+                    .iter()
+                    .any(|filler_run_id| filler_run_id.as_str() == run_id)
+            {
+                let _ = hook_events.send(("filler_before_begin", run_id.to_string()));
+                let release_rx = filler_receivers_for_hook
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(run_id);
+                if let Some(release_rx) = release_rx {
+                    let _ = release_rx.recv_timeout(Duration::from_secs(20));
+                }
             } else if run_id == owner_id_for_hook && point == ManagedScanWriteTestPoint::AfterCommit
             {
                 let _ = hook_events.send(("owner_batch_committed", run_id.to_string()));
@@ -2265,8 +2301,6 @@ mod tests {
             contender_before,
             ("contender_before_begin", contender_run_id.clone())
         );
-        let active_snapshot = scheduler.snapshot();
-        assert!(active_snapshot.running_background >= 2);
         assert_eq!(
             db.get_scan_run_record(&owner.run_id)
                 .expect("owner durable run")
@@ -2281,6 +2315,25 @@ mod tests {
                 .status,
             "running"
         );
+
+        let mut fillers = Vec::with_capacity(filler_count);
+        for (index, run_id) in filler_run_ids.iter().enumerate() {
+            let filler = start_performance_managed_scan(
+                app_handle.clone(),
+                db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+                filler_roots[index].clone(),
+                run_id.clone(),
+                "background",
+            )
+            .expect("start real scan to fill the remaining background capacity");
+            let filler_before = events_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("capacity-filling scan reaches its deterministic pre-transaction barrier");
+            assert_eq!(filler_before, ("filler_before_begin", run_id.clone()));
+            fillers.push(filler);
+        }
 
         let replacement = start_performance_managed_scan(
             app_handle,
@@ -2298,9 +2351,15 @@ mod tests {
         {
             std::thread::yield_now();
         }
+        let active_snapshot = scheduler.snapshot();
         assert!(
-            scheduler.snapshot().queued > initial_snapshot.queued,
-            "replacement scan should wait behind two real scanner leases"
+            active_snapshot.running_background
+                >= initial_snapshot.running_background + available_scan_capacity,
+            "D4 holds all available background lease capacity before replacement admission"
+        );
+        assert!(
+            active_snapshot.queued > initial_snapshot.queued,
+            "replacement scan should wait behind real managed scans filling background capacity"
         );
 
         owner_begin_tx
@@ -2393,6 +2452,12 @@ mod tests {
             Err(error) => Err(error),
         };
 
+        for release in &filler_release_senders {
+            release
+                .send(())
+                .expect("release a capacity-filling real scan");
+        }
+
         owner
             .worker
             .join()
@@ -2401,6 +2466,12 @@ mod tests {
             .worker
             .join()
             .expect("contender managed-scan worker joins");
+        for filler in fillers {
+            filler
+                .worker
+                .join()
+                .expect("capacity-filling managed-scan worker joins");
+        }
         replacement
             .worker
             .join()
@@ -2422,6 +2493,15 @@ mod tests {
             .expect("read replacement result")
             .dto
             .status;
+        let filler_statuses = filler_run_ids
+            .iter()
+            .map(|run_id| {
+                db.get_scan_run_record(run_id)
+                    .expect("read capacity-filling managed-scan result")
+                    .dto
+                    .status
+            })
+            .collect::<Vec<_>>();
         let settled_snapshot = scheduler.snapshot();
         let scheduler_settled = settled_snapshot.running == initial_snapshot.running
             && settled_snapshot.queued == initial_snapshot.queued;
@@ -2435,7 +2515,8 @@ mod tests {
             .unwrap_or(30_000);
         let run_statuses_settled = owner_status == "cancelled"
             && contender_status == "completed"
-            && replacement_status == "completed";
+            && replacement_status == "completed"
+            && filler_statuses.iter().all(|status| status == "completed");
 
         println!(
             "[issue345-d4] {}",
@@ -2445,13 +2526,16 @@ mod tests {
                 "contender_writer_wait_ms": contender_writer_wait_ms,
                 "foreground_wait_ms": foreground_wait_ms,
                 "foreground_admitted": foreground_admitted,
-                "pressure_slots": active_snapshot.running_background,
+                "pressure_slots": active_snapshot.running_background.saturating_sub(initial_snapshot.running_background),
+                "effective_background_capacity": concurrent_scan_capacity,
+                "capacity_filler_count": filler_count,
                 "replacement_queued_before_release": true,
                 "background_progress_after_cancel": replacement_status == "completed",
                 "run_statuses": {
                     "owner_cancelled": owner_status,
                     "contender": contender_status,
                     "replacement": replacement_status,
+                    "capacity_fillers": filler_statuses,
                 },
                 "scan_runs_settled_without_failure": run_statuses_settled,
                 "scheduler_running_before": initial_snapshot.running,

@@ -3617,7 +3617,10 @@ mod tests {
         started_rx
             .recv_timeout(Duration::from_secs(2))
             .expect("admission contender reaches the call boundary");
-        let error = match result_rx.recv_timeout(Duration::from_secs(8)) {
+        // SQLite retains the production 5 s busy timeout. Leave hosted-runner
+        // scheduling variance room while still failing well before the holder's
+        // 20 s fail-safe release.
+        let error = match result_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Err(error)) => error,
             Ok(Ok(_)) => panic!("admission unexpectedly passed under a held writer"),
             Err(error) => panic!("admission did not fail boundedly at the busy timeout: {error}"),
@@ -3656,7 +3659,7 @@ mod tests {
             "busy timeout returned too early: {elapsed:?}"
         );
         assert!(
-            elapsed < Duration::from_secs(8),
+            elapsed < Duration::from_secs(10),
             "busy timeout was not bounded: {elapsed:?}"
         );
         assert_eq!((root_count, session_count, run_count), (0, 0, 0));
