@@ -201,6 +201,8 @@ fn search_ids(results: &[GlobalSearchResult]) -> Vec<String> {
     results.iter().map(|result| result.id.clone()).collect()
 }
 
+// Keep the diagnostic's serialized stage fields explicit at this test-only boundary.
+#[allow(clippy::too_many_arguments)]
 fn emit_stage_record(
     context: &JsonValue,
     query_class: &str,
@@ -408,6 +410,8 @@ fn run_staged_query(
         .expect("collect staged query")
 }
 
+// Keep the diagnostic's serialized stage fields explicit at this test-only boundary.
+#[allow(clippy::too_many_arguments)]
 fn stage_result_record(
     context: &JsonValue,
     query_class: &str,
@@ -717,7 +721,7 @@ fn profile_variants(
 ) {
     let mut measured_variants = Vec::new();
     for ((query_class, query), production) in FTS_QUERIES.iter().copied().zip(production_results) {
-        let production_ids = search_ids(&production);
+        let production_ids = search_ids(production);
         let mut per_query = Vec::new();
         for (variant, sql) in [
             ("materialized_safe_bounded_candidates", VARIANT_SAFE_CTE),
