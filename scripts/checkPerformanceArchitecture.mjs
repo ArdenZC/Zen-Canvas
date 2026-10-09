@@ -80,6 +80,7 @@ const workspacePerformanceSource = [
   "src-tauri/src/file_workspace/integration/performance/steady_state.rs",
   "src-tauri/src/file_workspace/integration/performance/resources.rs",
   "src-tauri/src/file_workspace/integration/performance/fixture.rs",
+  "src-tauri/src/scanner.rs",
 ].map(read).join("\n");
 const workspaceMetricSource = read("src-tauri/src/file_workspace/integration/performance/metrics.rs");
 const previewPerformanceSource = [
@@ -100,6 +101,8 @@ const workspaceBenchmarkTestNames = Object.freeze({
     "file_workspace::integration::performance::browse::browse_session_capacity_remains_bounded",
   workspace_foundation_scheduler_pressure:
     "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
+  workspace_foundation_scan_writer_contention:
+    "scanner::tests::issue345_concurrent_real_managed_scan_writers_hold_and_release_authority",
   workspace_foundation_resource_steady_state:
     "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
   workspace_foundation_windows_private_usage_detector:

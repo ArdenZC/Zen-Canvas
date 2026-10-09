@@ -333,6 +333,14 @@ export const PERFORMANCE_SUITES = Object.freeze({
         testName: "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
       }),
       benchmark({
+        id: "workspace_foundation_scan_writer_contention",
+        label: "Issue 345 real managed-scan SQLite writer overlap",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "scanner::tests::issue345_concurrent_real_managed_scan_writers_hold_and_release_authority",
+        testThreads: 1,
+      }),
+      benchmark({
         id: "workspace_foundation_resource_steady_state",
         label: "File Workspace resource and registry steady state",
         targetKey: "lib",

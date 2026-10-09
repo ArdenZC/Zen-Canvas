@@ -40,6 +40,8 @@ const WORKSPACE_BENCHMARK_TEST_NAMES = {
     "file_workspace::integration::performance::browse::browse_session_capacity_remains_bounded",
   workspace_foundation_scheduler_pressure:
     "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
+  workspace_foundation_scan_writer_contention:
+    "scanner::tests::issue345_concurrent_real_managed_scan_writers_hold_and_release_authority",
   workspace_foundation_resource_steady_state:
     "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
 } as const;
@@ -113,6 +115,7 @@ describe("performance profile and manifest contract", () => {
     expect(ids.has("workspace_foundation_browse_100k")).toBe(true);
     expect(ids.has("workspace_foundation_browse_session_capacity")).toBe(true);
     expect(ids.has("workspace_foundation_scheduler_pressure")).toBe(true);
+    expect(ids.has("workspace_foundation_scan_writer_contention")).toBe(true);
     expect(ids.has("workspace_foundation_resource_steady_state")).toBe(true);
     expect(ids.has("preview_shell_first_visible")).toBe(true);
     expect(ids.has("preview_provider_useful_representation")).toBe(true);
@@ -131,6 +134,7 @@ describe("performance profile and manifest contract", () => {
       read("src-tauri/src/file_workspace/integration/performance/browse.rs"),
       read("src-tauri/src/file_workspace/integration/performance/scheduler.rs"),
       read("src-tauri/src/file_workspace/integration/performance/steady_state.rs"),
+      read("src-tauri/src/scanner.rs"),
     ].join("\n");
     for (const [id, testName] of Object.entries(WORKSPACE_BENCHMARK_TEST_NAMES)) {
       expect(benchmarks.find((benchmark) => benchmark.id === id)?.testName).toBe(testName);
