@@ -1,6 +1,6 @@
 # Global Search 合成基准与回归证据基线
 
-状态：**Windows 100k 完整合成矩阵已测：12 类正确性断言通过，FTS 子串和无结果查询有严重 p95 超限；500k/1m 未运行。首次完整运行未生成 artifact，已修正 CI 输出路径并安排新 PR HEAD 复跑。未修改生产搜索代码。**
+状态：**100k 精确 benchmark source SHA 已完成完整合成矩阵并核验 artifact：12/12 count oracle、12/12 query 与分页正确性通过；3/12 查询类超过历史 100ms p95 门槛。Artifact 上传成功。500k/1m 为 Owner scale-stop 后 DEFERRED / NOT RUN。未修改生产搜索代码。**
 
 Issue：[#342 Global Search benchmark and regression evidence baseline](https://github.com/ArdenZC/Zen-Canvas/issues/342)
 
@@ -47,7 +47,7 @@ Issue：[#342 Global Search benchmark and regression evidence baseline](https://
 
 主要实现：`src-tauri/src/global_index/tests/global_search_benchmark.rs`，由现有 `tests.rs` 的 `global_search_benchmark` 子模块引入。
 
-支持 `100000`、`500000`、`1000000`、`2000000`、`5000000` 行；PR 自动运行 100k，手动工作流可选其他规模。合成记录包含唯一 ID、确定性大小与修改时间、扩展名分布、混合大小写、空格、数字、下划线、连字符、点、重名、长文件名、中文、NFC/NFD 字符形式，以及浅层/深层/多兄弟目录和 Windows 形态路径。样本路径对应 Documents、Downloads、Pictures、Desktop 和开发项目；没有访问这些真实路径。
+支持 `100000`、`500000`、`1000000`、`2000000`、`5000000` 行；PR 中 benchmark 测试源文件变化时自动运行 100k，手动工作流可选其他规模。合成记录包含唯一 ID、确定性大小与修改时间、扩展名分布、混合大小写、空格、数字、下划线、连字符、点、重名、长文件名、中文、NFC/NFD 字符形式，以及浅层/深层/多兄弟目录和 Windows 形态路径。样本路径对应 Documents、Downloads、Pictures、Desktop 和开发项目；没有访问这些真实路径。
 
 每 512 条记录一批事务写入。所有生产 Global Index 触发器必须在建库过程中存在，结束后验证 FTS 报告命中数和 trigger 维护的 volume count 与预期相符。不会删除/重建 FTS，不会关闭 trigger，也不会改变同步模式。
 
@@ -76,7 +76,7 @@ Issue：[#342 Global Search benchmark and regression evidence baseline](https://
 
 每个运行导出 JSONL artifact，包含 source SHA、runner OS/架构、entry 数、fixture 生成耗时、直接向 Global Index 表写入合成记录的 SQLite 耗时、512 行事务耗时分布、触发器清单、FTS 与逐查询 count-oracle 验证数量、SQLite page count/page size、主库/WAL/SHM 字节、查询计划和每类查询两种连接模式的 p50/p95/p99/min/max。它不测生产 provider 写入吞吐、RSS 或扫描吞吐。
 
-PR 会在 Windows Hosted Runner 执行 100k；`workflow_dispatch` 可选 100k/500k/1m/2m/5m。workflow 使用固定 `shared-key` 的 `Swatinem/rust-cache` 缓存 Rust registry、依赖构建产物和 target，允许不同规模及后续 PR 工作流复用已下载依赖。Cloud 工作区的 Cargo registry 位于 `/home/agent/.cargo`，项目 build target 位于 `src-tauri/target`。行动与 artifact 定义见 `.github/workflows/global-search-benchmark.yml`。手动复现命令：
+PR benchmark path filter 只在两个隔离的 Rust benchmark 测试源文件变更时触发 100k Hosted Runner 矩阵；报告更新与 workflow maintenance 不会单独启动长时间矩阵。手动 workflow_dispatch 仍可选 100k、500k、1m、2m、5m。workflow 使用固定 shared-key 的 Swatinem/rust-cache 缓存 Rust registry、依赖构建产物和 target，允许不同规模及后续 PR 工作流复用依赖。Cloud 工作区的 Cargo registry 位于 /home/agent/.cargo，项目 build target 位于 src-tauri/target。工作流定义见 .github/workflows/global-search-benchmark.yml。手动复现命令：
 
 ```powershell
 $env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES = "500000"
@@ -88,44 +88,76 @@ cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib
 
 ## 6. 基准结果
 
-完整运行：[Windows Hosted Runner run 37863673393](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37863673393)，source SHA `98e8f46954d0af7dd37374303cfdd897ce58a438`，Windows Server 2025 x86_64。路径和文件名是合成数据，只测 SQLite Global Index 查询，不访问真实文件系统。固定查询矩阵完整运行 **6,478.16 秒（约 107 分 58 秒）** 后因性能门槛失败；性能门槛在所有 12 类查询完成后才统一判定。
+最终 100k 证据来自 Windows Hosted Runner run [37872989762](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37872989762)，benchmark source SHA 为 16a2c18e87ab220ec3ddaf4ab11eaf70dcc12f70。Runner metadata 记录 Windows / x86_64。测试对象是 100,000 条合成 SQLite Global Index entry；路径只作为字符串写入数据库，没有创建或扫描真实文件。
 
-| 行数 | fixture 生成 ms | SQLite 写入 ms | DB 主库 bytes | 主库 + WAL bytes | 正确性 / 状态 |
-| ---: | ---: | ---: | ---: | ---: | --- |
-| 100,000 | 271.022 | 130,943.738 | 131,321,856 | 151,283,288 | 12/12 count oracle、12/12 query 结果通过；3 个查询类超历史 p95 门槛 |
-| 500,000 | — | — | — | — | 未运行：100k 完整矩阵耗时约 108 分钟且已发现三个严重超限热点 |
-| 1,000,000 | — | — | — | — | 未运行；没有从 100k 外推 |
+GitHub Actions artifact **上传成功**：
 
-生成 fixture 时保留生产 entry、count 和 FTS 触发器；共 196 个 512 行事务。SQLite page count 为 32,061，page size 为 4,096；采样时 WAL 为 19,961,432 bytes，SHM 为 65,536 bytes。索引已建好后查询计时。测试没有记录 RSS、扫描吞吐或 OS page-cache 冷读。
+| 项目 | 值 |
+| --- | --- |
+| Artifact name | global-search-baseline-100000-rows-37872989762 |
+| Artifact ID | 11593946907 |
+| GitHub artifact 状态 | 未过期；上传步骤 SUCCESS |
+| ZIP 大小 | 3,660 bytes |
+| Artifact digest | sha256:ae6cc04c449909d7a0f657c7c052d8a9cf494bba107b1d26b9038e4c990b1f9d |
+| 本地下载校验 | 下载 ZIP 的 SHA-256 与 GitHub digest 完全一致 |
+| JSONL 记录 | 45 条：1 dataset、12 count oracle、6 query plan、1 pagination、12 query、12 performance gate、1 summary |
+
+Artifact 内 source SHA、run ID、平台和数据集字段与本节引用一致。报告是 benchmark 完成后的文档更新；下表性能数据绑定于 source SHA 16a2c18e87ab220ec3ddaf4ab11eaf70dcc12f70，不得解释为之后的文档提交重新跑出的结果。Final documentation HEAD 由 PR 最新 head 单独标识。
+
+| 行数 | fixture 生成 ms | SQLite population ms | SQLite 主库 bytes | 主库 + WAL bytes | WAL / SHM bytes | 正确性 |
+| ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 100,000 | 217.927 | 187,411.249 | 131,321,856 | 151,283,288 | 19,961,432 / 65,536 | 12/12 count oracle、12/12 query 与分页断言通过 |
+| 500,000 | — | — | — | — | — | DEFERRED / NOT RUN — Owner scale-stop after 100k measured FTS pathology |
+| 1,000,000 | — | — | — | — | — | DEFERRED / NOT RUN — Owner scale-stop after 100k measured FTS pathology |
+
+数据库 page count 为 32,061，page size 为 4,096。数据库文件大小属于合成 SQLite Global Index；不代表文件系统扫描吞吐、进程 RSS、查询期间 CPU 或真实用户库占用。测试没有清理 OS page cache。
 
 ### 完整 100k 查询分位数
 
-单位为 ms。`warm` 通过 `Database::search_global_entries`，包含 pool checkout；`reopened` 每个样本新建 SQLite connection，但不把 connection open 耗时计入查询，也没有清除 OS page cache。每类有 5 次 warmup、30 次 warm 和 30 次 reopened 样本。分位数按排序后的线性插值计算。
+以下值来自已下载并校验 digest 的 JSONL。单位为毫秒，每类先做 5 次 warmup，再分别采集 30 个 warm 样本和 30 个 reopened-connection 样本。Warm 走 Database::search_global_entries 并计入连接池 checkout；reopened 每个样本新开 SQLite connection，但 connection open 时间不计入延迟。两种模式都没有清除 OS page cache，因此 reopened 不是冷盘读取测试。分位数以排序后线性插值计算。
 
-| 查询类 | 预期命中数 | warm p50 / p95 / p99 | reopened p50 / p95 / p99 |
+| 查询类 | 完整匹配数 | warm p50 / p95 / p99 | reopened p50 / p95 / p99 |
 | --- | ---: | ---: | ---: |
-| 精确文件名 | 1 | 0.877 / 0.959 / 0.975 | 1.150 / 1.651 / 1.738 |
-| 名称前缀 `quarterly` | 5,000 | 44.249 / 49.050 / 54.427 | 34.491 / 40.295 / 42.474 |
-| 高扇出前缀 `IMG_` | 4,999 | 47.279 / 60.913 / 72.468 | 40.871 / 51.816 / 58.074 |
-| FTS 子串 `report` | 5,000 | 40,697.099 / **45,337.153** / 49,177.393 | 39,567.320 / 39,711.631 / 39,832.675 |
-| FTS 子串 `invoice` | 5,000 | 51,834.468 / **53,049.098** / 54,177.347 | 51,998.119 / 52,133.997 / 52,161.768 |
-| 精确扩展名 `pdf` | 18,130 | 1.037 / 1.391 / 2.289 | 1.311 / 1.372 / 1.478 |
-| 扩展名前缀 `jp` | 8,129 | 11.736 / 12.046 / 15.976 | 18.445 / 19.297 / 19.454 |
-| 重名 `meeting-notes.md` | 5,000 | 0.669 / 0.715 / 0.721 | 0.963 / 1.027 / 1.195 |
-| 无结果 `zzznomatchtoken` | 0 | 3,428.000 / **3,452.392** / 3,457.959 | 3,426.006 / 3,459.455 / 3,467.818 |
-| 中文前缀 `数据库` | 5,000 | 27.283 / 28.341 / 28.992 | 34.275 / 38.204 / 39.993 |
-| 标点前缀 `final-v2` | 5,000 | 26.785 / 29.322 / 32.540 | 33.694 / 36.521 / 37.882 |
-| 重音字符前缀 `RÉSUMÉ` | 5,000 | 25.715 / 26.722 / 27.366 | 32.777 / 34.284 / 35.877 |
+| exact basename | 1 | 0.652 / 0.782 / 1.024 | 0.863 / 0.911 / 0.955 |
+| name prefix quarterly | 5,000 | 32.277 / 33.669 / 34.257 | 25.567 / 25.967 / 26.506 |
+| common prefix high fan-out IMG_ | 4,999 | 33.335 / 36.002 / 38.706 | 26.631 / 27.028 / 27.167 |
+| FTS substring report | 5,000 | 28,092.386 / **28,648.790** / 28,717.074 | 28,201.995 / 30,454.042 / 34,090.706 |
+| FTS substring invoice | 5,000 | 35,643.821 / **36,765.041** / 38,380.463 | 35,625.693 / 35,870.300 / 35,901.047 |
+| extension exact pdf | 18,130 | 0.762 / 0.816 / 1.251 | 1.010 / 1.066 / 1.108 |
+| extension prefix jp | 8,129 | 7.180 / 7.435 / 8.604 | 13.210 / 13.275 / 13.667 |
+| duplicate basename | 5,000 | 0.486 / 0.529 / 0.537 | 0.719 / 0.757 / 0.760 |
+| no result zzznomatchtoken | 0 | 2,371.596 / **2,386.873** / 2,391.529 | 2,378.208 / 2,397.035 / 2,407.244 |
+| Chinese prefix | 5,000 | 17.785 / 18.227 / 18.305 | 23.764 / 24.225 / 27.073 |
+| punctuation prefix final-v2 | 5,000 | 18.080 / 18.499 / 18.657 | 24.225 / 27.321 / 29.362 |
+| Unicode accented prefix | 5,000 | 17.361 / 17.634 / 17.701 | 23.055 / 23.719 / 25.378 |
 
-12 个独立 count oracle 均正确；12 个 query 类返回的完整预期 ID 顺序、结果数量和唯一性检查全部通过。高扇出查询的第一页与第二页连接结果匹配预期前 80 条，offset 4090 页边界返回 6 条，offset 4096 为空。性能门槛记录为 **3/12 失败**：FTS `report` p95 45.337 秒、FTS `invoice` p95 53.049 秒、无结果查询 p95 3.452 秒，均超过保留的历史 100ms p95 门槛。该门槛是原 ignored 基准的回归阈值，不是新批准的产品 SLA。
+12 个 count oracle 和 12 个 query record 均为 correct。Pagination record 验证分页拼接与前 80 条一致、无重复 ID、offset-at-cap 为空，offset 4090 返回预期 6 条。100ms warmed p95 gate 保持原值，结果为 **9/12 PASS、3/12 FAIL**：
 
-FTS `report` 镜像查询计划先经 `idx_global_volumes_enabled` 查 volume，再用 `idx_global_entries_volume(volume_id, is_stale)` 扫描该 volume 条目，之后访问 FTS 虚拟表，并执行相关 managed 子查询与临时排序。该计划是按 `search.rs::candidate_sql` 构造的 `EXPLAIN QUERY PLAN` 镜像，不是运行时私有 SQL 的自动捕获。计划与慢查询同时出现，说明值得优先核查 FTS 查询中的 join order 和候选生成路径，但**尚未证明它们就是根因**。无结果查询也达 3.452 秒 p95；其查询计划未单独捕获，需一并检查无命中时的 fallback 路径。本任务未改生产 SQL。
+| 超限查询类 | warm p95 | 与 100ms gate 的关系 |
+| --- | ---: | --- |
+| FTS substring report | 28,648.790 ms（28.649 s） | FAIL |
+| FTS substring invoice | 36,765.041 ms（36.765 s） | FAIL |
+| no result | 2,386.873 ms（2.387 s） | FAIL |
 
-该 run 在 GitHub job log 打印了 44 条 JSONL 记录（12 count oracle、6 query plan、1 pagination、12 query 分位数、12 performance gate 和 1 summary），但没有生成 artifact：runner 的相对输出路径由 Cargo 测试工作目录解析，和 `upload-artifact` 在仓库根目录查找的位置不同。工作流已将输出文件改为 `${{ github.workspace }}/ci-evidence/global-search-baseline.jsonl` 的绝对路径，并在本修订 PR HEAD 上重跑以产生可下载 JSONL artifact。首次 artifact 缺失不会被误报为已上传。
+Workflow 的 benchmark test step 以 failure 结束，是由于以上三项实测性能 gate 超限；correctness assertions 与固定矩阵均完成，随后 artifact upload step 为 SUCCESS。它是性能回归证据，不是 artifact、runner 或 benchmark 基础设施失败。正常项目 CI 与 benchmark gate 是分开的状态。
 
-先前 100k 尝试中，run `37812750902`（source SHA `f61179285ffbc7fcb616c2c9dbe4242f2ff19124`）编译时因测试 count oracle 引用了生产模块私有 `escape_glob` 而失败，未执行 fixture；随后 run `37814520555`（source SHA `ff48085ad02e7049a9438d3026d49295a0c746a5`）使用 100 warmed + 50 reopened 样本，首个 FTS 类 p95 超限后中止。该 run 的 Rust cache 完整命中，恢复 `710,998,689` bytes（约 678 MiB）；Cargo registry 和 `src-tauri/target` 被复用。更新后的完整矩阵使用 30/30 样本并延后性能判定，结果以本节的完整运行记录为准。
+FTS report 的 EXPLAIN QUERY PLAN 来自按 search.rs::candidate_sql 构造的镜像 SQL，而不是运行时私有查询自动捕获。计划记录包括：
 
-500k 与 1m 没有运行。仅 100k 完整矩阵就耗时约 108 分钟，且多个常见/无结果查询达到秒至几十秒；在定位并修复 SQL 查询瓶颈前继续扩大 fixture 不实际，也会大量延长 Hosted Runner 时间。没有估算、更没有把 100k 性能外推到更大规模。
+- SEARCH gv USING INDEX idx_global_volumes_enabled (enabled=?)
+- SEARCH ge USING INDEX idx_global_entries_volume (volume_id=? AND is_stale=?)
+- SCAN global_entries_fts VIRTUAL TABLE INDEX 0:=M3
+- correlated managed-entry 子查询通过 idx_managed_entries_global_entry 与 managed scope 主键索引访问
+- USE TEMP B-TREE FOR ORDER BY
+
+它与秒级 FTS 延迟一同构成 **measured follow-up hypothesis**：候选访问与 join 顺序可能不利，应由独立调查验证；计划本身没有证明根因，也没有证明 FTS5 本身性能差。No-result 查询 p95 为 2.387 秒，需要和对应 fallback 一起分析，但当前 artifact 未单独记录其 query plan。
+
+### 500k / 1m 扩展规模
+
+500k 与 1m 没有执行，状态明确为 **DEFERRED / NOT RUN — Owner scale-stop after 100k measured FTS pathology**，不是 PASS，也没有通过 100k 外推。Owner 决定在扩展前先记录已有 100k 的完整证据：两个 FTS p95 为 28.649 秒和 36.765 秒，无结果 p95 为 2.387 秒；更大 fixture 不会单独解释这些热点根因，并会重复消耗 Hosted Runner 时间。
+
+Workflow 仍保留 workflow_dispatch 的 100k、500k、1m、2m、5m 选项。本轮不手动启动更大规模，也不在 #343 修改生产 SQL。关联的 measured follow-up 是 Issue #346 — Investigate Global Search FTS join order and no-result latency；#343 只记录证据，不实现该调查任务。
+
+先前 source SHA 的旧性能数字不作为本节最终基线。对于以后的性能比较，应使用 exact source SHA、run、artifact 一起锁定被测代码与 JSONL，而不是把报告提交 SHA 当作 benchmark source。
 
 ### Cloud Linux 尝试
 
@@ -145,6 +177,6 @@ Windows Hosted Runner 可以证明代码在该 runner 上对合成 SQLite fixtur
 
 ## 8. 结果解释与后续决策
 
-本次 100k 合成矩阵显示三个性能热点：FTS `report` warm p95 45.337 秒、FTS `invoice` 53.049 秒、无结果查询 3.452 秒；名称前缀 p95 为 49.050 ms，高扇出前缀为 60.913 ms。下一项最小风险代码任务应单独核查 `search_fts` 的 SQLite join order、候选生成路径以及无结果 fallback，并比较实际 SQL 的执行计划；保持结果排序、去重和候选窗语义不变，再用本基准验证。测得结果只涉及当前 synthetic SQLite 查询，不代表真实文件发现速度。
+本次 100k 合成矩阵显示三个查询热点：FTS report warm p95 28.649 秒、FTS invoice 36.765 秒、无结果查询 2.387 秒。Owner 已在 Issue #346 登记 measured follow-up；该 issue 的下一步是隔离测量 FTS 子阶段、验证实际查询计划和 no-result fallback，并以结果等价测试保护现有顺序、去重及候选窗语义。#343 不实现这项调查。测得结果只涉及当前 synthetic SQLite 查询，不代表真实文件发现速度。
 
-不建议根据这次数据直接重构 SoA 或引入 SIMD：主要异常出在 FTS SQL 查询计划，而非字符串扫描的已证瓶颈。该 ignored 合成 benchmark 与 JSONL artifact 是本任务唯一新增的搜索性能证据路径；不会新增生产指标或用户设置。Windows NTFS/MFT/USN、macOS APFS/FSEvents、权限覆盖率、冷盘读取及真实文件系统增量恢复仍需 Owner 实机验收，且不由本报告代替。
+不建议根据这次数据直接重构 SoA 或引入 SIMD：当前测量定位在合成 SQLite 查询路径，尚无证据证明字符串扫描是瓶颈。Windows NTFS/MFT/USN、macOS APFS/FSEvents、权限覆盖率、冷盘读取及真实文件系统增量恢复仍需 Owner 实机验收，且不由本报告代替。

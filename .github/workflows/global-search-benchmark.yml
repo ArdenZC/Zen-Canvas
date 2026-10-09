@@ -3,10 +3,8 @@ name: Global Search synthetic benchmark
 on:
   pull_request:
     paths:
-      - ".github/workflows/global-search-benchmark.yml"
       - "src-tauri/src/global_index/tests.rs"
       - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
-      - "docs/research/GLOBAL_SEARCH_BENCHMARK_BASELINE.md"
   workflow_dispatch:
     inputs:
       entries:
