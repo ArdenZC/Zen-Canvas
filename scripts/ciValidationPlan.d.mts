@@ -45,6 +45,7 @@ export interface ValidationAggregateInput {
   validationLanes?: ValidationLane[] | string;
   validationLane?: ValidationLane | string;
   laneJobResult?: string | null;
+  laneValidationRequired?: boolean | string;
   headValidationResult?: string | null;
   integrationValidationResult?: string | null;
 }
@@ -57,3 +58,40 @@ export interface ValidationAggregateResult {
 
 export function buildValidationPlan(input?: ValidationPlanInput): ValidationPlan;
 export function evaluateValidationAggregate(input?: ValidationAggregateInput): ValidationAggregateResult;
+
+export interface ValidationLaneJobExpectationMap {
+  [jobNamePrefix: string]: boolean | "true" | "false";
+}
+
+export interface ValidationLaneJob {
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+}
+
+export interface FetchValidationLaneResultsInput {
+  repository: string;
+  runId: string;
+  runAttempt: string;
+  token: string;
+  validationLanes: ValidationLane[] | string;
+  matrixJobExpectations: ValidationLaneJobExpectationMap | string;
+  fetchImpl?: typeof fetch;
+}
+
+export function summarizeValidationLaneResults(
+  jobs: ValidationLaneJob[],
+  lanes: ValidationLane[] | string,
+  expectations: ValidationLaneJobExpectationMap | string,
+): Record<string, string>;
+export function fetchValidationLaneResults(
+  input: FetchValidationLaneResultsInput,
+): Promise<Record<string, string>>;
+
+export function validationLaneResultsForPlan(
+  validationLanes: ValidationLane[] | string,
+  laneResults: Record<string, string>,
+): {
+  headValidationResult: string | null;
+  integrationValidationResult: string | null;
+};

@@ -222,6 +222,9 @@ jobs:
     needs: [change-scope, validation-plan, docs-only-lanes]
     if: ${{ always() && needs.change-scope.outputs.docs_only == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     timeout-minutes: 10
     steps:
       - name: Checkout CI validation helper
@@ -242,6 +245,9 @@ jobs:
           TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
           HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
           VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          CI_GITHUB_TOKEN: ${{ github.token }}
+          MATRIX_JOB_EXPECTATIONS: >-
+            {"Documentation-only validation":"true"}
           LANE_JOB_RESULT: ${{ needs.docs-only-lanes.result }}
         run: node scripts/ciValidationPlan.mjs --aggregate
 
@@ -1184,6 +1190,9 @@ jobs:
     needs: [change-scope, validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation, performance-preview-platform]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     timeout-minutes: 15
     steps:
       - name: Checkout CI validation helper
@@ -1204,6 +1213,9 @@ jobs:
           TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
           HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
           VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          CI_GITHUB_TOKEN: ${{ github.token }}
+          MATRIX_JOB_EXPECTATIONS: >-
+            {"Performance / Prepare":"${{ needs.change-scope.outputs.performance_any }}","Performance / Search":"${{ needs.change-scope.outputs.perf_search }}","Performance / Scan & Schema":"${{ needs.change-scope.outputs.perf_scan_schema }}","Performance / Library & Content":"${{ needs.change-scope.outputs.perf_library_content }}","Performance / Intelligence":"${{ needs.change-scope.outputs.perf_intelligence }}","Performance / Workspace Foundation":"${{ needs.change-scope.outputs.perf_workspace_foundation }}","Performance / Preview Platform":"${{ needs.change-scope.outputs.perf_preview_platform }}"}
         run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify expected performance shard results
         env:
@@ -1604,6 +1616,9 @@ jobs:
     needs: [change-scope, validation-plan, frontend-quality, rust-windows, windows-native-preview-handler, windows-global-index-service-qualification, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     timeout-minutes: 10
     steps:
       - name: Checkout CI validation helper
@@ -1624,6 +1639,9 @@ jobs:
           TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
           HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
           VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          CI_GITHUB_TOKEN: ${{ github.token }}
+          MATRIX_JOB_EXPECTATIONS: >-
+            {"Frontend and format quality":"${{ needs.change-scope.outputs.frontend_changed }}","Rust quality (windows-latest)":"${{ needs.change-scope.outputs.rust_changed }}","Windows native Preview Handler":"${{ needs.change-scope.outputs.windows_native_preview_handler_changed }}","Performance / Prepare":"${{ needs.change-scope.outputs.performance_any }}","Performance / Search":"${{ needs.change-scope.outputs.perf_search }}","Performance / Scan & Schema":"${{ needs.change-scope.outputs.perf_scan_schema }}","Performance / Library & Content":"${{ needs.change-scope.outputs.perf_library_content }}","Performance / Intelligence":"${{ needs.change-scope.outputs.perf_intelligence }}","Performance / Workspace Foundation":"${{ needs.change-scope.outputs.perf_workspace_foundation }}","Performance / Preview Platform":"${{ needs.change-scope.outputs.perf_preview_platform }}","Release compile (windows-latest)":"${{ needs.change-scope.outputs.release_sensitive }}","Package NSIS":"${{ needs.change-scope.outputs.full_validation }}","Package metadata smoke":"${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}","Dependency audit":"${{ needs.change-scope.outputs.dependency_sensitive }}"}
         run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify Windows gate dependencies
         env:
@@ -1675,6 +1693,9 @@ jobs:
     needs: [change-scope, validation-plan, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     timeout-minutes: 10
     steps:
       - name: Checkout CI validation helper
@@ -1695,6 +1716,9 @@ jobs:
           TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
           HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
           VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          CI_GITHUB_TOKEN: ${{ github.token }}
+          MATRIX_JOB_EXPECTATIONS: >-
+            {"Frontend and format quality":"${{ needs.change-scope.outputs.frontend_changed }}","Rust quality (macos-latest)":"${{ needs.change-scope.outputs.macos_sensitive }}","Native macOS performance (arm64)":"${{ needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.performance_sensitive == 'true' }}","Performance / Prepare":"${{ needs.change-scope.outputs.performance_any }}","Performance / Search":"${{ needs.change-scope.outputs.perf_search }}","Performance / Scan & Schema":"${{ needs.change-scope.outputs.perf_scan_schema }}","Performance / Library & Content":"${{ needs.change-scope.outputs.perf_library_content }}","Performance / Intelligence":"${{ needs.change-scope.outputs.perf_intelligence }}","Performance / Workspace Foundation":"${{ needs.change-scope.outputs.perf_workspace_foundation }}","Performance / Preview Platform":"${{ needs.change-scope.outputs.perf_preview_platform }}","Release compile (macos-latest)":"${{ needs.change-scope.outputs.release_sensitive }}","Package unsigned DMG":"${{ needs.change-scope.outputs.full_validation }}","Package metadata smoke":"${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}","Dependency audit":"${{ needs.change-scope.outputs.dependency_sensitive }}"}
         run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify macOS gate dependencies
         env:

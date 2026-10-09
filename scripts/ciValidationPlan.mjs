@@ -43,6 +43,159 @@ function parseLanes(value) {
   return [...parsed];
 }
 
+function parseLaneJobExpectations(value) {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error("matrix_job_expectations must be a JSON object.");
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("matrix_job_expectations must be a JSON object.");
+  }
+
+  const expectations = {};
+  for (const [jobNamePrefix, expected] of Object.entries(parsed)) {
+    if (!asString(jobNamePrefix)) {
+      throw new Error("matrix_job_expectations contains an empty job name.");
+    }
+    try {
+      expectations[jobNamePrefix] = parseBoolean(expected, "matrix_job_expectations entry");
+    } catch {
+      throw new Error("matrix_job_expectations values must be true or false.");
+    }
+  }
+  return expectations;
+}
+
+function resultForExpectedMatrixJob(jobs, jobNamePrefix, lane) {
+  const suffix = " (" + lane + ")";
+  const matchingJobs = jobs.filter((job) =>
+    typeof job?.name === "string"
+    && job.name.startsWith(jobNamePrefix + " (")
+    && job.name.endsWith(suffix),
+  );
+  if (matchingJobs.length === 0) return "missing";
+
+  for (const job of matchingJobs) {
+    const status = asString(job.status).toLowerCase();
+    if (status !== "completed") return status || "missing";
+    const conclusion = asString(job.conclusion).toLowerCase();
+    if (conclusion !== "success") return conclusion || "missing";
+  }
+  return "success";
+}
+
+/**
+ * Summarize only routed matrix domains. Every expected domain must have an
+ * actual successful job for each required lane. Unrouted domains stay skipped
+ * in their owning workflow checks and never count as lane success here.
+ */
+export function summarizeValidationLaneResults(jobs = [], lanesValue, expectationsValue = {}) {
+  const lanes = parseLanes(lanesValue);
+  const expectations = parseLaneJobExpectations(expectationsValue);
+  const requiredJobNamePrefixes = Object.entries(expectations)
+    .filter(([, expected]) => expected)
+    .map(([jobNamePrefix]) => jobNamePrefix);
+
+  return Object.fromEntries(lanes.map((lane) => {
+    if (requiredJobNamePrefixes.length === 0) return [lane, "not_required"];
+    const laneResults = requiredJobNamePrefixes.map((jobNamePrefix) =>
+      resultForExpectedMatrixJob(jobs, jobNamePrefix, lane),
+    );
+    const failure = laneResults.find((result) => result !== "success");
+    return [lane, failure ?? "success"];
+  }));
+}
+
+export function validationLaneResultsForPlan(validationLanes, laneResults = {}) {
+  const lanes = parseLanes(validationLanes);
+  return {
+    headValidationResult: lanes.includes("head_validation")
+      ? laneResults.head_validation ?? "missing"
+      : null,
+    integrationValidationResult: lanes.includes("merge_integration")
+      ? laneResults.merge_integration ?? "missing"
+      : null,
+  };
+}
+
+export async function fetchValidationLaneResults({
+  repository,
+  runId,
+  runAttempt,
+  token,
+  validationLanes,
+  matrixJobExpectations,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const repo = asString(repository);
+  const id = asString(runId);
+  const attempt = asString(runAttempt);
+  const accessToken = asString(token);
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repo)) {
+    throw new Error("repository must be owner/name.");
+  }
+  if (
+    !/^\d+$/u.test(id)
+    || !/^\d+$/u.test(attempt)
+    || Number(id) < 1
+    || Number(attempt) < 1
+  ) {
+    throw new Error("workflow run id and attempt must be positive integers.");
+  }
+  if (!accessToken) throw new Error("GitHub Actions read token is missing.");
+  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable.");
+
+  const expectations = parseLaneJobExpectations(matrixJobExpectations);
+  const expectedPrefixes = Object.values(expectations).some(Boolean);
+  const lanes = parseLanes(validationLanes);
+  if (!expectedPrefixes) {
+    return Object.fromEntries(lanes.map((lane) => [lane, "not_required"]));
+  }
+
+  const jobs = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const url = new URL(
+      "https://api.github.com/repos/" + repo
+      + "/actions/runs/" + id
+      + "/attempts/" + attempt
+      + "/jobs",
+    );
+    url.searchParams.set("per_page", "100");
+    url.searchParams.set("page", String(page));
+    const response = await fetchImpl(url.toString(), {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: "Bearer " + accessToken,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) {
+      throw new Error("GitHub Actions job lookup failed with HTTP " + response.status + ".");
+    }
+
+    const payload = await response.json();
+    if (!payload || !Array.isArray(payload.jobs)) {
+      throw new Error("GitHub Actions job lookup returned an invalid response.");
+    }
+    const totalCount = Number(payload.total_count);
+    if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
+      throw new Error("GitHub Actions job lookup returned an invalid total count.");
+    }
+    jobs.push(...payload.jobs);
+    if (jobs.length >= totalCount) {
+      return summarizeValidationLaneResults(jobs, lanes, expectations);
+    }
+    if (payload.jobs.length === 0) {
+      throw new Error("GitHub Actions job lookup returned an incomplete page.");
+    }
+  }
+  throw new Error("GitHub Actions job lookup exceeded the pagination limit.");
+}
+
 function fallbackPlan(eventName, validationLane) {
   const isPullRequest = eventName === "pull_request";
   return {
@@ -157,9 +310,9 @@ export function buildValidationPlan(input = {}) {
 }
 
 /**
- * Validate the contract consumed by required aggregate jobs. The lane result
- * is optional for plan-shape checks and required when an aggregate owns a
- * dynamic lane job such as Documentation-only validation.
+ * Validate the plan contract consumed by aggregate jobs. PR callers must
+ * explicitly identify routed matrix domains and provide their actual lane
+ * outcomes; non-PR callers retain the single immutable event lane.
  */
 export function evaluateValidationAggregate(input = {}) {
   const eventName = asString(input.eventName);
@@ -221,32 +374,58 @@ export function evaluateValidationAggregate(input = {}) {
 
   const headValidationResult = input.headValidationResult === undefined || input.headValidationResult === null
     ? null
-    : asString(input.headValidationResult);
+    : asString(input.headValidationResult).toLowerCase();
   const integrationValidationResult = input.integrationValidationResult === undefined || input.integrationValidationResult === null
     ? null
-    : asString(input.integrationValidationResult);
-  if (isPullRequest && treeEquivalent) {
-    if (headValidationResult !== null && !["skipped", "not_required"].includes(headValidationResult)) {
-      return { pass: false, reason: `equivalent trees must not claim a head validation result of ${headValidationResult}.` };
+    : asString(input.integrationValidationResult).toLowerCase();
+
+  if (isPullRequest) {
+    let laneValidationRequired;
+    try {
+      laneValidationRequired = parseBoolean(input.laneValidationRequired, "lane_validation_required");
+    } catch (error) {
+      return { pass: false, reason: error instanceof Error ? error.message : String(error) };
     }
-    if (integrationValidationResult !== null && integrationValidationResult !== "success") {
-      return { pass: false, reason: `merge-integration validation result was ${integrationValidationResult || "missing"}.` };
-    }
-  }
-  if (isPullRequest && !treeEquivalent && laneJobResult === null) {
-    if (headValidationResult !== "success") {
-      return { pass: false, reason: `non-equivalent trees require head validation success, got ${headValidationResult || "missing"}.` };
-    }
-    if (integrationValidationResult !== "success") {
-      return { pass: false, reason: `non-equivalent trees require merge-integration success, got ${integrationValidationResult || "missing"}.` };
-    }
-  }
-  if (isPullRequest && !treeEquivalent) {
-    if (headValidationResult !== null && headValidationResult !== "success") {
-      return { pass: false, reason: `head validation result was ${headValidationResult || "missing"}.` };
-    }
-    if (integrationValidationResult !== null && integrationValidationResult !== "success") {
-      return { pass: false, reason: `merge-integration result was ${integrationValidationResult || "missing"}.` };
+
+    if (!laneValidationRequired) {
+      const requiredLaneResults = treeEquivalent
+        ? [integrationValidationResult]
+        : [headValidationResult, integrationValidationResult];
+      if (requiredLaneResults.some((result) => result !== "not_required")) {
+        return {
+          pass: false,
+          reason: "an unrouted validation lane must be explicitly classified not_required.",
+        };
+      }
+    } else if (treeEquivalent) {
+      if (headValidationResult !== null && headValidationResult !== "not_required") {
+        return {
+          pass: false,
+          reason: "equivalent trees must not claim a head validation result of " + headValidationResult + ".",
+        };
+      }
+      if (integrationValidationResult !== "success") {
+        return {
+          pass: false,
+          reason: "equivalent trees require merge-integration success, got "
+            + (integrationValidationResult || "missing") + ".",
+        };
+      }
+    } else {
+      if (headValidationResult !== "success") {
+        return {
+          pass: false,
+          reason: "non-equivalent trees require head validation success, got "
+            + (headValidationResult || "missing") + ".",
+        };
+      }
+      if (integrationValidationResult !== "success") {
+        return {
+          pass: false,
+          reason: "non-equivalent trees require merge-integration success, got "
+            + (integrationValidationResult || "missing") + ".",
+        };
+      }
     }
   }
 
@@ -322,27 +501,64 @@ function runPlanCli() {
   console.log(JSON.stringify(plan, null, 2));
 }
 
-function runAggregateCli() {
+async function runAggregateCli() {
+  const eventName = asString(process.env.EVENT_NAME || process.env.GITHUB_EVENT_NAME);
+  let headValidationResult = process.env.HEAD_VALIDATION_RESULT;
+  let integrationValidationResult = process.env.INTEGRATION_VALIDATION_RESULT;
+  let laneValidationRequired = false;
+
+  if (eventName === "pull_request") {
+    try {
+      const expectations = parseLaneJobExpectations(process.env.MATRIX_JOB_EXPECTATIONS);
+      const requiredPrefixes = Object.values(expectations).some(Boolean);
+      laneValidationRequired = requiredPrefixes;
+      if (requiredPrefixes) {
+        const laneResults = await fetchValidationLaneResults({
+          repository: process.env.GITHUB_REPOSITORY,
+          runId: process.env.GITHUB_RUN_ID,
+          runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+          token: process.env.CI_GITHUB_TOKEN,
+          validationLanes: process.env.VALIDATION_LANES,
+          matrixJobExpectations: expectations,
+        });
+        ({ headValidationResult, integrationValidationResult } =
+          validationLaneResultsForPlan(process.env.VALIDATION_LANES, laneResults));
+      } else {
+        headValidationResult = "not_required";
+        integrationValidationResult = "not_required";
+      }
+    } catch (error) {
+      console.error(
+        "[ci-validation-plan] Could not collect required lane results: "
+          + (error instanceof Error ? error.message : String(error)),
+      );
+      laneValidationRequired = true;
+      headValidationResult = "missing";
+      integrationValidationResult = "missing";
+    }
+  }
+
   const result = evaluateValidationAggregate({
-    eventName: asString(process.env.EVENT_NAME || process.env.GITHUB_EVENT_NAME),
+    eventName,
     planResult: process.env.PLAN_RESULT,
     treeEquivalent: process.env.TREE_EQUIVALENT,
     headValidationRequired: process.env.HEAD_VALIDATION_REQUIRED,
     validationLanes: process.env.VALIDATION_LANES,
     validationLane: process.env.VALIDATION_LANE,
     laneJobResult: process.env.LANE_JOB_RESULT,
-    headValidationResult: process.env.HEAD_VALIDATION_RESULT,
-    integrationValidationResult: process.env.INTEGRATION_VALIDATION_RESULT,
+    headValidationResult,
+    integrationValidationResult,
+    laneValidationRequired,
     planValid: process.env.PLAN_VALID,
   });
   console.log(JSON.stringify(result, null, 2));
   if (!result.pass) {
-    console.error(`[ci-validation-plan] ${result.reason}`);
+    console.error("[ci-validation-plan] " + result.reason);
     process.exitCode = 1;
   }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.includes("--aggregate")) runAggregateCli();
+  if (process.argv.includes("--aggregate")) await runAggregateCli();
   else runPlanCli();
 }
