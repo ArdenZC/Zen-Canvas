@@ -429,6 +429,15 @@ pub fn run_search_index_optimize(trigger: &str, db: &Database) -> SearchIndexOpt
             error: None,
         },
         Err(error) => {
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            if let DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _)) = &error {
+                eprintln!(
+                    "[issue345-sqlite] operation=optimize_search_index trigger={} sqlite_primary={} sqlite_extended={}",
+                    trigger,
+                    code.extended_code & 0xff,
+                    code.extended_code
+                );
+            }
             let message = error.to_string();
             eprintln!("SQLite/FTS optimize failed for {trigger}: {message}");
             SearchIndexOptimizeReport {
