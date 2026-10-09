@@ -20,8 +20,11 @@ const SEARCH_RESULT_LIMIT: u32 = 80;
 const SEARCH_CANDIDATE_LIMIT: usize = 4_096;
 const WARM_QUERY_P95_LIMIT_MS: f64 = 100.0;
 const WARMUP_SAMPLES: usize = 5;
-const WARM_SAMPLES: usize = 100;
-const REOPENED_CONNECTION_SAMPLES: usize = 50;
+// FTS substring queries can be unusually expensive on the synthetic corpus.
+// Keep the minimum sample count required for useful p50/p95/p99 evidence so
+// the full fixed query matrix completes within the hosted-runner budget.
+const WARM_SAMPLES: usize = 30;
+const REOPENED_CONNECTION_SAMPLES: usize = 30;
 
 const INSERT_SYNTHETIC_ENTRY: &str = r#"
     INSERT INTO global_entries (
@@ -1062,6 +1065,7 @@ fn global_search_synthetic_benchmark_baseline() {
         &expectations[common_prefix_case],
     );
 
+    let mut performance_regressions = Vec::new();
     for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
         let expected_first_page = expectation.expected_page(0, SEARCH_RESULT_LIMIT as usize);
         drop(assert_search_results(
@@ -1152,16 +1156,40 @@ fn global_search_synthetic_benchmark_baseline() {
             let mut sorted_warm_samples = warm_samples.clone();
             sorted_warm_samples.sort_by(f64::total_cmp);
             let warm_p95_ms = quantile(&sorted_warm_samples, 0.95);
-            assert!(
-                warm_p95_ms <= WARM_QUERY_P95_LIMIT_MS,
-                "warm Global Search p95 {warm_p95_ms:.3}ms exceeded the historical {WARM_QUERY_P95_LIMIT_MS:.3}ms budget at entries={entries}, class={}",
-                query_case.class
-            );
+            let passed = warm_p95_ms <= WARM_QUERY_P95_LIMIT_MS;
+            emit_record(&json!({
+                "schema_version": 1,
+                "record_type": "performance_gate",
+                "context": context,
+                "query_class": query_case.class,
+                "entries": entries,
+                "warm_p95_ms": round_ms(warm_p95_ms),
+                "limit_ms": WARM_QUERY_P95_LIMIT_MS,
+                "passed": passed
+            }));
+            if !passed {
+                performance_regressions.push(format!(
+                    "{}: {:.3}ms > {:.3}ms",
+                    query_case.class, warm_p95_ms, WARM_QUERY_P95_LIMIT_MS
+                ));
+            }
         }
     }
 
     drop(inspection_connection);
     drop(db);
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "performance_gate_summary",
+        "context": context,
+        "passed": performance_regressions.is_empty(),
+        "regressions": &performance_regressions
+    }));
+    assert!(
+        performance_regressions.is_empty(),
+        "warm Global Search p95 exceeded the historical {WARM_QUERY_P95_LIMIT_MS:.3}ms budget at entries={entries}: {}",
+        performance_regressions.join("; ")
+    );
 }
 
 #[test]

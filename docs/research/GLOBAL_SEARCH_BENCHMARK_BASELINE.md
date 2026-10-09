@@ -66,7 +66,9 @@ Issue：[#342 Global Search benchmark and regression evidence baseline](https://
 
 正确性先于计时：先以独立 SQLite count oracle 对每个查询核对完整匹配总数，再比较生产查询返回的预期 ID 顺序、结果数、去重数和 limit；高扇出场景验证前两页拼接与首 80 条一致、offset 4090 页边界以及 offset 4096 为空。预期数据由独立的确定性 fixture 规则生成，搜索结果来自生产 SQL 实现。另有非忽略 Unicode 测试记录大小写行为及 NFC/NFD 当前不等价的语义。
 
-每个查询先做 5 次预热，再收集 100 个 warmed 样本和 50 个 reopened-connection 样本。warm 测量经过 `Database::search_global_entries`，计入池连接 checkout；reopened 测量每个样本都新开 SQLite connection，计时从查询开始、连接创建不计时。它**不是冷磁盘测试**：没有清空 OS 文件页缓存。分位数使用排序后线性插值。
+当前基准版本每个查询先做 5 次预热，再收集 30 个 warmed 样本和 30 个 reopened-connection 样本。FTS 子串查询在旧版本的 100/50 样本下单类就耗时约 80 分钟，因此采用需求规定的 30 次下限完成固定矩阵；JSONL 明确记录每类样本数。warm 测量经过 `Database::search_global_entries`，计入池连接 checkout；reopened 测量每个样本都新开 SQLite connection，计时从查询开始、连接创建不计时。它**不是冷磁盘测试**：没有清空 OS page cache。分位数使用排序后线性插值。
+
+性能门槛超限会写出该查询的 `performance_gate` 记录并继续跑完所有正确性通过的 query classes；所有查询结束后再写 `performance_gate_summary` 并统一失败。这样阈值失败不会截断后续查询的性能证据。独立 count、结果、顺序、去重或分页正确性断言仍会立即失败，以免错误结果进入基准。
 
 旧基准的 100 ms p95 约束保留为 warmed 查询回归门槛，适用于不超过 1M 的规模，并按查询类分别检查。2M/5M 是扩展诊断规模，不把旧门槛外推为已批准产品 SLA。
 
@@ -86,7 +88,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib
 
 ## 6. 基准结果
 
-Windows Server 2025 Hosted Runner，x86_64；合成 Windows 形态路径，仅覆盖 SQLite Global Index 查询。来源 SHA `ff48085ad02e7049a9438d3026d49295a0c746a5`，run [37814520555](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37814520555)。测试步骤总耗时 4,889.11 秒后以 p95 回归断言失败，故 100k 是**部分查询矩阵结果**，不是整个测试通过。
+Windows Server 2025 Hosted Runner，x86_64；合成 Windows 形态路径，仅覆盖 SQLite Global Index 查询。来源 SHA `ff48085ad02e7049a9438d3026d49295a0c746a5`，run [37814520555](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37814520555)。该版本使用 100 个 warmed + 50 个 reopened 样本，并在首个超门槛查询后立即退出。测试步骤总耗时 4,889.11 秒后以 p95 回归断言失败，故此表是**部分查询矩阵结果**，不是整个测试通过；其余 query classes 尚无性能分位数。
 
 | 行数 | fixture 生成 ms | SQLite 写入 ms | DB 主库 + WAL bytes | 正确性 / 状态 |
 | ---: | ---: | ---: | ---: | --- |
@@ -113,7 +115,7 @@ FTS 镜像查询计划为：先经 `idx_global_volumes_enabled` 找 volume，再
 
 100k run `37814520555` 的 Rust cache 记录为完整 key hit，并恢复 710,998,689 bytes（约 678 MiB）；Cargo registry 与 `src-tauri/target` 均被复用。该 run 的 JSONL 已由测试打印到 GitHub Actions job log，但未生成可下载 artifact：输出路径当时是隐藏目录 `.ci-evidence`，而 `upload-artifact` 默认忽略隐藏文件。当前工作流已改为上传非隐藏路径 `ci-evidence/global-search-baseline.jsonl`。报告中的 100k 数字来自该精确 SHA 的 job log，而不是伪称已下载的 artifact。
 
-由于 100k FTS 查询耗时远超预算，继续执行其余 8 类查询会显著增加 Hosted runner 时间；500k/1m 未运行。没有插值、线性外推，也没有把合成 SQLite 结果解释为 NTFS/APFS 搜索性能。
+第一次 100k 运行暴露了测试框架本身的问题：性能断言在首个超门槛查询后中止了固定矩阵。随后基准改为 30/30 次采样，并将性能门槛聚合到完整查询矩阵末尾；此更新版的完整矩阵结果须以该版本对应的 Windows Actions artifact 为准。500k/1m 尚未运行。没有插值、线性外推，也没有把合成 SQLite 结果解释为 NTFS/APFS 搜索性能。
 
 ### Cloud Linux 尝试
 
