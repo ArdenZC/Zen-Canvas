@@ -45,6 +45,7 @@ export interface ValidationAggregateInput {
   validationLanes?: ValidationLane[] | string;
   validationLane?: ValidationLane | string;
   laneJobResult?: string | null;
+  laneValidationRequired?: boolean | string;
   headValidationResult?: string | null;
   integrationValidationResult?: string | null;
 }
@@ -57,3 +58,30 @@ export interface ValidationAggregateResult {
 
 export function buildValidationPlan(input?: ValidationPlanInput): ValidationPlan;
 export function evaluateValidationAggregate(input?: ValidationAggregateInput): ValidationAggregateResult;
+
+export interface ValidationLaneJobExpectationMap {
+  [jobId: string]: boolean | "true" | "false";
+}
+
+export interface ValidationLaneJobResult {
+  job_id?: string;
+  lane?: ValidationLane;
+  run_attempt?: string | number;
+  result?: string;
+}
+
+export function summarizeValidationLaneResults(
+  results: ValidationLaneJobResult[],
+  lanes: ValidationLane[] | string,
+  expectations: ValidationLaneJobExpectationMap | string,
+  runAttempt: string | number,
+): Record<string, string>;
+export function readValidationLaneJobResults(directory: string, runAttempt: string | number): ValidationLaneJobResult[];
+
+export function validationLaneResultsForPlan(
+  validationLanes: ValidationLane[] | string,
+  laneResults: Record<string, string>,
+): {
+  headValidationResult: string | null;
+  integrationValidationResult: string | null;
+};
