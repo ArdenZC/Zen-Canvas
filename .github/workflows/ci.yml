@@ -224,9 +224,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -461,9 +462,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -535,9 +537,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -633,9 +636,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -848,9 +852,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1008,9 +1013,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1071,9 +1077,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1134,9 +1141,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1208,9 +1216,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1271,9 +1280,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1334,9 +1344,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1397,9 +1408,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1607,9 +1619,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1654,9 +1667,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1709,9 +1723,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1763,9 +1778,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1825,9 +1841,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1888,9 +1905,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1956,9 +1974,10 @@ jobs:
           VALIDATION_LANE: ${{ matrix.validation_lane }}
           VALIDATION_JOB_RESULT: ${{ job.status }}
           VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}
           VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json
         run: |
-          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT }));'
+          node -e 'const fs = require("node:fs"); const path = require("node:path"); const output = process.env.VALIDATION_RESULT_PATH; fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, JSON.stringify({ job_id: process.env.VALIDATION_JOB_ID, lane: process.env.VALIDATION_LANE, run_attempt: process.env.VALIDATION_RUN_ATTEMPT, result: process.env.VALIDATION_JOB_RESULT, artifact_name: process.env.VALIDATION_ARTIFACT_NAME }));'
       - name: Upload sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
