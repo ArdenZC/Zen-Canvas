@@ -156,7 +156,7 @@ describe("performance profile and manifest contract", () => {
       "workspace_foundation_sqlite_batch_busy",
     ]) {
       expect(benchmarks.find((benchmark) => benchmark.id === id)).toMatchObject({
-        ignored: false,
+        ignored: true,
         testThreads: 1,
       });
     }

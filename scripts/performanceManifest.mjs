@@ -338,7 +338,7 @@ export const PERFORMANCE_SUITES = Object.freeze({
         targetKey: "lib",
         targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
         testName: "db::queries::scan::tests::managed_scan_admission_waits_for_a_short_real_writer_lock",
-        ignored: false,
+        ignored: true,
         testThreads: 1,
       }),
       benchmark({
@@ -347,7 +347,7 @@ export const PERFORMANCE_SUITES = Object.freeze({
         targetKey: "lib",
         targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
         testName: "db::queries::scan::tests::managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority",
-        ignored: false,
+        ignored: true,
         testThreads: 1,
       }),
       benchmark({
@@ -356,7 +356,7 @@ export const PERFORMANCE_SUITES = Object.freeze({
         targetKey: "lib",
         targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
         testName: "db::queries::scan::tests::managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release",
-        ignored: false,
+        ignored: true,
         testThreads: 1,
       }),
       benchmark({

@@ -3538,6 +3538,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
     fn managed_scan_admission_waits_for_a_short_real_writer_lock() {
         let db = test_db("issue345-admission-short-lock");
         let holder = HeldManagedScanWriter::start(db.clone());
@@ -3589,6 +3590,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
     fn managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority() {
         let db = test_db("issue345-admission-timeout-lock");
         let holder = HeldManagedScanWriter::start(db.clone());
@@ -3665,6 +3667,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
     fn managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release() {
         let db = test_db("issue345-batch-timeout-lock");
         let root =
