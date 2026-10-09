@@ -2195,15 +2195,20 @@ mod tests {
             std::sync::mpsc::channel();
         let (owner_after_commit_release_tx, owner_after_commit_release_rx) =
             std::sync::mpsc::channel();
+        let (contender_after_commit_release_tx, contender_after_commit_release_rx) =
+            std::sync::mpsc::channel();
         let owner_begin_rx = Arc::new(std::sync::Mutex::new(owner_begin_rx));
         let contender_begin_rx = Arc::new(std::sync::Mutex::new(contender_begin_rx));
         let owner_transaction_release_rx =
             Arc::new(std::sync::Mutex::new(owner_transaction_release_rx));
         let owner_after_commit_release_rx =
             Arc::new(std::sync::Mutex::new(owner_after_commit_release_rx));
+        let contender_after_commit_release_rx =
+            Arc::new(std::sync::Mutex::new(contender_after_commit_release_rx));
 
         let owner_id_for_hook = owner_run_id.clone();
         let contender_id_for_hook = contender_run_id.clone();
+        let contender_after_commit_rx_for_hook = Arc::clone(&contender_after_commit_release_rx);
         let filler_ids_for_hook = filler_run_ids.clone();
         let filler_receivers_for_hook = Arc::clone(&filler_release_receivers);
         let hook_events = events_tx.clone();
@@ -2252,6 +2257,14 @@ mod tests {
             {
                 let _ = hook_events.send(("owner_batch_committed", run_id.to_string()));
                 let _ = owner_after_commit_release_rx
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(Duration::from_secs(20));
+            } else if run_id == contender_id_for_hook
+                && point == ManagedScanWriteTestPoint::AfterCommit
+            {
+                let _ = hook_events.send(("contender_batch_committed", run_id.to_string()));
+                let _ = contender_after_commit_rx_for_hook
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .recv_timeout(Duration::from_secs(20));
@@ -2415,19 +2428,33 @@ mod tests {
         let owner_committed = events_rx
             .recv_timeout(Duration::from_secs(10))
             .expect("D4 writer events arrive after releasing owner transaction");
-        let (mut owner_commit_seen, mut contender_acquire_seen) = (false, false);
-        let next_writer_event = events_rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("both owner and contender writer events arrive");
-        for event in [owner_committed, next_writer_event] {
-            match event {
-                ("owner_batch_committed", run_id) if run_id == owner_run_id => {
-                    owner_commit_seen = true;
+        let mut owner_commit_seen = false;
+        let mut contender_acquire_seen = false;
+        let mut contender_commit_seen = false;
+        let mut contender_writer_wait_ms = None;
+        let mut writer_events = vec![owner_committed];
+        while !(owner_commit_seen && contender_acquire_seen && contender_commit_seen) {
+            if writer_events.is_empty() {
+                writer_events.push(
+                    events_rx
+                        .recv_timeout(Duration::from_secs(10))
+                        .expect("owner and contender reach both SQLite write barriers"),
+                );
+            }
+            for event in writer_events.drain(..) {
+                match event {
+                    ("owner_batch_committed", run_id) if run_id == owner_run_id => {
+                        owner_commit_seen = true;
+                    }
+                    ("contender_transaction_acquired", run_id) if run_id == contender_run_id => {
+                        contender_acquire_seen = true;
+                        contender_writer_wait_ms = Some(contender_begin_at.elapsed().as_millis());
+                    }
+                    ("contender_batch_committed", run_id) if run_id == contender_run_id => {
+                        contender_commit_seen = true;
+                    }
+                    other => panic!("unexpected D4 writer event: {other:?}"),
                 }
-                ("contender_transaction_acquired", run_id) if run_id == contender_run_id => {
-                    contender_acquire_seen = true;
-                }
-                other => panic!("unexpected D4 writer event: {other:?}"),
             }
         }
         assert!(
@@ -2438,7 +2465,12 @@ mod tests {
             contender_acquire_seen,
             "contender must acquire the writer after the owner commits"
         );
-        let contender_writer_wait_ms = contender_begin_at.elapsed().as_millis();
+        assert!(
+            contender_commit_seen,
+            "contender must commit while its real scheduler lease remains held"
+        );
+        let contender_writer_wait_ms = contender_writer_wait_ms
+            .expect("record contender wait until its SQLite writer transaction is acquired");
 
         cancel_performance_managed_scan(&db, &jobs, &dedupe_jobs, &owner.run_id)
             .expect("request cancellation through the production-managed scan boundary");
@@ -2451,6 +2483,10 @@ mod tests {
                 .recv_timeout(foreground_deadline.saturating_duration_since(Instant::now())),
             Err(error) => Err(error),
         };
+
+        contender_after_commit_release_tx
+            .send(())
+            .expect("release contender after foreground admission has used the cancelled lease");
 
         for release in &filler_release_senders {
             release
