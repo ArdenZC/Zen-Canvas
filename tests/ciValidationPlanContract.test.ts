@@ -1,11 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { classifyCiScope } from "../scripts/classifyCiChanges.mjs";
 import {
   buildValidationPlan,
   evaluateValidationAggregate,
-  fetchValidationLaneResults,
+  readValidationLaneJobResults,
   summarizeValidationLaneResults,
   validationLaneResultsForPlan,
   type ValidationLane,
@@ -227,7 +229,13 @@ describe("tree-equivalence validation plan behavior", () => {
 
 describe("actual validation lane result collection", () => {
   const lanes: ValidationLane[] = ["head_validation", "merge_integration"];
-  const expectations = { "Frontend and format quality": true };
+  const expectations = { "frontend-quality": true };
+  const laneResult = (lane: ValidationLane, result: string, jobId = "frontend-quality") => ({
+    job_id: jobId,
+    lane,
+    run_attempt: "1",
+    result,
+  });
 
   it("projects only the lanes required by the plan", () => {
     expect(validationLaneResultsForPlan(["merge_integration"], {
@@ -245,54 +253,91 @@ describe("actual validation lane result collection", () => {
     });
   });
 
-  it("requires an actual success job for each planned lane", () => {
+  it("passes only when both non-equivalent lane artifacts report SUCCESS", () => {
+    const plan = buildValidationPlan(pullRequestInput());
     const results = summarizeValidationLaneResults([
-      { name: "Frontend and format quality (head_validation)", status: "completed", conclusion: "success" },
-      { name: "Frontend and format quality (merge_integration)", status: "completed", conclusion: "success" },
+      laneResult("head_validation", "success"),
+      laneResult("merge_integration", "success"),
     ], lanes, expectations);
 
     expect(results).toEqual({
       head_validation: "success",
       merge_integration: "success",
     });
+    const projected = validationLaneResultsForPlan(lanes, results);
+    expect(evaluateValidationAggregate(aggregateInput(plan, projected)).pass).toBe(true);
+  });
+
+  it("passes equivalent trees from the integration artifact alone", () => {
+    const plan = buildValidationPlan(pullRequestInput({
+      headTreeSha: HEAD_TREE,
+      integrationTreeSha: HEAD_TREE,
+    }));
+    const results = summarizeValidationLaneResults([
+      laneResult("merge_integration", "success"),
+    ], plan.validation_lanes, expectations);
+    const projected = validationLaneResultsForPlan(plan.validation_lanes, results);
+
+    expect(results).toEqual({ merge_integration: "success" });
+    expect(projected.headValidationResult).toBeNull();
+    expect(evaluateValidationAggregate(aggregateInput(plan, projected)).pass).toBe(true);
   });
 
   it.each([
-    ["missing", [], "missing"],
-    ["failed", [{ name: "Frontend and format quality (head_validation)", status: "completed", conclusion: "failure" }], "failure"],
-    ["cancelled", [{ name: "Frontend and format quality (head_validation)", status: "completed", conclusion: "cancelled" }], "cancelled"],
-    ["skipped", [{ name: "Frontend and format quality (head_validation)", status: "completed", conclusion: "skipped" }], "skipped"],
-  ])("preserves %s instead of promoting it to PASS", (_case, headJobs, expectedResult) => {
-    const results = summarizeValidationLaneResults([
-      ...headJobs,
-      { name: "Frontend and format quality (merge_integration)", status: "completed", conclusion: "success" },
-    ], lanes, expectations);
+    ["head missing", [laneResult("merge_integration", "success")], "missing", "success"],
+    ["integration missing", [laneResult("head_validation", "success")], "success", "missing"],
+    ["head failure", [laneResult("head_validation", "failure"), laneResult("merge_integration", "success")], "failure", "success"],
+    ["integration failure", [laneResult("head_validation", "success"), laneResult("merge_integration", "failure")], "success", "failure"],
+    ["head cancelled", [laneResult("head_validation", "cancelled"), laneResult("merge_integration", "success")], "cancelled", "success"],
+    ["integration cancelled", [laneResult("head_validation", "success"), laneResult("merge_integration", "cancelled")], "success", "cancelled"],
+    ["head skipped", [laneResult("head_validation", "skipped"), laneResult("merge_integration", "success")], "skipped", "success"],
+    ["integration skipped", [laneResult("head_validation", "success"), laneResult("merge_integration", "skipped")], "success", "skipped"],
+    ["head incomplete", [laneResult("head_validation", "in_progress"), laneResult("merge_integration", "success")], "in_progress", "success"],
+  ])("fails closed when %s", (_case, artifacts, expectedHead, expectedIntegration) => {
+    const results = summarizeValidationLaneResults(artifacts, lanes, expectations);
+    expect(results).toEqual({
+      head_validation: expectedHead,
+      merge_integration: expectedIntegration,
+    });
 
-    expect(results.head_validation).toBe(expectedResult);
     const plan = buildValidationPlan(pullRequestInput());
+    const projected = validationLaneResultsForPlan(lanes, results);
     expect(evaluateValidationAggregate(aggregateInput(plan, {
-      headValidationResult: results.head_validation,
-      integrationValidationResult: results.merge_integration,
+      ...projected,
     })).pass).toBe(false);
   });
 
-  it("does not accept a success conclusion from a job that is still running", () => {
-    const results = summarizeValidationLaneResults([
-      { name: "Frontend and format quality (head_validation)", status: "in_progress", conclusion: "success" },
-      { name: "Frontend and format quality (merge_integration)", status: "completed", conclusion: "success" },
-    ], lanes, expectations);
+  it("fails closed when a required matrix lane artifact is absent or duplicated", () => {
+    expect(summarizeValidationLaneResults([
+      laneResult("merge_integration", "success"),
+    ], lanes, expectations).head_validation).toBe("missing");
+    expect(summarizeValidationLaneResults([
+      laneResult("head_validation", "success"),
+      laneResult("head_validation", "success"),
+      laneResult("merge_integration", "success"),
+    ], lanes, expectations).head_validation).toBe("missing");
+  });
 
-    expect(results.head_validation).toBe("in_progress");
-    const plan = buildValidationPlan(pullRequestInput());
-    expect(evaluateValidationAggregate(aggregateInput(plan, {
-      headValidationResult: results.head_validation,
-      integrationValidationResult: results.merge_integration,
-    })).pass).toBe(false);
+  it("reads only sanitized result records from per-job artifacts", () => {
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-results-"));
+    const artifactName = "ci-lane-result-1-frontend-quality-head_validation";
+    const artifactDirectory = join(artifactRoot, artifactName);
+    mkdirSync(artifactDirectory, { recursive: true });
+    writeFileSync(join(artifactDirectory, "ci-lane-result.json"), JSON.stringify(laneResult("head_validation", "success")));
+
+    try {
+      expect(readValidationLaneJobResults(artifactRoot, "1")).toEqual([
+        laneResult("head_validation", "success"),
+      ]);
+      expect(() => readValidationLaneJobResults(artifactRoot, "2")).toThrow(/invalid record/u);
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps unrouted matrix domains explicitly not required", () => {
     expect(summarizeValidationLaneResults([], lanes, {
-      "Native macOS performance (arm64)": "false",
+      "performance-macos": "false",
     })).toEqual({
       head_validation: "not_required",
       merge_integration: "not_required",
@@ -310,70 +355,30 @@ describe("actual validation lane result collection", () => {
     })).pass).toBe(false);
   });
 
-  it("queries the exact workflow attempt with a read-only Actions token", async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        total_count: 2,
-        jobs: [
-          { name: "Frontend and format quality (head_validation)", status: "completed", conclusion: "success" },
-          { name: "Frontend and format quality (merge_integration)", status: "completed", conclusion: "success" },
-        ],
-      }),
-    }) as unknown as Response);
-
-    const results = await fetchValidationLaneResults({
-      repository: "ArdenZC/Zen-Canvas",
-      runId: "37863698017",
-      runAttempt: "2",
-      token: "read-only-token",
-      validationLanes: lanes,
-      matrixJobExpectations: expectations,
-      fetchImpl: fetchImpl as typeof fetch,
-    });
-
-    expect(results).toEqual({ head_validation: "success", merge_integration: "success" });
-    const [requestUrl, requestInit] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(requestUrl).toContain("/actions/runs/37863698017/attempts/2/jobs");
-    expect(requestInit.headers).toMatchObject({
-      Accept: "application/vnd.github+json",
-      Authorization: "Bearer read-only-token",
-    });
-  });
-
-  it("rejects API errors and makes the aggregate CLI fail closed when evidence is unavailable", async () => {
-    await expect(fetchValidationLaneResults({
-      repository: "ArdenZC/Zen-Canvas",
-      runId: "37863698017",
-      runAttempt: "2",
-      token: "read-only-token",
-      validationLanes: lanes,
-      matrixJobExpectations: expectations,
-      fetchImpl: vi.fn(async () => ({ ok: false, status: 401 })) as unknown as typeof fetch,
-    })).rejects.toThrow(/HTTP 401/u);
-
+  it("makes the aggregate CLI fail closed when lane artifacts are unavailable", () => {
+    const sanitizedParentEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) =>
+        !/^(?:CI_GITHUB_TOKEN|GITHUB_TOKEN|GH_TOKEN|ACTIONS_RUNTIME_TOKEN)$/u.test(name),
+      ),
+    );
     const result = spawnSync(process.execPath, ["scripts/ciValidationPlan.mjs", "--aggregate"], {
       cwd: process.cwd(),
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...sanitizedParentEnv,
         EVENT_NAME: "pull_request",
         PLAN_RESULT: "success",
         PLAN_VALID: "true",
         TREE_EQUIVALENT: "false",
         HEAD_VALIDATION_REQUIRED: "true",
         VALIDATION_LANES: JSON.stringify(lanes),
-        GITHUB_REPOSITORY: "ArdenZC/Zen-Canvas",
-        GITHUB_RUN_ID: "37863698017",
-        GITHUB_RUN_ATTEMPT: "2",
+        GITHUB_RUN_ATTEMPT: "1",
         MATRIX_JOB_EXPECTATIONS: JSON.stringify(expectations),
-        CI_GITHUB_TOKEN: "",
+        LANE_JOB_RESULTS_DIRECTORY: join(tmpdir(), "missing-ci-lane-results-337"),
       },
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toMatch(/Could not collect required lane results/u);
     expect(result.stdout).toContain('"pass": false');
     expect(result.stdout).toMatch(/head validation success, got missing/u);
   });
@@ -382,6 +387,27 @@ describe("actual validation lane result collection", () => {
 describe("workflow lane and governance wiring", () => {
   const interactiveWorkflow = readWorkflow(".github/workflows/ci.yml");
   const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
+  const matrixJobDisplayNames: Record<string, string> = {
+    "docs-only-lanes": "Documentation-only validation",
+    "frontend-quality": "Frontend and format quality",
+    "rust-windows": "Rust quality (windows-latest)",
+    "windows-native-preview-handler": "Windows native Preview Handler",
+    "rust-macos": "Rust quality (macos-latest)",
+    "performance-prepare": "Performance / Prepare",
+    "performance-search": "Performance / Search",
+    "performance-scan-schema": "Performance / Scan & Schema",
+    "performance-library-content": "Performance / Library & Content",
+    "performance-intelligence": "Performance / Intelligence",
+    "performance-workspace-foundation": "Performance / Workspace Foundation",
+    "performance-preview-platform": "Performance / Preview Platform",
+    "performance-macos": "Native macOS performance (arm64)",
+    "build-windows": "Release compile (windows-latest)",
+    "build-macos": "Release compile (macos-latest)",
+    "package-windows": "Package NSIS",
+    "package-macos": "Package unsigned DMG",
+    "package-smoke": "Package metadata smoke",
+    "dependency-audit": "Dependency audit",
+  };
 
   it("pins the repository Rust toolchain authority", () => {
     const toolchainPath = "rust-toolchain.toml";
@@ -442,124 +468,164 @@ describe("workflow lane and governance wiring", () => {
   });
 
   it.each([
-    ["docs-only", ["Documentation-only validation"]],
+    ["docs-only", ["docs-only-lanes"]],
     ["performance-profile", [
-      "Performance / Prepare",
-      "Performance / Search",
-      "Performance / Scan & Schema",
-      "Performance / Library & Content",
-      "Performance / Intelligence",
-      "Performance / Workspace Foundation",
-      "Performance / Preview Platform",
+      "performance-prepare",
+      "performance-search",
+      "performance-scan-schema",
+      "performance-library-content",
+      "performance-intelligence",
+      "performance-workspace-foundation",
+      "performance-preview-platform",
     ]],
     ["quality-windows", [
-      "Frontend and format quality",
-      "Rust quality (windows-latest)",
-      "Windows native Preview Handler",
-      "Performance / Prepare",
-      "Performance / Search",
-      "Performance / Scan & Schema",
-      "Performance / Library & Content",
-      "Performance / Intelligence",
-      "Performance / Workspace Foundation",
-      "Performance / Preview Platform",
-      "Release compile (windows-latest)",
-      "Package NSIS",
-      "Package metadata smoke",
-      "Dependency audit",
+      "frontend-quality",
+      "rust-windows",
+      "windows-native-preview-handler",
+      "performance-prepare",
+      "performance-search",
+      "performance-scan-schema",
+      "performance-library-content",
+      "performance-intelligence",
+      "performance-workspace-foundation",
+      "performance-preview-platform",
+      "build-windows",
+      "package-windows",
+      "package-smoke",
+      "dependency-audit",
     ]],
     ["quality-macos", [
-      "Frontend and format quality",
-      "Rust quality (macos-latest)",
-      "Native macOS performance (arm64)",
-      "Performance / Prepare",
-      "Performance / Search",
-      "Performance / Scan & Schema",
-      "Performance / Library & Content",
-      "Performance / Intelligence",
-      "Performance / Workspace Foundation",
-      "Performance / Preview Platform",
-      "Release compile (macos-latest)",
-      "Package unsigned DMG",
-      "Package metadata smoke",
-      "Dependency audit",
+      "frontend-quality",
+      "rust-macos",
+      "performance-macos",
+      "performance-prepare",
+      "performance-search",
+      "performance-scan-schema",
+      "performance-library-content",
+      "performance-intelligence",
+      "performance-workspace-foundation",
+      "performance-preview-platform",
+      "build-macos",
+      "package-macos",
+      "package-smoke",
+      "dependency-audit",
     ]],
-  ])("wires %s to actual lane job conclusions", (jobId, expectedPrefixes) => {
+  ])("wires %s to sanitized per-lane artifacts", (jobId, expectedJobIds) => {
     const block = workflowJobBlock(interactiveWorkflow, jobId);
+    expect(block).toContain("env -u GITHUB_TOKEN -u CI_GITHUB_TOKEN");
     expect(block).toContain("node scripts/ciValidationPlan.mjs --aggregate");
     expect(block).toContain("actions: read");
     expect(block).toContain("contents: read");
-    expect(block).toContain("CI_GITHUB_TOKEN: ${{ github.token }}");
+    expect(block).toContain("Download validation lane result artifacts");
+    expect(block).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c");
+    expect(block).toContain("pattern: ci-lane-result-${{ github.run_attempt }}-*");
+    expect(block).toContain("continue-on-error: true");
+    expect(block).toContain("LANE_JOB_RESULTS_DIRECTORY: ${{ runner.temp }}/ci-lane-results");
     expect(block).toContain("MATRIX_JOB_EXPECTATIONS:");
     expect(block).toContain("VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}");
-    for (const prefix of expectedPrefixes) {
-      expect(block).toContain(prefix);
+    expect(block).not.toContain("${{ github.token }}");
+    expect(block).not.toMatch(/^\s+(?:CI_GITHUB_TOKEN|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_APP_TOKEN|GH_APP_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|AUTHORIZATION|BEARER_TOKEN):/mu);
+    expect(block).not.toMatch(/Authorization:\s*Bearer/u);
+    for (const matrixJobId of expectedJobIds) {
+      const matrixBlock = workflowJobBlock(interactiveWorkflow, matrixJobId);
+      expect(matrixBlock).toContain("name: " + matrixJobDisplayNames[matrixJobId] + " (${{ matrix.validation_lane }})");
+      expect(matrixBlock).toContain("name: Upload sanitized validation lane result");
+      expect(matrixBlock).toContain("ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}");
       expect(interactiveWorkflow).toContain(
-        "    name: " + prefix + " (${{ matrix.validation_lane }})",
+        "    name: " + matrixJobDisplayNames[matrixJobId] + " (${{ matrix.validation_lane }})",
       );
     }
     const serializedExpectations = block.match(/MATRIX_JOB_EXPECTATIONS: >-\n\s+(\{.*\})/u)?.[1];
     expect(serializedExpectations).toBeDefined();
     const parseableExpectations = serializedExpectations?.replace(/\$\{\{[\s\S]*?\}\}/gu, "true");
-    expect(Object.keys(JSON.parse(parseableExpectations ?? "{}"))).toEqual(expectedPrefixes);
+    expect(Object.keys(JSON.parse(parseableExpectations ?? "{}"))).toEqual(expectedJobIds);
   });
 
   it("maps each required matrix group to its classifier route output", () => {
     const expectedMappings = [
-      ["docs-only", "Documentation-only validation", "true"],
-      ["performance-profile", "Performance / Prepare", "needs.change-scope.outputs.performance_any"],
-      ["performance-profile", "Performance / Search", "needs.change-scope.outputs.perf_search"],
-      ["performance-profile", "Performance / Scan & Schema", "needs.change-scope.outputs.perf_scan_schema"],
-      ["performance-profile", "Performance / Library & Content", "needs.change-scope.outputs.perf_library_content"],
-      ["performance-profile", "Performance / Intelligence", "needs.change-scope.outputs.perf_intelligence"],
-      ["performance-profile", "Performance / Workspace Foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
-      ["performance-profile", "Performance / Preview Platform", "needs.change-scope.outputs.perf_preview_platform"],
-      ["quality-windows", "Frontend and format quality", "needs.change-scope.outputs.frontend_changed"],
-      ["quality-windows", "Rust quality (windows-latest)", "needs.change-scope.outputs.rust_changed"],
-      ["quality-windows", "Windows native Preview Handler", "needs.change-scope.outputs.windows_native_preview_handler_changed"],
-      ["quality-windows", "Performance / Prepare", "needs.change-scope.outputs.performance_any"],
-      ["quality-windows", "Performance / Search", "needs.change-scope.outputs.perf_search"],
-      ["quality-windows", "Performance / Scan & Schema", "needs.change-scope.outputs.perf_scan_schema"],
-      ["quality-windows", "Performance / Library & Content", "needs.change-scope.outputs.perf_library_content"],
-      ["quality-windows", "Performance / Intelligence", "needs.change-scope.outputs.perf_intelligence"],
-      ["quality-windows", "Performance / Workspace Foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
-      ["quality-windows", "Performance / Preview Platform", "needs.change-scope.outputs.perf_preview_platform"],
-      ["quality-windows", "Release compile (windows-latest)", "needs.change-scope.outputs.release_sensitive"],
-      ["quality-windows", "Package NSIS", "needs.change-scope.outputs.full_validation"],
-      ["quality-windows", "Package metadata smoke", "needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true'"],
-      ["quality-windows", "Dependency audit", "needs.change-scope.outputs.dependency_sensitive"],
-      ["quality-macos", "Frontend and format quality", "needs.change-scope.outputs.frontend_changed"],
-      ["quality-macos", "Rust quality (macos-latest)", "needs.change-scope.outputs.macos_sensitive"],
-      ["quality-macos", "Native macOS performance (arm64)", "needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.performance_sensitive == 'true'"],
-      ["quality-macos", "Performance / Prepare", "needs.change-scope.outputs.performance_any"],
-      ["quality-macos", "Performance / Search", "needs.change-scope.outputs.perf_search"],
-      ["quality-macos", "Performance / Scan & Schema", "needs.change-scope.outputs.perf_scan_schema"],
-      ["quality-macos", "Performance / Library & Content", "needs.change-scope.outputs.perf_library_content"],
-      ["quality-macos", "Performance / Intelligence", "needs.change-scope.outputs.perf_intelligence"],
-      ["quality-macos", "Performance / Workspace Foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
-      ["quality-macos", "Performance / Preview Platform", "needs.change-scope.outputs.perf_preview_platform"],
-      ["quality-macos", "Release compile (macos-latest)", "needs.change-scope.outputs.release_sensitive"],
-      ["quality-macos", "Package unsigned DMG", "needs.change-scope.outputs.full_validation"],
-      ["quality-macos", "Package metadata smoke", "needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true'"],
-      ["quality-macos", "Dependency audit", "needs.change-scope.outputs.dependency_sensitive"],
+      ["docs-only", "docs-only-lanes", "true"],
+      ["performance-profile", "performance-prepare", "needs.change-scope.outputs.performance_any"],
+      ["performance-profile", "performance-search", "needs.change-scope.outputs.perf_search"],
+      ["performance-profile", "performance-scan-schema", "needs.change-scope.outputs.perf_scan_schema"],
+      ["performance-profile", "performance-library-content", "needs.change-scope.outputs.perf_library_content"],
+      ["performance-profile", "performance-intelligence", "needs.change-scope.outputs.perf_intelligence"],
+      ["performance-profile", "performance-workspace-foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
+      ["performance-profile", "performance-preview-platform", "needs.change-scope.outputs.perf_preview_platform"],
+      ["quality-windows", "frontend-quality", "needs.change-scope.outputs.frontend_changed"],
+      ["quality-windows", "rust-windows", "needs.change-scope.outputs.rust_changed"],
+      ["quality-windows", "windows-native-preview-handler", "needs.change-scope.outputs.windows_native_preview_handler_changed"],
+      ["quality-windows", "performance-prepare", "needs.change-scope.outputs.performance_any"],
+      ["quality-windows", "performance-search", "needs.change-scope.outputs.perf_search"],
+      ["quality-windows", "performance-scan-schema", "needs.change-scope.outputs.perf_scan_schema"],
+      ["quality-windows", "performance-library-content", "needs.change-scope.outputs.perf_library_content"],
+      ["quality-windows", "performance-intelligence", "needs.change-scope.outputs.perf_intelligence"],
+      ["quality-windows", "performance-workspace-foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
+      ["quality-windows", "performance-preview-platform", "needs.change-scope.outputs.perf_preview_platform"],
+      ["quality-windows", "build-windows", "needs.change-scope.outputs.release_sensitive"],
+      ["quality-windows", "package-windows", "needs.change-scope.outputs.full_validation"],
+      ["quality-windows", "package-smoke", "needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true'"],
+      ["quality-windows", "dependency-audit", "needs.change-scope.outputs.dependency_sensitive"],
+      ["quality-macos", "frontend-quality", "needs.change-scope.outputs.frontend_changed"],
+      ["quality-macos", "rust-macos", "needs.change-scope.outputs.macos_sensitive"],
+      ["quality-macos", "performance-macos", "needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.performance_sensitive == 'true'"],
+      ["quality-macos", "performance-prepare", "needs.change-scope.outputs.performance_any"],
+      ["quality-macos", "performance-search", "needs.change-scope.outputs.perf_search"],
+      ["quality-macos", "performance-scan-schema", "needs.change-scope.outputs.perf_scan_schema"],
+      ["quality-macos", "performance-library-content", "needs.change-scope.outputs.perf_library_content"],
+      ["quality-macos", "performance-intelligence", "needs.change-scope.outputs.perf_intelligence"],
+      ["quality-macos", "performance-workspace-foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
+      ["quality-macos", "performance-preview-platform", "needs.change-scope.outputs.perf_preview_platform"],
+      ["quality-macos", "build-macos", "needs.change-scope.outputs.release_sensitive"],
+      ["quality-macos", "package-macos", "needs.change-scope.outputs.full_validation"],
+      ["quality-macos", "package-smoke", "needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true'"],
+      ["quality-macos", "dependency-audit", "needs.change-scope.outputs.dependency_sensitive"],
     ] as const;
 
-    for (const [jobId, jobPrefix, classifierOutput] of expectedMappings) {
-      const block = workflowJobBlock(interactiveWorkflow, jobId);
+    for (const [aggregateJobId, matrixJobId, classifierOutput] of expectedMappings) {
+      const block = workflowJobBlock(interactiveWorkflow, aggregateJobId);
       const expected = classifierOutput === "true"
         ? "true"
         : "${{ " + classifierOutput + " }}";
-      expect(block).toContain('"' + jobPrefix + '":"' + expected + '"');
+      expect(block).toContain('"' + matrixJobId + '":"' + expected + '"');
     }
   });
 
-  it("keeps fork validation read-only and limits Actions API collection to pull requests", () => {
+  it("publishes exactly one credential-free result artifact per validation matrix job", () => {
+    expect(interactiveWorkflow.match(/name: Upload sanitized validation lane result/g)).toHaveLength(19);
+    expect(interactiveWorkflow.match(/name: Download validation lane result artifacts/g)).toHaveLength(4);
+    for (const [jobId, displayName] of Object.entries(matrixJobDisplayNames)) {
+      const block = workflowJobBlock(interactiveWorkflow, jobId);
+      expect(block).toContain("name: Write sanitized validation lane result");
+      expect(block).toContain("VALIDATION_JOB_ID: ${{ github.job }}");
+      expect(block).toContain("VALIDATION_LANE: ${{ matrix.validation_lane }}");
+      expect(block).toContain("VALIDATION_JOB_RESULT: ${{ job.status }}");
+      expect(block).toContain("VALIDATION_RESULT_PATH: ${{ runner.temp }}/ci-lane-result.json");
+      expect(block).toContain("VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}");
+      expect(block).toContain("run_attempt: process.env.VALIDATION_RUN_ATTEMPT");
+      expect(block).toContain("if: ${{ always() && github.event_name == 'pull_request' }}");
+      expect(block).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7");
+      expect(block).toContain("name: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}");
+      expect(block).toContain("name: " + displayName + " (${{ matrix.validation_lane }})");
+    }
+  });
+
+  it("keeps the aggregate helper credential-free and preserves fork read-only boundaries", () => {
     expect(interactiveWorkflow).toMatch(/permissions:\s+contents: read/);
     expect(interactiveWorkflow).not.toContain("pull_request_target");
     expect(interactiveWorkflow).not.toMatch(/secrets\./);
     expect(interactiveWorkflow).toContain("persist-credentials: false");
     const helper = readFileSync("scripts/ciValidationPlan.mjs", "utf8");
     expect(helper).toContain('if (eventName === "pull_request")');
-    expect(helper).toContain("fetchValidationLaneResults");
+    for (const forbidden of ["github.token", "CI_GITHUB_TOKEN", "GITHUB_TOKEN", "Authorization", "Bearer "]) {
+      expect(helper).not.toContain(forbidden);
+    }
+    for (const aggregateJobId of ["docs-only", "performance-profile", "quality-windows", "quality-macos"]) {
+      const aggregateBlock = workflowJobBlock(interactiveWorkflow, aggregateJobId);
+      expect(aggregateBlock).not.toContain("${{ github.token }}");
+      expect(aggregateBlock).not.toMatch(/^\s+(?:CI_GITHUB_TOKEN|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_APP_TOKEN|GH_APP_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|AUTHORIZATION|BEARER_TOKEN):/mu);
+      expect(aggregateBlock).not.toMatch(/Authorization:\s*Bearer/u);
+      expect(aggregateBlock).toContain("env -u GITHUB_TOKEN -u CI_GITHUB_TOKEN");
+    }
+    expect(interactiveWorkflow).toContain('test "$actual" = skipped');
   });
 });

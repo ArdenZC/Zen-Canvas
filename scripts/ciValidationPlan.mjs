@@ -57,12 +57,12 @@ function parseLaneJobExpectations(value) {
   }
 
   const expectations = {};
-  for (const [jobNamePrefix, expected] of Object.entries(parsed)) {
-    if (!asString(jobNamePrefix)) {
-      throw new Error("matrix_job_expectations contains an empty job name.");
+  for (const [jobId, expected] of Object.entries(parsed)) {
+    if (!/^[a-z0-9-]+$/u.test(jobId)) {
+      throw new Error("matrix_job_expectations contains an invalid job id.");
     }
     try {
-      expectations[jobNamePrefix] = parseBoolean(expected, "matrix_job_expectations entry");
+      expectations[jobId] = parseBoolean(expected, "matrix_job_expectations entry");
     } catch {
       throw new Error("matrix_job_expectations values must be true or false.");
     }
@@ -70,40 +70,80 @@ function parseLaneJobExpectations(value) {
   return expectations;
 }
 
-function resultForExpectedMatrixJob(jobs, jobNamePrefix, lane) {
-  const suffix = " (" + lane + ")";
-  const matchingJobs = jobs.filter((job) =>
-    typeof job?.name === "string"
-    && job.name.startsWith(jobNamePrefix + " (")
-    && job.name.endsWith(suffix),
+function resultForExpectedMatrixJob(results, jobId, lane) {
+  const matchingResults = results.filter((result) =>
+    result?.job_id === jobId && result?.lane === lane,
   );
-  if (matchingJobs.length === 0) return "missing";
-
-  for (const job of matchingJobs) {
-    const status = asString(job.status).toLowerCase();
-    if (status !== "completed") return status || "missing";
-    const conclusion = asString(job.conclusion).toLowerCase();
-    if (conclusion !== "success") return conclusion || "missing";
-  }
-  return "success";
+  if (matchingResults.length !== 1) return "missing";
+  return asString(matchingResults[0]?.result).toLowerCase() || "missing";
 }
 
 /**
- * Summarize only routed matrix domains. Every expected domain must have an
- * actual successful job for each required lane. Unrouted domains stay skipped
- * in their owning workflow checks and never count as lane success here.
+ * Read only sanitized lane result artifacts. The workflow publishes one
+ * record per matrix job after validation, with no GitHub credential data.
  */
-export function summarizeValidationLaneResults(jobs = [], lanesValue, expectationsValue = {}) {
+export function readValidationLaneJobResults(directory, runAttempt) {
+  const root = asString(directory);
+  if (!root) throw new Error("lane_job_results_directory is missing.");
+  const attempt = asString(runAttempt);
+  if (!/^\d+$/u.test(attempt) || Number(attempt) < 1) {
+    throw new Error("lane_job_results_run_attempt must be a positive integer.");
+  }
+
+  let artifactDirectories;
+  try {
+    artifactDirectories = fs.readdirSync(root, { withFileTypes: true });
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") return [];
+    throw error;
+  }
+
+  const results = [];
+  for (const entry of artifactDirectories) {
+    if (!entry.isDirectory() || !entry.name.startsWith("ci-lane-result-")) continue;
+    const resultPath = path.join(root, entry.name, "ci-lane-result.json");
+    const resultStat = fs.lstatSync(resultPath);
+    if (!resultStat.isFile()) {
+      throw new Error("lane result artifact does not contain a regular ci-lane-result.json file.");
+    }
+
+    const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+    const jobId = asString(result?.job_id);
+    const lane = asString(result?.lane);
+    const resultAttempt = asString(result?.run_attempt);
+    const jobResult = asString(result?.result).toLowerCase();
+    if (
+      !/^[a-z0-9-]+$/u.test(jobId)
+      || !PULL_REQUEST_LANES.includes(lane)
+      || resultAttempt !== attempt
+      || !jobResult
+    ) {
+      throw new Error("lane result artifact contains an invalid record.");
+    }
+    if (entry.name !== "ci-lane-result-" + attempt + "-" + jobId + "-" + lane) {
+      throw new Error("lane result artifact name does not match its record.");
+    }
+    results.push({ job_id: jobId, lane, run_attempt: resultAttempt, result: jobResult });
+  }
+  return results;
+}
+
+/**
+ * Summarize only routed matrix domains. Every expected domain must have one
+ * actual successful result artifact for each required lane. Unrouted domains
+ * stay skipped in their owning workflow checks and never count as success.
+ */
+export function summarizeValidationLaneResults(results = [], lanesValue, expectationsValue = {}) {
   const lanes = parseLanes(lanesValue);
   const expectations = parseLaneJobExpectations(expectationsValue);
-  const requiredJobNamePrefixes = Object.entries(expectations)
+  const requiredJobIds = Object.entries(expectations)
     .filter(([, expected]) => expected)
-    .map(([jobNamePrefix]) => jobNamePrefix);
+    .map(([jobId]) => jobId);
 
   return Object.fromEntries(lanes.map((lane) => {
-    if (requiredJobNamePrefixes.length === 0) return [lane, "not_required"];
-    const laneResults = requiredJobNamePrefixes.map((jobNamePrefix) =>
-      resultForExpectedMatrixJob(jobs, jobNamePrefix, lane),
+    if (requiredJobIds.length === 0) return [lane, "not_required"];
+    const laneResults = requiredJobIds.map((jobId) =>
+      resultForExpectedMatrixJob(results, jobId, lane),
     );
     const failure = laneResults.find((result) => result !== "success");
     return [lane, failure ?? "success"];
@@ -120,80 +160,6 @@ export function validationLaneResultsForPlan(validationLanes, laneResults = {}) 
       ? laneResults.merge_integration ?? "missing"
       : null,
   };
-}
-
-export async function fetchValidationLaneResults({
-  repository,
-  runId,
-  runAttempt,
-  token,
-  validationLanes,
-  matrixJobExpectations,
-  fetchImpl = globalThis.fetch,
-} = {}) {
-  const repo = asString(repository);
-  const id = asString(runId);
-  const attempt = asString(runAttempt);
-  const accessToken = asString(token);
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repo)) {
-    throw new Error("repository must be owner/name.");
-  }
-  if (
-    !/^\d+$/u.test(id)
-    || !/^\d+$/u.test(attempt)
-    || Number(id) < 1
-    || Number(attempt) < 1
-  ) {
-    throw new Error("workflow run id and attempt must be positive integers.");
-  }
-  if (!accessToken) throw new Error("GitHub Actions read token is missing.");
-  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable.");
-
-  const expectations = parseLaneJobExpectations(matrixJobExpectations);
-  const expectedPrefixes = Object.values(expectations).some(Boolean);
-  const lanes = parseLanes(validationLanes);
-  if (!expectedPrefixes) {
-    return Object.fromEntries(lanes.map((lane) => [lane, "not_required"]));
-  }
-
-  const jobs = [];
-  for (let page = 1; page <= 50; page += 1) {
-    const url = new URL(
-      "https://api.github.com/repos/" + repo
-      + "/actions/runs/" + id
-      + "/attempts/" + attempt
-      + "/jobs",
-    );
-    url.searchParams.set("per_page", "100");
-    url.searchParams.set("page", String(page));
-    const response = await fetchImpl(url.toString(), {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: "Bearer " + accessToken,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-    if (!response.ok) {
-      throw new Error("GitHub Actions job lookup failed with HTTP " + response.status + ".");
-    }
-
-    const payload = await response.json();
-    if (!payload || !Array.isArray(payload.jobs)) {
-      throw new Error("GitHub Actions job lookup returned an invalid response.");
-    }
-    const totalCount = Number(payload.total_count);
-    if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
-      throw new Error("GitHub Actions job lookup returned an invalid total count.");
-    }
-    jobs.push(...payload.jobs);
-    if (jobs.length >= totalCount) {
-      return summarizeValidationLaneResults(jobs, lanes, expectations);
-    }
-    if (payload.jobs.length === 0) {
-      throw new Error("GitHub Actions job lookup returned an incomplete page.");
-    }
-  }
-  throw new Error("GitHub Actions job lookup exceeded the pagination limit.");
 }
 
 function fallbackPlan(eventName, validationLane) {
@@ -501,7 +467,7 @@ function runPlanCli() {
   console.log(JSON.stringify(plan, null, 2));
 }
 
-async function runAggregateCli() {
+function runAggregateCli() {
   const eventName = asString(process.env.EVENT_NAME || process.env.GITHUB_EVENT_NAME);
   let headValidationResult = process.env.HEAD_VALIDATION_RESULT;
   let integrationValidationResult = process.env.INTEGRATION_VALIDATION_RESULT;
@@ -510,17 +476,18 @@ async function runAggregateCli() {
   if (eventName === "pull_request") {
     try {
       const expectations = parseLaneJobExpectations(process.env.MATRIX_JOB_EXPECTATIONS);
-      const requiredPrefixes = Object.values(expectations).some(Boolean);
-      laneValidationRequired = requiredPrefixes;
-      if (requiredPrefixes) {
-        const laneResults = await fetchValidationLaneResults({
-          repository: process.env.GITHUB_REPOSITORY,
-          runId: process.env.GITHUB_RUN_ID,
-          runAttempt: process.env.GITHUB_RUN_ATTEMPT,
-          token: process.env.CI_GITHUB_TOKEN,
-          validationLanes: process.env.VALIDATION_LANES,
-          matrixJobExpectations: expectations,
-        });
+      const requiredJobIds = Object.values(expectations).some(Boolean);
+      laneValidationRequired = requiredJobIds;
+      if (requiredJobIds) {
+        const laneJobResults = readValidationLaneJobResults(
+          process.env.LANE_JOB_RESULTS_DIRECTORY,
+          process.env.GITHUB_RUN_ATTEMPT,
+        );
+        const laneResults = summarizeValidationLaneResults(
+          laneJobResults,
+          process.env.VALIDATION_LANES,
+          expectations,
+        );
         ({ headValidationResult, integrationValidationResult } =
           validationLaneResultsForPlan(process.env.VALIDATION_LANES, laneResults));
       } else {
@@ -559,6 +526,6 @@ async function runAggregateCli() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.includes("--aggregate")) await runAggregateCli();
+  if (process.argv.includes("--aggregate")) runAggregateCli();
   else runPlanCli();
 }

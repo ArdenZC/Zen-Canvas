@@ -60,33 +60,22 @@ export function buildValidationPlan(input?: ValidationPlanInput): ValidationPlan
 export function evaluateValidationAggregate(input?: ValidationAggregateInput): ValidationAggregateResult;
 
 export interface ValidationLaneJobExpectationMap {
-  [jobNamePrefix: string]: boolean | "true" | "false";
+  [jobId: string]: boolean | "true" | "false";
 }
 
-export interface ValidationLaneJob {
-  name?: string;
-  status?: string;
-  conclusion?: string | null;
-}
-
-export interface FetchValidationLaneResultsInput {
-  repository: string;
-  runId: string;
-  runAttempt: string;
-  token: string;
-  validationLanes: ValidationLane[] | string;
-  matrixJobExpectations: ValidationLaneJobExpectationMap | string;
-  fetchImpl?: typeof fetch;
+export interface ValidationLaneJobResult {
+  job_id?: string;
+  lane?: ValidationLane;
+  run_attempt?: string;
+  result?: string;
 }
 
 export function summarizeValidationLaneResults(
-  jobs: ValidationLaneJob[],
+  results: ValidationLaneJobResult[],
   lanes: ValidationLane[] | string,
   expectations: ValidationLaneJobExpectationMap | string,
 ): Record<string, string>;
-export function fetchValidationLaneResults(
-  input: FetchValidationLaneResultsInput,
-): Promise<Record<string, string>>;
+export function readValidationLaneJobResults(directory: string, runAttempt: string | number): ValidationLaneJobResult[];
 
 export function validationLaneResultsForPlan(
   validationLanes: ValidationLane[] | string,
