@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 180
     env:
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
-      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ci-evidence/global-search-baseline.jsonl
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-baseline.jsonl
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
