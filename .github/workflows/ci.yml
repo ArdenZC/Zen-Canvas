@@ -260,7 +260,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: ci-lane-result-${{ github.run_attempt }}-*
+          pattern: ci-lane-result-*
           path: ${{ runner.temp }}/ci-lane-results
       - name: Require all documentation validation lanes
         env:
@@ -1433,7 +1433,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: ci-lane-result-${{ github.run_attempt }}-*
+          pattern: ci-lane-result-*
           path: ${{ runner.temp }}/ci-lane-results
       - name: Verify validation plan
         env:
@@ -1992,7 +1992,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: ci-lane-result-${{ github.run_attempt }}-*
+          pattern: ci-lane-result-*
           path: ${{ runner.temp }}/ci-lane-results
       - name: Verify validation plan
         env:
@@ -2076,7 +2076,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: ci-lane-result-${{ github.run_attempt }}-*
+          pattern: ci-lane-result-*
           path: ${{ runner.temp }}/ci-lane-results
       - name: Verify validation plan
         env:

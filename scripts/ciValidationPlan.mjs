@@ -10,6 +10,10 @@ function asString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function exactString(value) {
+  return typeof value === "string" && value === value.trim() ? value : "";
+}
+
 function laneForEvent(eventName, requestedLane) {
   const explicitLane = asString(requestedLane);
   if (explicitLane) return explicitLane;
@@ -74,21 +78,30 @@ function resultForExpectedMatrixJob(results, jobId, lane) {
   const matchingResults = results.filter((result) =>
     result?.job_id === jobId && result?.lane === lane,
   );
-  if (matchingResults.length !== 1) return "missing";
-  return asString(matchingResults[0]?.result).toLowerCase() || "missing";
+  if (matchingResults.length === 0) return "missing";
+  const latestResult = matchingResults.reduce((latest, result) =>
+    Number(result.run_attempt) > Number(latest.run_attempt) ? result : latest,
+  );
+  return exactString(latestResult?.result) || "missing";
+}
+
+function positiveRunAttempt(value, label) {
+  const attempt = typeof value === "number" ? String(value) : typeof value === "string" ? value : "";
+  if (!/^[1-9]\d*$/u.test(attempt) || !Number.isSafeInteger(Number(attempt))) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return Number(attempt);
 }
 
 /**
- * Read only sanitized lane result artifacts. The workflow publishes one
- * record per matrix job after validation, with no GitHub credential data.
+ * Read sanitized lane result artifacts from every attempt in the current
+ * workflow run. The workflow publishes one credential-free record per matrix
+ * job and attempt; older records remain eligible for partial reruns.
  */
 export function readValidationLaneJobResults(directory, runAttempt) {
   const root = asString(directory);
   if (!root) throw new Error("lane_job_results_directory is missing.");
-  const attempt = asString(runAttempt);
-  if (!/^\d+$/u.test(attempt) || Number(attempt) < 1) {
-    throw new Error("lane_job_results_run_attempt must be a positive integer.");
-  }
+  const currentAttempt = positiveRunAttempt(runAttempt, "lane_job_results_run_attempt");
 
   let artifactDirectories;
   try {
@@ -99,8 +112,24 @@ export function readValidationLaneJobResults(directory, runAttempt) {
   }
 
   const results = [];
+  const seen = new Set();
   for (const entry of artifactDirectories) {
-    if (!entry.isDirectory() || !entry.name.startsWith("ci-lane-result-")) continue;
+    if (!entry.name.startsWith("ci-lane-result-")) continue;
+    if (!entry.isDirectory()) {
+      throw new Error("lane result artifact is not a directory.");
+    }
+    const artifactName = /^ci-lane-result-([1-9]\d*)-([a-z0-9-]+)-(head_validation|merge_integration)$/u.exec(entry.name);
+    if (!artifactName) {
+      throw new Error("lane result artifact name is invalid.");
+    }
+    const artifactAttempt = positiveRunAttempt(artifactName[1], "lane result artifact attempt");
+    if (String(artifactAttempt) !== artifactName[1]) {
+      throw new Error("lane result artifact attempt is not canonical.");
+    }
+    if (artifactAttempt > currentAttempt) {
+      throw new Error("lane result artifact is from a future attempt.");
+    }
+
     const resultPath = path.join(root, entry.name, "ci-lane-result.json");
     const resultStat = fs.lstatSync(resultPath);
     if (!resultStat.isFile()) {
@@ -108,34 +137,68 @@ export function readValidationLaneJobResults(directory, runAttempt) {
     }
 
     const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
-    const jobId = asString(result?.job_id);
-    const lane = asString(result?.lane);
-    const resultAttempt = asString(result?.run_attempt);
-    const jobResult = asString(result?.result).toLowerCase();
+    const jobId = exactString(result?.job_id);
+    const lane = exactString(result?.lane);
+    const resultAttempt = positiveRunAttempt(result?.run_attempt, "lane result run_attempt");
+    const jobResult = exactString(result?.result);
     if (
       !/^[a-z0-9-]+$/u.test(jobId)
       || !PULL_REQUEST_LANES.includes(lane)
-      || resultAttempt !== attempt
+      || resultAttempt > currentAttempt
       || !jobResult
     ) {
       throw new Error("lane result artifact contains an invalid record.");
     }
-    if (entry.name !== "ci-lane-result-" + attempt + "-" + jobId + "-" + lane) {
+    if (
+      artifactAttempt !== resultAttempt
+      || artifactName[2] !== jobId
+      || artifactName[3] !== lane
+    ) {
       throw new Error("lane result artifact name does not match its record.");
     }
-    results.push({ job_id: jobId, lane, run_attempt: resultAttempt, result: jobResult });
+    const tuple = `${jobId}\u0000${lane}\u0000${resultAttempt}`;
+    if (seen.has(tuple)) {
+      throw new Error("duplicate lane result artifact record.");
+    }
+    seen.add(tuple);
+    results.push({ job_id: jobId, lane, run_attempt: String(resultAttempt), result: jobResult });
   }
   return results;
 }
 
 /**
- * Summarize only routed matrix domains. Every expected domain must have one
- * actual successful result artifact for each required lane. Unrouted domains
- * stay skipped in their owning workflow checks and never count as success.
+ * Summarize only routed matrix domains. For every required job/lane pair, use
+ * the newest available attempt and require that result to be success. Unrouted
+ * domains stay skipped in their owning workflow checks and never count as
+ * success.
  */
-export function summarizeValidationLaneResults(results = [], lanesValue, expectationsValue = {}) {
+export function summarizeValidationLaneResults(results = [], lanesValue, expectationsValue = {}, runAttempt) {
   const lanes = parseLanes(lanesValue);
   const expectations = parseLaneJobExpectations(expectationsValue);
+  const currentAttempt = positiveRunAttempt(runAttempt, "lane_job_results_run_attempt");
+  const seen = new Set();
+  const normalizedResults = results.map((result) => {
+    const jobId = exactString(result?.job_id);
+    const lane = exactString(result?.lane);
+    const attempt = positiveRunAttempt(result?.run_attempt, "lane result run_attempt");
+    const jobResult = exactString(result?.result);
+    if (
+      !/^[a-z0-9-]+$/u.test(jobId)
+      || !PULL_REQUEST_LANES.includes(lane)
+      || !jobResult
+    ) {
+      throw new Error("lane result record is invalid.");
+    }
+    if (attempt > currentAttempt) {
+      throw new Error("lane result record is from a future attempt.");
+    }
+    const tuple = `${jobId}\u0000${lane}\u0000${attempt}`;
+    if (seen.has(tuple)) {
+      throw new Error("duplicate lane result record.");
+    }
+    seen.add(tuple);
+    return { job_id: jobId, lane, run_attempt: String(attempt), result: jobResult };
+  });
   const requiredJobIds = Object.entries(expectations)
     .filter(([, expected]) => expected)
     .map(([jobId]) => jobId);
@@ -143,7 +206,7 @@ export function summarizeValidationLaneResults(results = [], lanesValue, expecta
   return Object.fromEntries(lanes.map((lane) => {
     if (requiredJobIds.length === 0) return [lane, "not_required"];
     const laneResults = requiredJobIds.map((jobId) =>
-      resultForExpectedMatrixJob(results, jobId, lane),
+      resultForExpectedMatrixJob(normalizedResults, jobId, lane),
     );
     const failure = laneResults.find((result) => result !== "success");
     return [lane, failure ?? "success"];
@@ -478,22 +541,18 @@ function runAggregateCli() {
       const expectations = parseLaneJobExpectations(process.env.MATRIX_JOB_EXPECTATIONS);
       const requiredJobIds = Object.values(expectations).some(Boolean);
       laneValidationRequired = requiredJobIds;
-      if (requiredJobIds) {
-        const laneJobResults = readValidationLaneJobResults(
-          process.env.LANE_JOB_RESULTS_DIRECTORY,
-          process.env.GITHUB_RUN_ATTEMPT,
-        );
-        const laneResults = summarizeValidationLaneResults(
-          laneJobResults,
-          process.env.VALIDATION_LANES,
-          expectations,
-        );
-        ({ headValidationResult, integrationValidationResult } =
-          validationLaneResultsForPlan(process.env.VALIDATION_LANES, laneResults));
-      } else {
-        headValidationResult = "not_required";
-        integrationValidationResult = "not_required";
-      }
+      const laneJobResults = readValidationLaneJobResults(
+        process.env.LANE_JOB_RESULTS_DIRECTORY,
+        process.env.GITHUB_RUN_ATTEMPT,
+      );
+      const laneResults = summarizeValidationLaneResults(
+        laneJobResults,
+        process.env.VALIDATION_LANES,
+        expectations,
+        process.env.GITHUB_RUN_ATTEMPT,
+      );
+      ({ headValidationResult, integrationValidationResult } =
+        validationLaneResultsForPlan(process.env.VALIDATION_LANES, laneResults));
     } catch (error) {
       console.error(
         "[ci-validation-plan] Could not collect required lane results: "

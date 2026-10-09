@@ -66,7 +66,7 @@ export interface ValidationLaneJobExpectationMap {
 export interface ValidationLaneJobResult {
   job_id?: string;
   lane?: ValidationLane;
-  run_attempt?: string;
+  run_attempt?: string | number;
   result?: string;
 }
 
@@ -74,6 +74,7 @@ export function summarizeValidationLaneResults(
   results: ValidationLaneJobResult[],
   lanes: ValidationLane[] | string,
   expectations: ValidationLaneJobExpectationMap | string,
+  runAttempt: string | number,
 ): Record<string, string>;
 export function readValidationLaneJobResults(directory: string, runAttempt: string | number): ValidationLaneJobResult[];
 

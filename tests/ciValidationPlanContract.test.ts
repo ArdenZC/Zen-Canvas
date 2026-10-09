@@ -230,12 +230,24 @@ describe("tree-equivalence validation plan behavior", () => {
 describe("actual validation lane result collection", () => {
   const lanes: ValidationLane[] = ["head_validation", "merge_integration"];
   const expectations = { "frontend-quality": true };
-  const laneResult = (lane: ValidationLane, result: string, jobId = "frontend-quality") => ({
+  const laneResult = (
+    lane: ValidationLane,
+    result: string,
+    jobId = "frontend-quality",
+    runAttempt: string | number = "1",
+  ) => ({
     job_id: jobId,
     lane,
-    run_attempt: "1",
+    run_attempt: String(runAttempt),
     result,
   });
+
+  const summarize = (
+    results: ReturnType<typeof laneResult>[],
+    laneExpectations: Record<string, boolean | "true" | "false"> = expectations,
+    validationLanes: ValidationLane[] = lanes,
+    currentAttempt: string | number = "1",
+  ) => summarizeValidationLaneResults(results, validationLanes, laneExpectations, currentAttempt);
 
   it("projects only the lanes required by the plan", () => {
     expect(validationLaneResultsForPlan(["merge_integration"], {
@@ -258,7 +270,7 @@ describe("actual validation lane result collection", () => {
     const results = summarizeValidationLaneResults([
       laneResult("head_validation", "success"),
       laneResult("merge_integration", "success"),
-    ], lanes, expectations);
+    ], lanes, expectations, "1");
 
     expect(results).toEqual({
       head_validation: "success",
@@ -275,7 +287,7 @@ describe("actual validation lane result collection", () => {
     }));
     const results = summarizeValidationLaneResults([
       laneResult("merge_integration", "success"),
-    ], plan.validation_lanes, expectations);
+    ], plan.validation_lanes, expectations, "1");
     const projected = validationLaneResultsForPlan(plan.validation_lanes, results);
 
     expect(results).toEqual({ merge_integration: "success" });
@@ -294,7 +306,7 @@ describe("actual validation lane result collection", () => {
     ["integration skipped", [laneResult("head_validation", "success"), laneResult("merge_integration", "skipped")], "success", "skipped"],
     ["head incomplete", [laneResult("head_validation", "in_progress"), laneResult("merge_integration", "success")], "in_progress", "success"],
   ])("fails closed when %s", (_case, artifacts, expectedHead, expectedIntegration) => {
-    const results = summarizeValidationLaneResults(artifacts, lanes, expectations);
+    const results = summarizeValidationLaneResults(artifacts, lanes, expectations, "1");
     expect(results).toEqual({
       head_validation: expectedHead,
       merge_integration: expectedIntegration,
@@ -307,38 +319,209 @@ describe("actual validation lane result collection", () => {
     })).pass).toBe(false);
   });
 
-  it("fails closed when a required matrix lane artifact is absent or duplicated", () => {
-    expect(summarizeValidationLaneResults([
+  it("fails closed when a required matrix lane artifact is absent", () => {
+    expect(summarize([
       laneResult("merge_integration", "success"),
-    ], lanes, expectations).head_validation).toBe("missing");
-    expect(summarizeValidationLaneResults([
-      laneResult("head_validation", "success"),
-      laneResult("head_validation", "success"),
-      laneResult("merge_integration", "success"),
-    ], lanes, expectations).head_validation).toBe("missing");
+    ]).head_validation).toBe("missing");
   });
 
-  it("reads only sanitized result records from per-job artifacts", () => {
+  it("fails on duplicate records for the same job, lane, and attempt", () => {
+    expect(() => summarize([
+      laneResult("head_validation", "success"),
+      laneResult("head_validation", "success"),
+      laneResult("merge_integration", "success"),
+    ])).toThrow(/duplicate lane result record/u);
+  });
+
+  it("reads sanitized records from all available attempts and carries forward earlier successes", () => {
     const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-results-"));
-    const artifactName = "ci-lane-result-1-frontend-quality-head_validation";
-    const artifactDirectory = join(artifactRoot, artifactName);
-    mkdirSync(artifactDirectory, { recursive: true });
-    writeFileSync(join(artifactDirectory, "ci-lane-result.json"), JSON.stringify(laneResult("head_validation", "success")));
+    const records = [
+      laneResult("merge_integration", "success", "frontend-quality", "1"),
+      laneResult("merge_integration", "success", "performance-search", "1"),
+      laneResult("merge_integration", "success", "performance-workspace-foundation", "1"),
+      laneResult("merge_integration", "success", "performance-workspace-foundation", "2"),
+    ];
+    for (const record of records) {
+      const artifactName = `ci-lane-result-${record.run_attempt}-${record.job_id}-${record.lane}`;
+      const artifactDirectory = join(artifactRoot, artifactName);
+      mkdirSync(artifactDirectory, { recursive: true });
+      writeFileSync(join(artifactDirectory, "ci-lane-result.json"), JSON.stringify(record));
+    }
 
     try {
-      expect(readValidationLaneJobResults(artifactRoot, "1")).toEqual([
-        laneResult("head_validation", "success"),
-      ]);
-      expect(() => readValidationLaneJobResults(artifactRoot, "2")).toThrow(/invalid record/u);
+      const readResults = readValidationLaneJobResults(artifactRoot, "2");
+      expect(readResults).toEqual(records);
+      expect(summarizeValidationLaneResults(readResults, ["merge_integration"], {
+        "frontend-quality": true,
+        "performance-search": true,
+        "performance-workspace-foundation": true,
+      }, "2")).toEqual({ merge_integration: "success" });
+      expect(() => readValidationLaneJobResults(artifactRoot, "1")).toThrow(/future attempt/u);
     } finally {
       rmSync(artifactRoot, { recursive: true, force: true });
     }
   });
 
+  it("uses the latest attempt when a failure is repaired", () => {
+    expect(summarize([
+      laneResult("merge_integration", "failure", "performance-workspace-foundation", "1"),
+      laneResult("merge_integration", "success", "performance-workspace-foundation", "2"),
+    ], { "performance-workspace-foundation": true }, ["merge_integration"], "2"))
+      .toEqual({ merge_integration: "success" });
+  });
+
+  it("does not fall back to an earlier success after a rerun regresses", () => {
+    const plan = buildValidationPlan(pullRequestInput({
+      headTreeSha: HEAD_TREE,
+      integrationTreeSha: HEAD_TREE,
+    }));
+    const results = summarize([
+      laneResult("merge_integration", "success", "performance-workspace-foundation", "1"),
+      laneResult("merge_integration", "failure", "performance-workspace-foundation", "2"),
+    ], { "performance-workspace-foundation": true }, plan.validation_lanes, "2");
+    const projected = validationLaneResultsForPlan(plan.validation_lanes, results);
+
+    expect(results).toEqual({ merge_integration: "failure" });
+    expect(evaluateValidationAggregate(aggregateInput(plan, projected)).pass).toBe(false);
+  });
+
+  it("inherits an earlier successful required job when the current attempt did not rerun it", () => {
+    expect(summarize([
+      laneResult("merge_integration", "success", "frontend-quality", "1"),
+    ], { "frontend-quality": true }, ["merge_integration"], "2"))
+      .toEqual({ merge_integration: "success" });
+  });
+
+  it("selects the newest evidence independently for each lane in a non-equivalent tree", () => {
+    const plan = buildValidationPlan(pullRequestInput());
+    const required = {
+      "frontend-quality": true,
+      "performance-search": true,
+      "performance-workspace-foundation": true,
+    };
+    const results = summarize([
+      laneResult("head_validation", "success", "frontend-quality", "1"),
+      laneResult("merge_integration", "success", "frontend-quality", "1"),
+      laneResult("head_validation", "success", "performance-search", "1"),
+      laneResult("merge_integration", "success", "performance-search", "1"),
+      laneResult("head_validation", "success", "performance-workspace-foundation", "1"),
+      laneResult("merge_integration", "failure", "performance-workspace-foundation", "1"),
+      laneResult("head_validation", "success", "performance-search", "2"),
+      laneResult("merge_integration", "success", "performance-workspace-foundation", "2"),
+    ], required, plan.validation_lanes, "2");
+
+    expect(plan.validation_lanes).toEqual(["head_validation", "merge_integration"]);
+    expect(results).toEqual({
+      head_validation: "success",
+      merge_integration: "success",
+    });
+    expect(evaluateValidationAggregate(aggregateInput(
+      plan,
+      validationLaneResultsForPlan(plan.validation_lanes, results),
+    )).pass).toBe(true);
+  });
+
+  it("keeps equivalent-tree aggregation integration-only across a partial rerun", () => {
+    const plan = buildValidationPlan(pullRequestInput({
+      headTreeSha: HEAD_TREE,
+      integrationTreeSha: HEAD_TREE,
+    }));
+    const results = summarize([
+      laneResult("merge_integration", "success", "frontend-quality", "1"),
+      laneResult("merge_integration", "failure", "performance-workspace-foundation", "1"),
+      laneResult("merge_integration", "success", "performance-workspace-foundation", "2"),
+    ], {
+      "frontend-quality": true,
+      "performance-workspace-foundation": true,
+    }, plan.validation_lanes, "2");
+
+    expect(plan.validation_lanes).toEqual(["merge_integration"]);
+    expect(results).toEqual({ merge_integration: "success" });
+    expect(evaluateValidationAggregate(aggregateInput(
+      plan,
+      validationLaneResultsForPlan(plan.validation_lanes, results),
+    )).pass).toBe(true);
+  });
+
+  it.each(["failure", "cancelled", "skipped", "in_progress", "unavailable"])(
+    "does not let an earlier success override the latest %s result",
+    (latestResult) => {
+      const plan = buildValidationPlan(pullRequestInput({
+        headTreeSha: HEAD_TREE,
+        integrationTreeSha: HEAD_TREE,
+      }));
+      const results = summarize([
+        laneResult("merge_integration", "success", "frontend-quality", "1"),
+        laneResult("merge_integration", latestResult, "frontend-quality", "2"),
+      ], expectations, plan.validation_lanes, "2");
+
+      expect(results).toEqual({ merge_integration: latestResult });
+      expect(evaluateValidationAggregate(aggregateInput(
+        plan,
+        validationLaneResultsForPlan(plan.validation_lanes, results),
+      )).pass).toBe(false);
+    },
+  );
+
+  it("fails when required evidence is absent from every attempt", () => {
+    const plan = buildValidationPlan(pullRequestInput({
+      headTreeSha: HEAD_TREE,
+      integrationTreeSha: HEAD_TREE,
+    }));
+    const results = summarize([], { "frontend-quality": true }, plan.validation_lanes, "2");
+
+    expect(results).toEqual({ merge_integration: "missing" });
+    expect(evaluateValidationAggregate(aggregateInput(
+      plan,
+      validationLaneResultsForPlan(plan.validation_lanes, results),
+    )).pass).toBe(false);
+  });
+
+  it("rejects non-positive and non-integer attempts", () => {
+    for (const invalidAttempt of ["0", "-1", "1.5", "01", " 1 ", "current"]) {
+      expect(() => summarize([
+        laneResult("merge_integration", "success", "frontend-quality", invalidAttempt),
+      ], expectations, ["merge_integration"], "2")).toThrow(/positive integer/u);
+    }
+    expect(() => summarize([], expectations, ["merge_integration"], "0"))
+      .toThrow(/positive integer/u);
+  });
+
+  it("rejects a record newer than the current workflow attempt", () => {
+    expect(() => summarize([
+      laneResult("merge_integration", "success", "frontend-quality", "3"),
+    ], expectations, ["merge_integration"], "2")).toThrow(/future attempt/u);
+  });
+
+  it.each([
+    ["job_id", laneResult("head_validation", "success", "performance-search", "1")],
+    ["job_id whitespace", { ...laneResult("head_validation", "success", "frontend-quality", "1"), job_id: " frontend-quality" }],
+    ["lane", laneResult("merge_integration", "success", "frontend-quality", "1")],
+    ["run_attempt", laneResult("head_validation", "success", "frontend-quality", "2")],
+  ])("rejects artifact filename and record %s mismatch", (_field, record) => {
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-results-mismatch-"));
+    const artifactDirectory = join(artifactRoot, "ci-lane-result-1-frontend-quality-head_validation");
+    mkdirSync(artifactDirectory, { recursive: true });
+    writeFileSync(join(artifactDirectory, "ci-lane-result.json"), JSON.stringify(record));
+
+    try {
+      expect(() => readValidationLaneJobResults(artifactRoot, "2"))
+        .toThrow();
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects duplicate sanitized records even if both report success", () => {
+    const duplicate = laneResult("merge_integration", "success", "frontend-quality", "1");
+    expect(() => summarize([duplicate, duplicate], expectations, ["merge_integration"], "2"))
+      .toThrow(/duplicate lane result record/u);
+  });
+
   it("keeps unrouted matrix domains explicitly not required", () => {
-    expect(summarizeValidationLaneResults([], lanes, {
+    expect(summarize([], {
       "performance-macos": "false",
-    })).toEqual({
+    }, lanes, "2")).toEqual({
       head_validation: "not_required",
       merge_integration: "not_required",
     });
@@ -467,6 +650,29 @@ describe("workflow lane and governance wiring", () => {
     expect(fullWorkflow).toContain("  workflow_dispatch:");
   });
 
+  it("retains aggregate job-level needs dependency checks", () => {
+    const performanceProfile = workflowJobBlock(interactiveWorkflow, "performance-profile");
+    const qualityWindows = workflowJobBlock(interactiveWorkflow, "quality-windows");
+    const qualityMacos = workflowJobBlock(interactiveWorkflow, "quality-macos");
+    expect(performanceProfile).toContain(
+      "needs: [change-scope, validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation, performance-preview-platform]",
+    );
+    expect(qualityWindows).toContain(
+      "needs: [change-scope, validation-plan, frontend-quality, rust-windows, windows-native-preview-handler, windows-global-index-service-qualification, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]",
+    );
+    expect(qualityMacos).toContain(
+      "needs: [change-scope, validation-plan, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, package-smoke, dependency-audit]",
+    );
+    expect(performanceProfile).toContain(
+      'check_shard "$EXPECTED_WORKSPACE_FOUNDATION" "$ACTUAL_WORKSPACE_FOUNDATION" workspace-foundation',
+    );
+    expect(qualityWindows).toContain(
+      'check_expected "$GLOBAL_INDEX_SERVICE_EXPECTED" "$GLOBAL_INDEX_SERVICE" windows-global-index-service-qualification',
+    );
+    expect(qualityWindows).toContain('check_expected true "$PERFORMANCE" performance-profile');
+    expect(qualityMacos).toContain('check_expected true "$PERFORMANCE" performance-profile');
+  });
+
   it.each([
     ["docs-only", ["docs-only-lanes"]],
     ["performance-profile", [
@@ -518,7 +724,7 @@ describe("workflow lane and governance wiring", () => {
     expect(block).toContain("contents: read");
     expect(block).toContain("Download validation lane result artifacts");
     expect(block).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c");
-    expect(block).toContain("pattern: ci-lane-result-${{ github.run_attempt }}-*");
+    expect(block).toContain("pattern: ci-lane-result-*");
     expect(block).toContain("continue-on-error: true");
     expect(block).toContain("LANE_JOB_RESULTS_DIRECTORY: ${{ runner.temp }}/ci-lane-results");
     expect(block).toContain("MATRIX_JOB_EXPECTATIONS:");
