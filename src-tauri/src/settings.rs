@@ -786,7 +786,7 @@ fn reconcile_versioned_settings_side_effect_failure_locked(
                 "previous_revision={} failed_revision={} failure={}",
                 previous.revision,
                 failed_save.revision,
-                settings_error_diagnostic_code(&error)
+                settings_error_diagnostic_code(error)
             )
         });
     })?;
