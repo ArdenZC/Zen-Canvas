@@ -7,7 +7,7 @@
 
 ## Scope and guardrails
 
-This is an independent P0 investigation of the repeated macOS Native Performance failure in the ignored, explicitly selected test `db::queries::scan::tests::managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority`. It does not change production behavior, SQLite policy, scheduler behavior, timeout thresholds, search, schema, IPC, AI, or other tracks. The only source changes in this branch are test-only (`cfg(test, feature = "performance-test-tauri")`) diagnostic markers for Issue #366 and failure-path test diagnostics that release the deliberately held test lock and collect one bounded post-release result.
+This is an independent P0 investigation of the repeated macOS Native Performance failure in the ignored, explicitly selected test `db::queries::scan::tests::managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority`. It does not change production behavior, SQLite policy, scheduler behavior, timeout thresholds, search, schema, IPC, AI, or other tracks. Source changes are limited to test-only (`cfg(test, feature = "performance-test-tauri")`) diagnostic markers and failure-path test diagnostics for Issue #366, plus a narrow CI routing correction and contract test so edits to the Rust file containing this test select the existing Native macOS Performance lane. The routing correction adds coverage; it does not relax a gate. The investigation report records the resulting all-domain 100k routing behavior, with no Full Validation / 1m profile selected.
 
 The historical failed GitHub runs remain intact. A later pass is treated as a separate observation and does not replace either failure.
 
@@ -34,6 +34,12 @@ The #345/#349 investigation report, `docs/project/tasks/ISSUE-345-MANAGED-SCAN-S
 
 The two retained failing runs and the separate passing run are all macOS arm64 Hosted observations. The successful observation is evidence that the controlled fixture and admission path can reach the expected SQLite error; it does **not** erase either failure or prove that the failures were scheduling-only.
 
+## PR reproduction routing observation
+
+The first Draft PR CI run, [38067423702](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38067423702) at PR head `332525f23695b07d06ae36b6d6cf69db55efc3b5`, passed Source checkout, Change scope, and Validation lane plan, but the Native macOS Performance job was **skipped**. This was not a test pass and provided no reproduction evidence. The route classifier selected Scan/Schema performance for `src-tauri/src/db/queries/scan.rs`, but its Native Performance path list omitted that source file even though the `workspace-foundation` suite runs the Issue #345 admission test.
+
+The branch now adds the exact scan-query source path to the Native macOS performance classifier and a routing contract test. This tightens CI selection for the source containing the regression test; it does not relax a gate. Because changes to the routing classifier intentionally select the existing all-domain **100k** validation set, the follow-up CI may execute those 100k suites. It does not select Full Validation or its 1m profile. The first run remains recorded as a skipped Native lane.
+
 ## Falsifiable hypotheses
 
 | Hypothesis | Evidence that would support it | Evidence that would falsify or leave it unresolved |
@@ -56,7 +62,7 @@ The bounded reproduction keeps the existing 5 s SQLite timeout, 10 s result-chan
 
 This distinguishes connection-pool delay from a transaction-lock wait and tests whether the held writer release unblocks the contender, without adding retries or changing production policy. The targeted test could not be run in this Cloud Linux container because `glib-2.0 >= 2.70` development files are missing and the environment denies writes to the apt package index. This Linux limitation is not macOS evidence; the required reproduction is the Native macOS Hosted job.
 
-**Hosted diagnostic result:** pending the Draft PR CI run.  
+**Hosted diagnostic result:** pending the follow-up Draft PR CI run after the routing correction.
 **Windows applicability:** no Windows-specific production code is changed. Windows Hosted CI remains useful for compiling and running the test-only build, but cannot qualify the macOS arm64 failure mechanism.  
 **macOS result:** pending.  
 **Production fix:** none authorized or included.
