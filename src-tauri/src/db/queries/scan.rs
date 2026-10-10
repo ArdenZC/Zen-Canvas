@@ -15,6 +15,65 @@ use std::{
     path::{Path, PathBuf},
 };
 
+macro_rules! begin_managed_scan_write_transaction {
+    ($conn:expr, $operation:expr, $run_id:expr) => {{
+        let transaction_result = $conn.transaction_with_behavior(TransactionBehavior::Immediate);
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Err(rusqlite::Error::SqliteFailure(code, _)) = &transaction_result {
+            eprintln!(
+                "[issue345-sqlite] operation={} run_id={} sqlite_primary={} sqlite_extended={}",
+                $operation,
+                $run_id.unwrap_or("unavailable"),
+                code.extended_code & 0xff,
+                code.extended_code
+            );
+        }
+        transaction_result.map_err(DbError::from)
+    }};
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ManagedScanWriteTestPoint {
+    BeforeTransaction,
+    TransactionAcquired,
+    AfterCommit,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+pub(crate) type ManagedScanWriteTestHook =
+    std::sync::Arc<dyn Fn(&str, ManagedScanWriteTestPoint) + Send + Sync + 'static>;
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+static MANAGED_SCAN_WRITE_TEST_HOOK: std::sync::OnceLock<
+    std::sync::Mutex<Option<ManagedScanWriteTestHook>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+pub(crate) fn set_managed_scan_write_test_hook(hook: Option<ManagedScanWriteTestHook>) {
+    *MANAGED_SCAN_WRITE_TEST_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = hook;
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn invoke_managed_scan_write_test_hook(run_id: &str, point: ManagedScanWriteTestPoint) {
+    // The dedicated D4 observation uses this prefix. Workspace Foundation's
+    // latency measurements never take the hook lock or execute a callback.
+    if !run_id.starts_with("issue345-d4-") {
+        return;
+    }
+    let hook = MANAGED_SCAN_WRITE_TEST_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    if let Some(hook) = hook {
+        hook(run_id, point);
+    }
+}
+
 const WATCHER_RECONCILIATION_MAX_AUTOMATIC_ATTEMPTS: usize = 3;
 const WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS: [i64; 2] = [2, 10];
 
@@ -336,7 +395,7 @@ impl Database {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = begin_managed_scan_write_transaction!(&mut conn, "admit_managed_scan", None)?;
 
         if let Some(request_key) = request_key.as_deref() {
             if let Some((session_id, existing_hash)) = tx
@@ -1137,7 +1196,11 @@ impl Database {
 
     pub(crate) fn claim_queued_scan_run(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "claim_queued_scan_run",
+            Some(run_id)
+        )?;
         let record = load_scan_run_record(&tx, run_id)?;
         if record.dto.status != "queued" {
             return Ok(record);
@@ -1242,7 +1305,12 @@ impl Database {
         batch: &ScanBatchInput<'_>,
     ) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::BeforeTransaction);
+        let tx =
+            begin_managed_scan_write_transaction!(&mut conn, "persist_scan_batch", Some(run_id))?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::TransactionAcquired);
         let record = load_scan_run_record(&tx, run_id)?;
         validate_worker_ownership(
             &record,
@@ -1354,6 +1422,8 @@ impl Database {
         }
         let updated = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::AfterCommit);
         if filesystem_changed {
             self.wake_automation_triggers();
         }
@@ -1368,7 +1438,8 @@ impl Database {
         expected_session_revision: i64,
     ) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx =
+            begin_managed_scan_write_transaction!(&mut conn, "reconcile_missing", Some(run_id))?;
         let record = load_scan_run_record(&tx, run_id)?;
         validate_worker_ownership(
             &record,
@@ -1512,7 +1583,11 @@ impl Database {
             )));
         }
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "transition_scan_run_phase",
+            Some(run_id)
+        )?;
         let record = load_scan_run_record(&tx, run_id)?;
         if record.dto.revision != expected_run_revision
             || !root_revision_owned_after_watcher_change(&record, expected_root_revision)
@@ -1626,7 +1701,8 @@ impl Database {
             "completed" | "completed_with_warnings"
         );
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx =
+            begin_managed_scan_write_transaction!(&mut conn, "finalize_scan_run", Some(run_id))?;
         let record = load_scan_run_record(&tx, run_id)?;
         let (
             root_watcher_error_code,
@@ -1924,7 +2000,8 @@ impl Database {
         warning_message: &str,
     ) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx =
+            begin_managed_scan_write_transaction!(&mut conn, "record_scan_warning", Some(run_id))?;
         let record = load_scan_run_record(&tx, run_id)?;
         validate_worker_ownership(
             &record,
@@ -1985,7 +2062,11 @@ impl Database {
 
     pub(crate) fn request_scan_cancellation(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "request_scan_cancellation",
+            Some(run_id)
+        )?;
         let record = load_scan_run_record(&tx, run_id)?;
         if is_terminal_status(&record.dto.status) {
             tx.commit()?;
@@ -2088,7 +2169,11 @@ impl Database {
 
     pub(crate) fn recover_interrupted_scan_runs(&self) -> Result<usize, DbError> {
         let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "recover_interrupted_scan_runs",
+            None
+        )?;
         let ids = {
             let mut statement = tx.prepare(
                 "SELECT id FROM scan_runs WHERE status IN ('queued', 'running', 'cancelling') ORDER BY created_at",
@@ -3320,7 +3405,11 @@ mod tests {
     use super::*;
     use std::{
         fs,
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            mpsc::{self, Receiver, Sender},
+        },
+        thread::JoinHandle,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
@@ -3354,6 +3443,394 @@ mod tests {
         let mut settings = crate::settings::get_app_settings(db).expect("read app settings");
         settings.default_scan_folders = roots;
         crate::settings::save_app_settings(db, &settings).expect("persist app settings");
+    }
+
+    struct HeldManagedScanWriter {
+        ready: Receiver<Result<(), String>>,
+        release: Option<Sender<()>>,
+        worker: Option<JoinHandle<Result<(), String>>>,
+    }
+
+    impl HeldManagedScanWriter {
+        fn start(db: Database) -> Self {
+            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+            let (release_tx, release_rx) = mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                let connection = match db.conn() {
+                    Ok(connection) => connection,
+                    Err(error) => {
+                        let message = error.to_string();
+                        let _ = ready_tx.send(Err(message.clone()));
+                        return Err(message);
+                    }
+                };
+                if let Err(error) = connection.execute_batch("BEGIN IMMEDIATE") {
+                    let message = error.to_string();
+                    let _ = ready_tx.send(Err(message.clone()));
+                    return Err(message);
+                }
+                let _ = ready_tx.send(Ok(()));
+                match release_rx.recv_timeout(Duration::from_secs(20)) {
+                    Ok(()) => connection
+                        .execute_batch("COMMIT")
+                        .map_err(|error| error.to_string()),
+                    Err(error) => {
+                        let _ = connection.execute_batch("ROLLBACK");
+                        Err(format!("writer release was not received: {error}"))
+                    }
+                }
+            });
+            Self {
+                ready: ready_rx,
+                release: Some(release_tx),
+                worker: Some(worker),
+            }
+        }
+
+        fn wait_until_held(&self) {
+            self.ready
+                .recv_timeout(Duration::from_secs(5))
+                .expect("writer lock holder reaches its barrier")
+                .expect("writer lock holder begins a real SQLite transaction");
+        }
+
+        fn release_and_join(mut self) {
+            if let Some(release) = self.release.take() {
+                let _ = release.send(());
+            }
+            self.worker
+                .take()
+                .expect("writer lock holder thread")
+                .join()
+                .expect("writer lock holder does not panic")
+                .expect("writer lock holder commits cleanly");
+        }
+    }
+
+    impl Drop for HeldManagedScanWriter {
+        fn drop(&mut self) {
+            if let Some(release) = self.release.take() {
+                let _ = release.send(());
+            }
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    fn sqlite_failure_codes(error: &DbError) -> Option<(rusqlite::ErrorCode, i32)> {
+        match error {
+            DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _)) => {
+                Some((code.code, code.extended_code))
+            }
+            _ => None,
+        }
+    }
+
+    fn assert_plain_sqlite_busy(error: &DbError) -> (i32, i32) {
+        let (primary, extended) = sqlite_failure_codes(error)
+            .unwrap_or_else(|| panic!("expected SQLite failure with result code, got {error:?}"));
+        assert_eq!(primary, rusqlite::ErrorCode::DatabaseBusy, "{error:?}");
+        let primary_code = extended & 0xff;
+        assert_eq!(primary_code, 5, "expected SQLITE_BUSY (5), got {error:?}");
+        assert_eq!(extended, 5, "expected plain SQLITE_BUSY (5), got {error:?}");
+        (primary_code, extended)
+    }
+
+    #[test]
+    #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
+    fn managed_scan_admission_waits_for_a_short_real_writer_lock() {
+        let db = test_db("issue345-admission-short-lock");
+        let holder = HeldManagedScanWriter::start(db.clone());
+        holder.wait_until_held();
+
+        let root = normalize_scan_root_path(
+            &std::env::temp_dir()
+                .join(format!(
+                    "zen-canvas-issue345-admission-{}",
+                    new_job_id("root")
+                ))
+                .to_string_lossy(),
+        );
+        let options = request(&root, &new_job_id("issue345-admission-short"));
+        let contender_db = db.clone();
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let started_at = Instant::now();
+        let contender = std::thread::spawn(move || {
+            let _ = started_tx.send(());
+            let result = contender_db.admit_managed_scan(&options);
+            let _ = result_tx.send(result);
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("admission contender reaches the call boundary");
+
+        match result_rx.recv_timeout(Duration::from_millis(250)) {
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(_) => panic!("admission completed while the writer slot was held"),
+            Err(error) => panic!("admission result channel closed unexpectedly: {error}"),
+        }
+        holder.release_and_join();
+
+        let admission = result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("admission completes within the existing busy timeout")
+            .expect("short writer contention does not reject admission");
+        let elapsed = started_at.elapsed();
+        assert!(elapsed >= Duration::from_millis(250));
+        assert!(admission.created);
+        assert_eq!(admission.runs.len(), 1);
+        assert_eq!(admission.runs[0].status, "queued");
+        println!(
+            "issue345_d1 admission_waited=true success=true elapsed_ms={} primary_code=none extended_code=none",
+            elapsed.as_millis()
+        );
+        contender.join().expect("admission contender joins");
+    }
+
+    #[test]
+    #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
+    fn managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority() {
+        let db = test_db("issue345-admission-timeout-lock");
+        let holder = HeldManagedScanWriter::start(db.clone());
+        holder.wait_until_held();
+        let root = normalize_scan_root_path(
+            &std::env::temp_dir()
+                .join(format!(
+                    "zen-canvas-issue345-admission-timeout-{}",
+                    new_job_id("root")
+                ))
+                .to_string_lossy(),
+        );
+        let request_key = new_job_id("issue345-admission-timeout");
+        let options = request(&root, &request_key);
+        let contender_db = db.clone();
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let started_at = Instant::now();
+        let contender = std::thread::spawn(move || {
+            let _ = started_tx.send(());
+            let result = contender_db.admit_managed_scan(&options);
+            let _ = result_tx.send(result);
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("admission contender reaches the call boundary");
+        // SQLite retains the production 5 s busy timeout. Leave hosted-runner
+        // scheduling variance room while still failing well before the holder's
+        // 20 s fail-safe release.
+        let error = match result_rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(Err(error)) => error,
+            Ok(Ok(_)) => panic!("admission unexpectedly passed under a held writer"),
+            Err(error) => panic!("admission did not fail boundedly at the busy timeout: {error}"),
+        };
+        let elapsed = started_at.elapsed();
+        let (primary_code, extended_code) = assert_plain_sqlite_busy(&error);
+
+        let conn = db.conn().expect("inspect admission transaction state");
+        let root_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_roots WHERE normalized_path = ?1",
+                [&root],
+                |row| row.get(0),
+            )
+            .expect("read root authority count");
+        let session_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_sessions WHERE request_key = ?1",
+                [&request_key],
+                |row| row.get(0),
+            )
+            .expect("read session authority count");
+        let run_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_runs WHERE parent_session_id IN (SELECT id FROM scan_sessions WHERE request_key = ?1)",
+                [&request_key],
+                |row| row.get(0),
+            )
+            .expect("read run authority count");
+        drop(conn);
+        holder.release_and_join();
+        contender.join().expect("admission contender joins");
+
+        assert!(
+            elapsed >= Duration::from_secs(4),
+            "busy timeout returned too early: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "busy timeout was not bounded: {elapsed:?}"
+        );
+        assert_eq!((root_count, session_count, run_count), (0, 0, 0));
+        println!(
+            "issue345_d2 admission_waited=true success=false elapsed_ms={} primary_code={} extended_code={} partial_authority=false",
+            elapsed.as_millis(), primary_code, extended_code
+        );
+    }
+
+    #[test]
+    #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
+    fn managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release() {
+        let db = test_db("issue345-batch-timeout-lock");
+        let root =
+            std::env::temp_dir().join(format!("zen-canvas-issue345-batch-{}", new_job_id("root")));
+        fs::create_dir_all(&root).expect("create managed scan root");
+        let root_text = root.to_string_lossy().replace('\\', "/");
+        let admission = db
+            .admit_managed_scan(&request(&root_text, &new_job_id("issue345-batch")))
+            .expect("admit durable batch fixture");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim durable batch fixture");
+        let path = root.join("issue345-batch-entry.txt");
+        let path_text = path.to_string_lossy().replace('\\', "/");
+        let entry_id = format!("issue345-test:{path_text}");
+        let expected_file_id = entry_id.clone();
+        let holder = HeldManagedScanWriter::start(db.clone());
+        holder.wait_until_held();
+
+        let contender_db = db.clone();
+        let run_id = claimed.dto.id.clone();
+        let run_revision = claimed.dto.revision;
+        let root_revision = claimed.root_revision;
+        let session_revision = claimed.session_revision;
+        let contender_path = path_text.clone();
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let started_at = Instant::now();
+        let contender = std::thread::spawn(move || {
+            let _ = started_tx.send(());
+            let entry = InsertFileRequest {
+                id: entry_id,
+                path: contender_path,
+                name: "issue345-batch-entry.txt".to_string(),
+                extension: "txt".to_string(),
+                size: 17,
+                mtime: 1,
+                ctime: 1,
+                is_dir: false,
+                state_code: 0,
+            };
+            let result = contender_db.persist_scan_batch(
+                &run_id,
+                run_revision,
+                root_revision,
+                session_revision,
+                &ScanBatchInput {
+                    entries: &[entry],
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 17,
+                    warnings: 0,
+                },
+            );
+            let _ = result_tx.send(result);
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("batch writer reaches the real Database API");
+        // Keep the production busy timeout unchanged; hosted Apple runners need
+        // extra scheduling margin, but this remains bounded before the holder's
+        // 20 s fail-safe release.
+        let error = match result_rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(Err(error)) => error,
+            Ok(Ok(_)) => panic!("batch persistence unexpectedly passed under a held writer"),
+            Err(error) => panic!("batch persistence did not fail boundedly: {error}"),
+        };
+        let elapsed = started_at.elapsed();
+        let (primary_code, extended_code) = assert_plain_sqlite_busy(&error);
+        let after_failure = db
+            .get_scan_run_record(&claimed.dto.id)
+            .expect("read run after rolled-back batch");
+        let session_after_failure = db
+            .get_scan_session(&admission.session.id)
+            .expect("read session after rolled-back batch");
+        let conn = db.conn().expect("inspect batch rollback state");
+        let persisted_file_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id = ?1",
+                [&expected_file_id],
+                |row| row.get(0),
+            )
+            .expect("read file ledger after failed batch");
+        let seen_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_seen WHERE run_id = ?1",
+                [&claimed.dto.id],
+                |row| row.get(0),
+            )
+            .expect("read scan_seen after failed batch");
+        drop(conn);
+        holder.release_and_join();
+        contender.join().expect("batch writer contender joins");
+
+        assert!(elapsed >= Duration::from_secs(4));
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "batch BUSY result was not bounded: {elapsed:?}"
+        );
+        assert_eq!(after_failure.dto.revision, claimed.dto.revision);
+        assert_eq!(after_failure.dto.scanned_files, 0);
+        assert_eq!(session_after_failure.revision, claimed.session_revision);
+        assert_eq!(session_after_failure.scanned_files, 0);
+        assert_eq!((persisted_file_count, seen_count), (0, 0));
+
+        let entry = InsertFileRequest {
+            id: format!("issue345-test:{path_text}"),
+            path: path_text,
+            name: "issue345-batch-entry.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 17,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        };
+        let persisted = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: &[entry],
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 17,
+                    warnings: 0,
+                },
+            )
+            .expect("same durable write succeeds after lock release");
+        let finalizing = db
+            .transition_scan_run_phase(
+                &persisted.dto.id,
+                persisted.dto.revision,
+                persisted.root_revision,
+                "finalizing",
+            )
+            .expect("enter finalization after retrying test operation");
+        db.finalize_scan_run(
+            &finalizing.dto.id,
+            finalizing.dto.revision,
+            finalizing.root_revision,
+            finalizing.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: false,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("settle the test run");
+        println!(
+            "issue345_d3 operation=persist_scan_batch transaction=BEGIN_IMMEDIATE elapsed_ms={} primary_code={} extended_code={} rollback_atomic=true after_release_success=true",
+            elapsed.as_millis(), primary_code, extended_code
+        );
+        fs::remove_dir_all(root).expect("remove managed scan root fixture");
     }
 
     #[test]

@@ -2129,6 +2129,476 @@ mod tests {
         .expect("open scanner test database")
     }
 
+    #[cfg(feature = "performance-test-tauri")]
+    #[test]
+    #[ignore = "Issue #345 deterministic real managed-scan writer contention evidence"]
+    fn issue345_concurrent_real_managed_scan_writers_hold_and_release_authority() {
+        use crate::{
+            db::scan::{set_managed_scan_write_test_hook, ManagedScanWriteTestPoint},
+            scheduler::{ResourceHints, WorkRequest, WorkScheduler},
+        };
+
+        let scheduler = WorkScheduler::global();
+        let initial_snapshot = scheduler.snapshot();
+        let background_policy = scheduler.policy_decision(WorkClass::Background);
+        let concurrent_scan_capacity = background_policy
+            .effective_capacity
+            .cpu
+            .min(background_policy.effective_capacity.io)
+            .max(1) as usize;
+        let available_scan_capacity =
+            concurrent_scan_capacity.saturating_sub(initial_snapshot.running_background);
+        assert!(background_policy.allow_background);
+        assert!(
+            available_scan_capacity >= 2,
+            "D4 requires two available real background leases; effective capacity was {concurrent_scan_capacity}, initially running {}",
+            initial_snapshot.running_background
+        );
+        let filler_count = available_scan_capacity.saturating_sub(2);
+
+        let db = test_db("issue345-d4-concurrent-writers");
+        let fixture_root =
+            std::env::temp_dir().join(format!("zen-canvas-issue345-d4-{}", new_job_id("fixture")));
+        let owner_root = fixture_root.join("owner");
+        let contender_root = fixture_root.join("contender");
+        let replacement_root = fixture_root.join("replacement");
+        let filler_roots = (0..filler_count)
+            .map(|index| fixture_root.join(format!("capacity-filler-{index}")))
+            .collect::<Vec<_>>();
+        for root in [&owner_root, &contender_root, &replacement_root]
+            .into_iter()
+            .chain(filler_roots.iter())
+        {
+            fs::create_dir_all(root).expect("create isolated D4 managed scan root");
+            fs::write(root.join("one.txt"), b"issue345 fixture")
+                .expect("create D4 managed scan file");
+        }
+
+        let owner_run_id = format!("issue345-d4-owner-{}", new_job_id("run"));
+        let contender_run_id = format!("issue345-d4-contender-{}", new_job_id("run"));
+        let replacement_run_id = format!("issue345-d4-replacement-{}", new_job_id("run"));
+        let filler_run_ids = (0..filler_count)
+            .map(|index| format!("issue345-d4-filler-{index}-{}", new_job_id("run")))
+            .collect::<Vec<_>>();
+        let mut filler_release_senders = Vec::with_capacity(filler_count);
+        let mut filler_release_receivers = std::collections::HashMap::with_capacity(filler_count);
+        for run_id in &filler_run_ids {
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            filler_release_senders.push(release_tx);
+            filler_release_receivers.insert(run_id.clone(), release_rx);
+        }
+        let filler_release_receivers = Arc::new(std::sync::Mutex::new(filler_release_receivers));
+        let (events_tx, events_rx) = std::sync::mpsc::channel::<(&'static str, String)>();
+        let (owner_begin_tx, owner_begin_rx) = std::sync::mpsc::channel();
+        let (contender_begin_tx, contender_begin_rx) = std::sync::mpsc::channel();
+        let (owner_transaction_release_tx, owner_transaction_release_rx) =
+            std::sync::mpsc::channel();
+        let (owner_after_commit_release_tx, owner_after_commit_release_rx) =
+            std::sync::mpsc::channel();
+        let (contender_after_commit_release_tx, contender_after_commit_release_rx) =
+            std::sync::mpsc::channel();
+        let owner_begin_rx = Arc::new(std::sync::Mutex::new(owner_begin_rx));
+        let contender_begin_rx = Arc::new(std::sync::Mutex::new(contender_begin_rx));
+        let owner_transaction_release_rx =
+            Arc::new(std::sync::Mutex::new(owner_transaction_release_rx));
+        let owner_after_commit_release_rx =
+            Arc::new(std::sync::Mutex::new(owner_after_commit_release_rx));
+        let contender_after_commit_release_rx =
+            Arc::new(std::sync::Mutex::new(contender_after_commit_release_rx));
+
+        let owner_id_for_hook = owner_run_id.clone();
+        let contender_id_for_hook = contender_run_id.clone();
+        let contender_after_commit_rx_for_hook = Arc::clone(&contender_after_commit_release_rx);
+        let filler_ids_for_hook = filler_run_ids.clone();
+        let filler_receivers_for_hook = Arc::clone(&filler_release_receivers);
+        let hook_events = events_tx.clone();
+        set_managed_scan_write_test_hook(Some(Arc::new(move |run_id, point| {
+            if run_id == owner_id_for_hook && point == ManagedScanWriteTestPoint::BeforeTransaction
+            {
+                let _ = hook_events.send(("owner_before_begin", run_id.to_string()));
+                let _ = owner_begin_rx
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(Duration::from_secs(20));
+            } else if run_id == contender_id_for_hook
+                && point == ManagedScanWriteTestPoint::BeforeTransaction
+            {
+                let _ = hook_events.send(("contender_before_begin", run_id.to_string()));
+                let _ = contender_begin_rx
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(Duration::from_secs(20));
+            } else if run_id == owner_id_for_hook
+                && point == ManagedScanWriteTestPoint::TransactionAcquired
+            {
+                let _ = hook_events.send(("owner_transaction_acquired", run_id.to_string()));
+                let _ = owner_transaction_release_rx
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(Duration::from_secs(20));
+            } else if run_id == contender_id_for_hook
+                && point == ManagedScanWriteTestPoint::TransactionAcquired
+            {
+                let _ = hook_events.send(("contender_transaction_acquired", run_id.to_string()));
+            } else if point == ManagedScanWriteTestPoint::BeforeTransaction
+                && filler_ids_for_hook
+                    .iter()
+                    .any(|filler_run_id| filler_run_id.as_str() == run_id)
+            {
+                let _ = hook_events.send(("filler_before_begin", run_id.to_string()));
+                let release_rx = filler_receivers_for_hook
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(run_id);
+                if let Some(release_rx) = release_rx {
+                    let _ = release_rx.recv_timeout(Duration::from_secs(20));
+                }
+            } else if run_id == owner_id_for_hook && point == ManagedScanWriteTestPoint::AfterCommit
+            {
+                let _ = hook_events.send(("owner_batch_committed", run_id.to_string()));
+                let _ = owner_after_commit_release_rx
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(Duration::from_secs(20));
+            } else if run_id == contender_id_for_hook
+                && point == ManagedScanWriteTestPoint::AfterCommit
+            {
+                let _ = hook_events.send(("contender_batch_committed", run_id.to_string()));
+                let _ = contender_after_commit_rx_for_hook
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(Duration::from_secs(20));
+            }
+        })));
+        struct ClearManagedScanHook;
+        impl Drop for ClearManagedScanHook {
+            fn drop(&mut self) {
+                crate::db::scan::set_managed_scan_write_test_hook(None);
+            }
+        }
+        let _clear_hook = ClearManagedScanHook;
+
+        let jobs = ScanJobManager::default();
+        let dedupe_jobs = DedupeJobManager::default();
+        let app = tauri::test::mock_app();
+        let app_handle = app.handle().clone();
+        let owner = start_performance_managed_scan(
+            app_handle.clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            owner_root,
+            owner_run_id.clone(),
+            "background",
+        )
+        .expect("start first real managed scan");
+        let owner_before = events_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("owner reaches its deterministic pre-transaction barrier");
+        assert_eq!(owner_before, ("owner_before_begin", owner_run_id.clone()));
+
+        let contender = start_performance_managed_scan(
+            app_handle.clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            contender_root,
+            contender_run_id.clone(),
+            "background",
+        )
+        .expect("start second real managed scan");
+        let contender_before = events_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("contender reaches its deterministic pre-transaction barrier");
+        assert_eq!(
+            contender_before,
+            ("contender_before_begin", contender_run_id.clone())
+        );
+        assert_eq!(
+            db.get_scan_run_record(&owner.run_id)
+                .expect("owner durable run")
+                .dto
+                .status,
+            "running"
+        );
+        assert_eq!(
+            db.get_scan_run_record(&contender.run_id)
+                .expect("contender durable run")
+                .dto
+                .status,
+            "running"
+        );
+
+        let mut fillers = Vec::with_capacity(filler_count);
+        for (index, run_id) in filler_run_ids.iter().enumerate() {
+            let filler = start_performance_managed_scan(
+                app_handle.clone(),
+                db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+                filler_roots[index].clone(),
+                run_id.clone(),
+                "background",
+            )
+            .expect("start real scan to fill the remaining background capacity");
+            let filler_before = events_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("capacity-filling scan reaches its deterministic pre-transaction barrier");
+            assert_eq!(filler_before, ("filler_before_begin", run_id.clone()));
+            fillers.push(filler);
+        }
+
+        let replacement = start_performance_managed_scan(
+            app_handle,
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            replacement_root,
+            replacement_run_id.clone(),
+            "background",
+        )
+        .expect("admit replacement scan before holding SQLite writer");
+        let queue_deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < queue_deadline
+            && scheduler.snapshot().queued <= initial_snapshot.queued
+        {
+            std::thread::yield_now();
+        }
+        let active_snapshot = scheduler.snapshot();
+        assert!(
+            active_snapshot.running_background
+                >= initial_snapshot.running_background + available_scan_capacity,
+            "D4 holds all available background lease capacity before replacement admission"
+        );
+        assert!(
+            active_snapshot.queued > initial_snapshot.queued,
+            "replacement scan should wait behind real managed scans filling background capacity"
+        );
+
+        owner_begin_tx
+            .send(())
+            .expect("release owner to acquire SQLite writer");
+        let owner_acquired = events_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("owner holds the SQLite writer inside persist_scan_batch");
+        assert_eq!(
+            owner_acquired,
+            ("owner_transaction_acquired", owner_run_id.clone())
+        );
+        let contender_begin_at = Instant::now();
+        contender_begin_tx
+            .send(())
+            .expect("release contender to request the same SQLite writer");
+        match events_rx.recv_timeout(Duration::from_millis(250)) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(("contender_transaction_acquired", _)) => {
+                panic!("contender acquired the writer while owner transaction remained open")
+            }
+            Ok(event) => panic!("unexpected D4 hook event while owner held writer: {event:?}"),
+            Err(error) => panic!("D4 event channel closed while writer was held: {error}"),
+        }
+
+        let foreground_scheduler = Arc::clone(&scheduler);
+        let (foreground_tx, foreground_rx) = std::sync::mpsc::sync_channel(1);
+        let foreground_started = Instant::now();
+        let foreground = std::thread::spawn(move || {
+            let result = foreground_scheduler.acquire(
+                WorkRequest::new(
+                    "issue345-d4-foreground-probe",
+                    WorkClass::Foreground,
+                    ResourceHints {
+                        cpu: 1,
+                        io: 1,
+                        open_handles: 1,
+                        ..ResourceHints::empty()
+                    },
+                )
+                .with_session_id("issue345-d4-foreground-session"),
+            );
+            let admitted = result.is_ok();
+            drop(result);
+            let _ = foreground_tx.send((admitted, foreground_started.elapsed().as_millis()));
+        });
+        let foreground_deadline = Instant::now() + Duration::from_secs(30);
+        let early_foreground_result = foreground_rx.recv_timeout(Duration::from_millis(100));
+
+        owner_transaction_release_tx
+            .send(())
+            .expect("release writer transaction after proving contender overlap");
+        let owner_committed = events_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("D4 writer events arrive after releasing owner transaction");
+        let mut owner_commit_seen = false;
+        let mut contender_acquire_seen = false;
+        let mut contender_commit_seen = false;
+        let mut contender_writer_wait_ms = None;
+        let mut writer_events = vec![owner_committed];
+        while !(owner_commit_seen && contender_acquire_seen && contender_commit_seen) {
+            if writer_events.is_empty() {
+                writer_events.push(
+                    events_rx
+                        .recv_timeout(Duration::from_secs(10))
+                        .expect("owner and contender reach both SQLite write barriers"),
+                );
+            }
+            for event in writer_events.drain(..) {
+                match event {
+                    ("owner_batch_committed", run_id) if run_id == owner_run_id => {
+                        owner_commit_seen = true;
+                    }
+                    ("contender_transaction_acquired", run_id) if run_id == contender_run_id => {
+                        contender_acquire_seen = true;
+                        contender_writer_wait_ms = Some(contender_begin_at.elapsed().as_millis());
+                    }
+                    ("contender_batch_committed", run_id) if run_id == contender_run_id => {
+                        contender_commit_seen = true;
+                    }
+                    other => panic!("unexpected D4 writer event: {other:?}"),
+                }
+            }
+        }
+        assert!(
+            owner_commit_seen,
+            "owner must commit its batch before cancel"
+        );
+        assert!(
+            contender_acquire_seen,
+            "contender must acquire the writer after the owner commits"
+        );
+        assert!(
+            contender_commit_seen,
+            "contender must commit while its real scheduler lease remains held"
+        );
+        let contender_writer_wait_ms = contender_writer_wait_ms
+            .expect("record contender wait until its SQLite writer transaction is acquired");
+
+        cancel_performance_managed_scan(&db, &jobs, &dedupe_jobs, &owner.run_id)
+            .expect("request cancellation through the production-managed scan boundary");
+        owner_after_commit_release_tx
+            .send(())
+            .expect("let cancelled owner leave persist_scan_batch");
+        let foreground_result = match early_foreground_result {
+            Ok(result) => Ok(result),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => foreground_rx
+                .recv_timeout(foreground_deadline.saturating_duration_since(Instant::now())),
+            Err(error) => Err(error),
+        };
+
+        contender_after_commit_release_tx
+            .send(())
+            .expect("release contender after foreground admission has used the cancelled lease");
+
+        for release in &filler_release_senders {
+            release
+                .send(())
+                .expect("release a capacity-filling real scan");
+        }
+
+        owner
+            .worker
+            .join()
+            .expect("owner managed-scan worker joins");
+        contender
+            .worker
+            .join()
+            .expect("contender managed-scan worker joins");
+        for filler in fillers {
+            filler
+                .worker
+                .join()
+                .expect("capacity-filling managed-scan worker joins");
+        }
+        replacement
+            .worker
+            .join()
+            .expect("replacement managed-scan worker joins after lease release");
+        foreground.join().expect("foreground scheduler probe joins");
+
+        let owner_status = db
+            .get_scan_run_record(&owner.run_id)
+            .expect("read cancelled owner result")
+            .dto
+            .status;
+        let contender_status = db
+            .get_scan_run_record(&contender.run_id)
+            .expect("read contender result")
+            .dto
+            .status;
+        let replacement_status = db
+            .get_scan_run_record(&replacement.run_id)
+            .expect("read replacement result")
+            .dto
+            .status;
+        let filler_statuses = filler_run_ids
+            .iter()
+            .map(|run_id| {
+                db.get_scan_run_record(run_id)
+                    .expect("read capacity-filling managed-scan result")
+                    .dto
+                    .status
+            })
+            .collect::<Vec<_>>();
+        let settled_snapshot = scheduler.snapshot();
+        let scheduler_settled = settled_snapshot.running == initial_snapshot.running
+            && settled_snapshot.queued == initial_snapshot.queued;
+        let foreground_admitted = foreground_result
+            .as_ref()
+            .is_ok_and(|(admitted, _)| *admitted);
+        let foreground_wait_ms = foreground_result
+            .as_ref()
+            .ok()
+            .map(|(_, wait_ms)| *wait_ms)
+            .unwrap_or(30_000);
+        let run_statuses_settled = owner_status == "cancelled"
+            && contender_status == "completed"
+            && replacement_status == "completed"
+            && filler_statuses.iter().all(|status| status == "completed");
+
+        println!(
+            "[issue345-d4] {}",
+            serde_json::json!({
+                "scan_writer_overlap_proved": true,
+                "owner_transaction_acquired_before_contender": true,
+                "contender_writer_wait_ms": contender_writer_wait_ms,
+                "foreground_wait_ms": foreground_wait_ms,
+                "foreground_admitted": foreground_admitted,
+                "pressure_slots": active_snapshot.running_background.saturating_sub(initial_snapshot.running_background),
+                "effective_background_capacity": concurrent_scan_capacity,
+                "capacity_filler_count": filler_count,
+                "replacement_queued_before_release": true,
+                "background_progress_after_cancel": replacement_status == "completed",
+                "run_statuses": {
+                    "owner_cancelled": owner_status,
+                    "contender": contender_status,
+                    "replacement": replacement_status,
+                    "capacity_fillers": filler_statuses,
+                },
+                "scan_runs_settled_without_failure": run_statuses_settled,
+                "scheduler_running_before": initial_snapshot.running,
+                "scheduler_queued_before": initial_snapshot.queued,
+                "scheduler_running_after": settled_snapshot.running,
+                "scheduler_queued_after": settled_snapshot.queued,
+                "scheduler_settled": scheduler_settled,
+                "foreground_thread_joined": true,
+            })
+        );
+        assert!(
+            foreground_result.is_ok(),
+            "foreground admission respects the 30-second boundary"
+        );
+        assert!(foreground_admitted);
+        assert!(
+            run_statuses_settled,
+            "D4 runs must settle without a failed run"
+        );
+        assert!(
+            scheduler_settled,
+            "D4 scheduler grants and queue must settle"
+        );
+        set_managed_scan_write_test_hook(None);
+        fs::remove_dir_all(fixture_root).expect("remove isolated D4 scan fixture");
+    }
+
     #[test]
     fn backend_issues_authoritative_uuid_scan_job_ids() {
         let foreground = create_scan_job_id("foreground".to_string()).expect("foreground id");
