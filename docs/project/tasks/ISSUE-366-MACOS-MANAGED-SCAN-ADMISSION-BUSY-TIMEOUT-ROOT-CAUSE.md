@@ -1,8 +1,9 @@
 # Issue #366 — macOS managed-scan admission busy-timeout investigation
 
-**Status:** Evidence collection in progress; no production fix is qualified yet.  
-**Baseline:** `origin/master` at `58062c5c356969f332f19c7458028bf2e097595e` (2026-10-10).  
-**Investigation branch:** `investigate/issue-366-macos-managed-scan-busy-timeout`.  
+**Status:** Evidence collection in progress; no production fix is qualified yet.
+**Baseline:** `origin/master` at `58062c5c356969f332f19c7458028bf2e097595e` (2026-10-10).
+**Investigation branch:** `investigate/issue-366-macos-managed-scan-busy-timeout`.
+**Draft PR:** [#367](https://github.com/ArdenZC/Zen-Canvas/pull/367).
 **Issue:** [#366](https://github.com/ArdenZC/Zen-Canvas/issues/366).
 
 ## Scope and guardrails
@@ -38,6 +39,8 @@ The two retained failing runs and the separate passing run are all macOS arm64 H
 
 The first Draft PR CI run, [38067423702](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38067423702) at PR head `332525f23695b07d06ae36b6d6cf69db55efc3b5`, passed Source checkout, Change scope, and Validation lane plan, but the Native macOS Performance job was **skipped**. This was not a test pass and provided no reproduction evidence. The route classifier selected Scan/Schema performance for `src-tauri/src/db/queries/scan.rs`, but its Native Performance path list omitted that source file even though the `workspace-foundation` suite runs the Issue #345 admission test.
 
+That first PR run completed **SUCCESS** after the required selected checks completed: Windows and macOS Rust quality, Windows and macOS release compile, Scan/Schema performance shard, and Performance profile all passed. The Native macOS Performance job `114257910490` remained **SKIPPED**, as did unrelated routed lanes; the successful aggregate therefore contains no evidence about the failing test.
+
 The branch now adds the exact scan-query source path to the Native macOS performance classifier and a routing contract test. This tightens CI selection for the source containing the regression test; it does not relax a gate. Because changes to the routing classifier intentionally select the existing all-domain **100k** validation set, the follow-up CI may execute those 100k suites. It does not select Full Validation or its 1m profile. The first run remains recorded as a skipped Native lane.
 
 ## Falsifiable hypotheses
@@ -63,9 +66,11 @@ The bounded reproduction keeps the existing 5 s SQLite timeout, 10 s result-chan
 This distinguishes connection-pool delay from a transaction-lock wait and tests whether the held writer release unblocks the contender, without adding retries or changing production policy. The targeted test could not be run in this Cloud Linux container because `glib-2.0 >= 2.70` development files are missing and the environment denies writes to the apt package index. This Linux limitation is not macOS evidence; the required reproduction is the Native macOS Hosted job.
 
 **Hosted diagnostic result:** pending the follow-up Draft PR CI run after the routing correction.
-**Windows applicability:** no Windows-specific production code is changed. Windows Hosted CI remains useful for compiling and running the test-only build, but cannot qualify the macOS arm64 failure mechanism.  
-**macOS result:** pending.  
+**Windows applicability:** no Windows-specific production code is changed. Windows Hosted CI remains useful for compiling and running the test-only build, but cannot qualify the macOS arm64 failure mechanism.
+**macOS result:** pending.
 **Production fix:** none authorized or included.
+
+**Codex Review:** not run, per the standing instruction.
 
 ## Current disposition
 
