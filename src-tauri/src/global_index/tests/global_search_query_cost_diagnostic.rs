@@ -3299,31 +3299,45 @@ fn execute_search_sql_with_counters(
     )
 }
 
-fn profile_key_only_sql_pair(
-    context: &JsonValue,
-    conn: &Connection,
-    query_class: &str,
-    tier: &str,
-    query: &str,
+struct KeyOnlySqlPair<'a> {
+    query_class: &'a str,
+    tier: &'a str,
+    query: &'a str,
     hit_count: usize,
     limit: u32,
     samples: usize,
+}
+
+fn profile_key_only_sql_pair(
+    context: &JsonValue,
+    conn: &Connection,
+    case: KeyOnlySqlPair<'_>,
 ) -> JsonValue {
-    let production_sql = diagnostic_search_tier_sql(tier);
-    let candidate_sql = diagnostic_key_only_cte_sql(tier);
-    let values = key_only_values(tier, query, limit);
-    let expected = diagnostic_search_tier(conn, tier, query, limit)
-        .unwrap_or_else(|error| panic!("production {tier} query failed for {query:?}: {error}"));
+    let production_sql = diagnostic_search_tier_sql(case.tier);
+    let candidate_sql = diagnostic_key_only_cte_sql(case.tier);
+    let values = key_only_values(case.tier, case.query, case.limit);
+    let expected =
+        diagnostic_search_tier(conn, case.tier, case.query, case.limit).unwrap_or_else(|error| {
+            panic!(
+                "production {} query failed for {:?}: {error}",
+                case.tier, case.query
+            )
+        });
     let candidate = run_result_sql(conn, &candidate_sql, &values);
     assert_eq!(
         candidate, expected,
-        "key-only CTE must match the entire production result object for {query_class}"
+        "key-only CTE must match the entire production result object for {}",
+        case.query_class
     );
-    let helper_candidate =
-        with_key_only_cte_search_candidate(|| diagnostic_search_tier(conn, tier, query, limit))
-            .unwrap_or_else(|error| {
-                panic!("key-only production helper failed for {query:?}: {error}")
-            });
+    let helper_candidate = with_key_only_cte_search_candidate(|| {
+        diagnostic_search_tier(conn, case.tier, case.query, case.limit)
+    })
+    .unwrap_or_else(|error| {
+        panic!(
+            "key-only production helper failed for {:?}: {error}",
+            case.query
+        )
+    });
     assert_eq!(helper_candidate, candidate);
 
     for _ in 0..PAIRED_WARMUPS {
@@ -3333,13 +3347,13 @@ fn profile_key_only_sql_pair(
         assert_eq!(candidate, expected);
     }
 
-    let mut production_samples = Vec::with_capacity(samples);
-    let mut candidate_samples = Vec::with_capacity(samples);
+    let mut production_samples = Vec::with_capacity(case.samples);
+    let mut candidate_samples = Vec::with_capacity(case.samples);
     let mut production_resources = ProcessResourceAccumulator::default();
     let mut candidate_resources = ProcessResourceAccumulator::default();
     let mut production_counters = JsonValue::Null;
     let mut candidate_counters = JsonValue::Null;
-    for sample in 0..samples {
+    for sample in 0..case.samples {
         let mut record_original = || {
             let (results, elapsed, counters, resources) =
                 execute_search_sql_with_counters(conn, &production_sql, &values);
@@ -3371,7 +3385,7 @@ fn profile_key_only_sql_pair(
     let candidate_p95 = candidate_summary["p95"].as_f64().unwrap_or_default();
     let candidate_plan = explain_details(conn, &candidate_sql, &values);
     let production_plan = explain_details(conn, &production_sql, &values);
-    if tier == "fts" {
+    if case.tier == "fts" {
         assert!(candidate_sql.contains(
             "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv"
         ));
@@ -3384,13 +3398,13 @@ fn profile_key_only_sql_pair(
         "schema_version": 1,
         "record_type": "key_only_cte_sql_paired",
         "context": context,
-        "query_class": query_class,
-        "tier": tier,
-        "query": query,
-        "eligible_hit_count": hit_count,
-        "limit": limit,
+        "query_class": case.query_class,
+        "tier": case.tier,
+        "query": case.query,
+        "eligible_hit_count": case.hit_count,
+        "limit": case.limit,
         "result_count": expected.len(),
-        "samples_per_variant": samples,
+        "samples_per_variant": case.samples,
         "warmups_per_variant": PAIRED_WARMUPS,
         "paired_order": "same runner, SQLite fixture, connection and query values; Original-first and Candidate-first alternate by sample",
         "original_latency_ms": production_summary,
@@ -3777,12 +3791,14 @@ fn profile_key_only_hit_count_scale(context: &JsonValue, conn: &Connection, base
     let no_hit = profile_key_only_sql_pair(
         context,
         &transaction,
-        "hit_scale_0",
-        "name_prefix",
-        no_hit_query,
-        0,
-        QUERY_LIMIT,
-        PAIRED_SAMPLES,
+        KeyOnlySqlPair {
+            query_class: "hit_scale_0",
+            tier: "name_prefix",
+            query: no_hit_query,
+            hit_count: 0,
+            limit: QUERY_LIMIT,
+            samples: PAIRED_SAMPLES,
+        },
     );
     scale_records.push(json!({"query": no_hit_query, "hit_count": 0, "record": no_hit}));
 
@@ -3800,12 +3816,14 @@ fn profile_key_only_hit_count_scale(context: &JsonValue, conn: &Connection, base
         let record = profile_key_only_sql_pair(
             context,
             &transaction,
-            &format!("hit_scale_{expected_count}"),
-            "name_prefix",
-            &query,
-            expected_count,
-            QUERY_LIMIT,
-            PAIRED_SAMPLES,
+            KeyOnlySqlPair {
+                query_class: &format!("hit_scale_{expected_count}"),
+                tier: "name_prefix",
+                query: &query,
+                hit_count: expected_count,
+                limit: QUERY_LIMIT,
+                samples: PAIRED_SAMPLES,
+            },
         );
         scale_records.push(json!({
             "query": query,
@@ -4026,12 +4044,14 @@ fn global_search_key_only_cte_qualification() {
         profile_key_only_sql_pair(
             &context,
             &conn,
-            spec.class,
-            tier,
-            spec.query,
-            hit_count,
-            QUERY_LIMIT,
-            PAIRED_SAMPLES,
+            KeyOnlySqlPair {
+                query_class: spec.class,
+                tier,
+                query: spec.query,
+                hit_count,
+                limit: QUERY_LIMIT,
+                samples: PAIRED_SAMPLES,
+            },
         );
     }
     for (class, query) in FTS_QUERIES {
@@ -4045,12 +4065,14 @@ fn global_search_key_only_cte_qualification() {
         profile_key_only_sql_pair(
             &context,
             &conn,
-            class,
-            "fts",
-            query,
-            hit_count as usize,
-            QUERY_LIMIT,
-            PAIRED_SAMPLES,
+            KeyOnlySqlPair {
+                query_class: class,
+                tier: "fts",
+                query,
+                hit_count: hit_count as usize,
+                limit: QUERY_LIMIT,
+                samples: PAIRED_SAMPLES,
+            },
         );
     }
 
