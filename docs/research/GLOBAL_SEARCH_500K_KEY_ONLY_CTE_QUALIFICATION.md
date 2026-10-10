@@ -114,9 +114,9 @@ SQL EXPLAIN、VM steps、Fullscan steps、Sort operations、结果数、temp B-t
 | Windows GNU target `cargo check --features desktop-runtime --lib --tests` | PASS（仅交叉编译，不是 Windows 执行） |
 | `actionlint` 专用 workflow | PASS |
 | `git diff --check` | PASS |
-| Documentation check | 待设置 `DOCS_DIFF_BASE=origin/master` 后执行；首次无该变量运行未执行检查并报错 |
-| Governance check | 待执行 |
-| Local Linux Rust tests | NOT RUNNABLE：仓库在 Linux 编译时引用 Windows/macOS 专用 `keyring` target dependency；该失败不是测试结果 |
+| `DOCS_DIFF_BASE=origin/master npm run test:docs` | PASS；验证 1 个 changed Markdown file，并通过治理检查 |
+| `npm run test:governance` | PASS |
+| Local Linux targeted Rust test | BLOCKED before test execution：仓库在 Linux 编译时引用 Windows/macOS 专用 `keyring` target dependency，Rust reports eight unresolved `keyring` errors in pre-existing `src/ai/settings.rs` (exit 101)。这不是搜索测试失败结果 |
 | Windows Hosted 100k + 500k qualification | 待运行 |
 | PR exact-head 100k baseline / quality CI | 待 PR 后检查 |
 | Windows/macOS 原生文件系统 / 用户体验 | NOT VERIFIED；Windows Hosted SQLite synthetic benchmark 不测 NTFS scan，macOS 未用于 CTE benchmark |
