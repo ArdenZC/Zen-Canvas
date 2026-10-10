@@ -5,6 +5,7 @@ on:
     paths:
       - "src-tauri/src/global_index/tests.rs"
       - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
+      - "src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs"
   workflow_dispatch:
     inputs:
       entries:
@@ -19,7 +20,7 @@ on:
           - "2000000"
           - "5000000"
       mode:
-        description: Run the official benchmark or the focused FTS diagnostic
+        description: Run the official benchmark or a focused diagnostic
         required: true
         type: choice
         default: baseline
@@ -31,18 +32,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}-${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
+  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}-${{ github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
   cancel-in-progress: false
 
 jobs:
   synthetic-global-search:
-    name: Global Search ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
+    name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
     env:
-      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
       ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-baseline.jsonl
-      ZC_GLOBAL_SEARCH_BENCHMARK_MODE: ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_MODE: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
@@ -75,6 +76,14 @@ jobs:
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::fts_diagnostic::global_search_fts_latency_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Run single-fixture 500k query-cost diagnostic
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'query_cost_diagnostic' }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_query_cost_diagnostic
           -- --ignored --exact --nocapture --test-threads=1
       - name: Upload benchmark evidence
         if: ${{ always() }}
