@@ -1,6 +1,6 @@
 # Issue #365 — Organization Plan 1k 性能调查与修复
 
-状态：修复代码 exact-head Hosted CI 已成功；报告已完成，等待报告提交与文档门槛确认。
+状态：修复代码 exact-head Hosted CI 已成功；报告已提交，文档检查通过。
 
 ## 1. 版本与范围
 
@@ -213,7 +213,7 @@ GitHub Actions 日志未提供 runner CPU 型号/频率/核数、宿主机 RAM�
 - 修复代码 HEAD：`8f80a280c5faf9920b968c91561cb6200801aa1d`。
 - 修复代码 exact-head PR CI：[38075396451](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38075396451)，commit `8f80a280c5faf9920b968c91561cb6200801aa1d`，整体 **SUCCESS**。Windows Performance / Intelligence Job `114282628581`、Performance Profile Job `114282930077`、Windows Quality Job `114283907505`、macOS Quality Job `114285461749`、两平台 Rust Quality、两平台 Release compile、source/evidence 与 routing/governance gates 均成功。Organization Plan 100/1k/10k 通过，1k execution prep `400.3032ms`。本轮没有其他独立 CI 失败，也没有 #366 失败。
 - 诊断基线 Windows Intelligence、Performance Profile、macOS Rust Quality 和两平台 Release compile 通过；Windows Rust Quality 因后续推送而 cancelled，使基线 run 的聚合 Windows Quality 失败。此取消不是测试失败，修复 exact-head 上 Windows Quality 已通过。
-- 报告提交只改变文档；性能证据对应上面的 exact source HEAD。PR 的报告提交与修复代码 HEAD 分开记录，避免把 report-only 后继误称为性能测试 SHA。
+- 报告提交只改变文档；性能证据对应上面的 exact source HEAD。报告 HEAD `d8a505fa669a67318c4f9315bad46f79f35b3487` 的 PR 运行 [38076945618](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38076945618) 被取消；该 PR-wide workflow 将重新排入性能 lane，但在 Performance / Intelligence 测试启动前取消。此次没有第三次定向 Windows 性能测试；报告 Markdown 的本地 documentation/governance validation 通过。PR 的报告提交与修复代码 HEAD 分开记录，避免把 report-only 后继误称为性能测试 SHA。
 
 ## 12. 本地验证与 Owner 建议
 
