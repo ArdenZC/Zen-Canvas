@@ -42,7 +42,11 @@ fn assert_candidate_matches_production(db: &Database, query: &str) {
         .search_global_entries_snapshot(query, 80, 0)
         .expect("read production source snapshot");
 
-    for candidate in [Query::CorrelatedAggregates, Query::NarrowAggregate] {
+    for candidate in [
+        Query::CorrelatedAggregates,
+        Query::NarrowAggregate,
+        Query::GroupByVolumeId,
+    ] {
         let optimized = db
             .search_global_entries_snapshot_with_source_health_candidate(query, 80, 0, candidate)
             .expect("read diagnostic candidate snapshot");
@@ -53,7 +57,11 @@ fn assert_candidate_matches_production(db: &Database, query: &str) {
     let transaction = conn.transaction().expect("begin fact comparison snapshot");
     let baseline = load_global_search_source_health_candidate(&transaction, Query::Original)
         .expect("load baseline revision facts");
-    for candidate in [Query::CorrelatedAggregates, Query::NarrowAggregate] {
+    for candidate in [
+        Query::CorrelatedAggregates,
+        Query::NarrowAggregate,
+        Query::GroupByVolumeId,
+    ] {
         let optimized = load_global_search_source_health_candidate(&transaction, candidate)
             .expect("load candidate revision facts");
         assert_eq!(baseline.source_health, optimized.source_health);
@@ -257,7 +265,11 @@ fn global_search_source_health_candidates_preserve_null_max_semantics() {
     let transaction = conn.transaction().expect("begin nullable fact snapshot");
     let original = load_global_search_source_health_candidate(&transaction, Query::Original)
         .expect("load original nullable aggregate");
-    for candidate in [Query::CorrelatedAggregates, Query::NarrowAggregate] {
+    for candidate in [
+        Query::CorrelatedAggregates,
+        Query::NarrowAggregate,
+        Query::GroupByVolumeId,
+    ] {
         let optimized = load_global_search_source_health_candidate(&transaction, candidate)
             .expect("load candidate nullable aggregate");
         assert_eq!(original, optimized);
@@ -346,7 +358,11 @@ fn global_search_source_health_candidates_match_during_concurrent_writes() {
             .expect("establish reader snapshot before concurrent writer commit");
         writer_start.wait();
         writer_commit.wait();
-        for candidate in [Query::CorrelatedAggregates, Query::NarrowAggregate] {
+        for candidate in [
+            Query::CorrelatedAggregates,
+            Query::NarrowAggregate,
+            Query::GroupByVolumeId,
+        ] {
             let (original, optimized) = diagnostic_compare_snapshot_queries_on_connection(
                 &transaction,
                 "txt",

@@ -30,6 +30,8 @@ pub(crate) enum GlobalSearchSourceHealthQueryCandidate {
     Original,
     CorrelatedAggregates,
     NarrowAggregate,
+    #[cfg(test)]
+    GroupByVolumeId,
 }
 
 const GLOBAL_SEARCH_SOURCE_HEALTH_SQL: &str = r#"
@@ -83,6 +85,18 @@ impl GlobalSearchSourceHealthQueryCandidate {
                 "#
             }
             Self::NarrowAggregate => GLOBAL_SEARCH_SOURCE_HEALTH_SQL,
+            #[cfg(test)]
+            Self::GroupByVolumeId => {
+                r#"
+                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                       COUNT(ge.id), MAX(ge.last_seen_at)
+                FROM global_volumes gv
+                LEFT JOIN global_entries ge
+                  ON ge.volume_id = gv.id AND ge.is_stale = 0
+                GROUP BY gv.id
+                ORDER BY gv.id ASC
+                "#
+            }
         }
     }
 }
