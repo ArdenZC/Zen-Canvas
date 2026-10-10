@@ -10,6 +10,10 @@ function asString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function exactString(value) {
+  return typeof value === "string" && value === value.trim() ? value : "";
+}
+
 function laneForEvent(eventName, requestedLane) {
   const explicitLane = asString(requestedLane);
   if (explicitLane) return explicitLane;
@@ -41,6 +45,221 @@ function parseLanes(value) {
   }
   if (!Array.isArray(parsed)) throw new Error("validation_lanes must be a JSON array.");
   return [...parsed];
+}
+
+function parseLaneJobExpectations(value) {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error("matrix_job_expectations must be a JSON object.");
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("matrix_job_expectations must be a JSON object.");
+  }
+
+  const expectations = {};
+  for (const [jobId, expected] of Object.entries(parsed)) {
+    if (!/^[a-z0-9-]+$/u.test(jobId)) {
+      throw new Error("matrix_job_expectations contains an invalid job id.");
+    }
+    try {
+      expectations[jobId] = parseBoolean(expected, "matrix_job_expectations entry");
+    } catch {
+      throw new Error("matrix_job_expectations values must be true or false.");
+    }
+  }
+  return expectations;
+}
+
+function resultForExpectedMatrixJob(results, jobId, lane) {
+  const matchingResults = results.filter((result) =>
+    result?.job_id === jobId && result?.lane === lane,
+  );
+  if (matchingResults.length === 0) return "missing";
+  const latestResult = matchingResults.reduce((latest, result) =>
+    Number(result.run_attempt) > Number(latest.run_attempt) ? result : latest,
+  );
+  return exactString(latestResult?.result) || "missing";
+}
+
+function positiveRunAttempt(value, label) {
+  const attempt = typeof value === "number" ? String(value) : typeof value === "string" ? value : "";
+  if (!/^[1-9]\d*$/u.test(attempt) || !Number.isSafeInteger(Number(attempt))) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return Number(attempt);
+}
+
+/**
+ * Read sanitized lane result artifacts from every attempt in the current
+ * workflow run. A single matched artifact is extracted directly into root;
+ * its embedded artifact_name is checked against the job/lane/attempt tuple.
+ * Multiple artifacts retain name-bearing directories, which are checked
+ * against the same record. Older records remain eligible for partial reruns.
+ */
+export function readValidationLaneJobResults(directory, runAttempt) {
+  const root = asString(directory);
+  if (!root) throw new Error("lane_job_results_directory is missing.");
+  const currentAttempt = positiveRunAttempt(runAttempt, "lane_job_results_run_attempt");
+
+  let artifactDirectories;
+  try {
+    artifactDirectories = fs.readdirSync(root, { withFileTypes: true });
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") return [];
+    throw error;
+  }
+
+  const results = [];
+  const seen = new Set();
+  const singleArtifactRecord = artifactDirectories.find((entry) => entry.name === "ci-lane-result.json");
+  if (singleArtifactRecord) {
+    if (artifactDirectories.length !== 1 || !singleArtifactRecord.isFile()) {
+      throw new Error("single lane result artifact layout is ambiguous.");
+    }
+    const resultPath = path.join(root, singleArtifactRecord.name);
+    const resultStat = fs.lstatSync(resultPath);
+    if (!resultStat.isFile()) {
+      throw new Error("single lane result artifact does not contain a regular result file.");
+    }
+    const result = readAndValidateLaneArtifactRecord(resultPath, null, currentAttempt);
+    results.push(result);
+    return results;
+  }
+
+  for (const entry of artifactDirectories) {
+    if (!entry.name.startsWith("ci-lane-result-")) continue;
+    if (!entry.isDirectory()) {
+      throw new Error("lane result artifact is not a directory.");
+    }
+    const artifactName = /^ci-lane-result-([1-9]\d*)-([a-z0-9-]+)-(head_validation|merge_integration)$/u.exec(entry.name);
+    if (!artifactName) {
+      throw new Error("lane result artifact name is invalid.");
+    }
+    const artifactAttempt = positiveRunAttempt(artifactName[1], "lane result artifact attempt");
+    if (String(artifactAttempt) !== artifactName[1]) {
+      throw new Error("lane result artifact attempt is not canonical.");
+    }
+    if (artifactAttempt > currentAttempt) {
+      throw new Error("lane result artifact is from a future attempt.");
+    }
+
+    const resultPath = path.join(root, entry.name, "ci-lane-result.json");
+    const resultStat = fs.lstatSync(resultPath);
+    if (!resultStat.isFile()) {
+      throw new Error("lane result artifact does not contain a regular ci-lane-result.json file.");
+    }
+    const result = readAndValidateLaneArtifactRecord(resultPath, entry.name, currentAttempt);
+    if (
+      artifactAttempt !== Number(result.run_attempt)
+      || artifactName[2] !== result.job_id
+      || artifactName[3] !== result.lane
+    ) {
+      throw new Error("lane result artifact name does not match its record.");
+    }
+    const tuple = `${result.job_id}\u0000${result.lane}\u0000${result.run_attempt}`;
+    if (seen.has(tuple)) {
+      throw new Error("duplicate lane result artifact record.");
+    }
+    seen.add(tuple);
+    results.push(result);
+  }
+  return results;
+}
+
+function readAndValidateLaneArtifactRecord(resultPath, artifactNameFromPath, currentAttempt) {
+  const value = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+  const jobId = exactString(value?.job_id);
+  const lane = exactString(value?.lane);
+  const resultAttempt = positiveRunAttempt(value?.run_attempt, "lane result run_attempt");
+  const jobResult = exactString(value?.result);
+  const artifactName = exactString(value?.artifact_name);
+  if (
+    !/^[a-z0-9-]+$/u.test(jobId)
+    || !PULL_REQUEST_LANES.includes(lane)
+    || resultAttempt > currentAttempt
+    || !jobResult
+  ) {
+    throw new Error("lane result artifact contains an invalid record.");
+  }
+
+  const canonicalArtifactName = `ci-lane-result-${resultAttempt}-${jobId}-${lane}`;
+  if (
+    artifactName !== canonicalArtifactName
+    || (artifactNameFromPath !== null && artifactNameFromPath !== artifactName)
+  ) {
+    throw new Error("lane result artifact name does not match its record.");
+  }
+
+  return {
+    job_id: jobId,
+    lane,
+    run_attempt: String(resultAttempt),
+    result: jobResult,
+    artifact_name: artifactName,
+  };
+}
+
+/**
+ * Summarize only routed matrix domains. For every required job/lane pair, use
+ * the newest available attempt and require that result to be success. Unrouted
+ * domains stay skipped in their owning workflow checks and never count as
+ * success.
+ */
+export function summarizeValidationLaneResults(results = [], lanesValue, expectationsValue = {}, runAttempt) {
+  const lanes = parseLanes(lanesValue);
+  const expectations = parseLaneJobExpectations(expectationsValue);
+  const currentAttempt = positiveRunAttempt(runAttempt, "lane_job_results_run_attempt");
+  const seen = new Set();
+  const normalizedResults = results.map((result) => {
+    const jobId = exactString(result?.job_id);
+    const lane = exactString(result?.lane);
+    const attempt = positiveRunAttempt(result?.run_attempt, "lane result run_attempt");
+    const jobResult = exactString(result?.result);
+    if (
+      !/^[a-z0-9-]+$/u.test(jobId)
+      || !PULL_REQUEST_LANES.includes(lane)
+      || !jobResult
+    ) {
+      throw new Error("lane result record is invalid.");
+    }
+    if (attempt > currentAttempt) {
+      throw new Error("lane result record is from a future attempt.");
+    }
+    const tuple = `${jobId}\u0000${lane}\u0000${attempt}`;
+    if (seen.has(tuple)) {
+      throw new Error("duplicate lane result record.");
+    }
+    seen.add(tuple);
+    return { job_id: jobId, lane, run_attempt: String(attempt), result: jobResult };
+  });
+  const requiredJobIds = Object.entries(expectations)
+    .filter(([, expected]) => expected)
+    .map(([jobId]) => jobId);
+
+  return Object.fromEntries(lanes.map((lane) => {
+    if (requiredJobIds.length === 0) return [lane, "not_required"];
+    const laneResults = requiredJobIds.map((jobId) =>
+      resultForExpectedMatrixJob(normalizedResults, jobId, lane),
+    );
+    const failure = laneResults.find((result) => result !== "success");
+    return [lane, failure ?? "success"];
+  }));
+}
+
+export function validationLaneResultsForPlan(validationLanes, laneResults = {}) {
+  const lanes = parseLanes(validationLanes);
+  return {
+    headValidationResult: lanes.includes("head_validation")
+      ? laneResults.head_validation ?? "missing"
+      : null,
+    integrationValidationResult: lanes.includes("merge_integration")
+      ? laneResults.merge_integration ?? "missing"
+      : null,
+  };
 }
 
 function fallbackPlan(eventName, validationLane) {
@@ -157,9 +376,9 @@ export function buildValidationPlan(input = {}) {
 }
 
 /**
- * Validate the contract consumed by required aggregate jobs. The lane result
- * is optional for plan-shape checks and required when an aggregate owns a
- * dynamic lane job such as Documentation-only validation.
+ * Validate the plan contract consumed by aggregate jobs. PR callers must
+ * explicitly identify routed matrix domains and provide their actual lane
+ * outcomes; non-PR callers retain the single immutable event lane.
  */
 export function evaluateValidationAggregate(input = {}) {
   const eventName = asString(input.eventName);
@@ -221,32 +440,58 @@ export function evaluateValidationAggregate(input = {}) {
 
   const headValidationResult = input.headValidationResult === undefined || input.headValidationResult === null
     ? null
-    : asString(input.headValidationResult);
+    : asString(input.headValidationResult).toLowerCase();
   const integrationValidationResult = input.integrationValidationResult === undefined || input.integrationValidationResult === null
     ? null
-    : asString(input.integrationValidationResult);
-  if (isPullRequest && treeEquivalent) {
-    if (headValidationResult !== null && !["skipped", "not_required"].includes(headValidationResult)) {
-      return { pass: false, reason: `equivalent trees must not claim a head validation result of ${headValidationResult}.` };
+    : asString(input.integrationValidationResult).toLowerCase();
+
+  if (isPullRequest) {
+    let laneValidationRequired;
+    try {
+      laneValidationRequired = parseBoolean(input.laneValidationRequired, "lane_validation_required");
+    } catch (error) {
+      return { pass: false, reason: error instanceof Error ? error.message : String(error) };
     }
-    if (integrationValidationResult !== null && integrationValidationResult !== "success") {
-      return { pass: false, reason: `merge-integration validation result was ${integrationValidationResult || "missing"}.` };
-    }
-  }
-  if (isPullRequest && !treeEquivalent && laneJobResult === null) {
-    if (headValidationResult !== "success") {
-      return { pass: false, reason: `non-equivalent trees require head validation success, got ${headValidationResult || "missing"}.` };
-    }
-    if (integrationValidationResult !== "success") {
-      return { pass: false, reason: `non-equivalent trees require merge-integration success, got ${integrationValidationResult || "missing"}.` };
-    }
-  }
-  if (isPullRequest && !treeEquivalent) {
-    if (headValidationResult !== null && headValidationResult !== "success") {
-      return { pass: false, reason: `head validation result was ${headValidationResult || "missing"}.` };
-    }
-    if (integrationValidationResult !== null && integrationValidationResult !== "success") {
-      return { pass: false, reason: `merge-integration result was ${integrationValidationResult || "missing"}.` };
+
+    if (!laneValidationRequired) {
+      const requiredLaneResults = treeEquivalent
+        ? [integrationValidationResult]
+        : [headValidationResult, integrationValidationResult];
+      if (requiredLaneResults.some((result) => result !== "not_required")) {
+        return {
+          pass: false,
+          reason: "an unrouted validation lane must be explicitly classified not_required.",
+        };
+      }
+    } else if (treeEquivalent) {
+      if (headValidationResult !== null && headValidationResult !== "not_required") {
+        return {
+          pass: false,
+          reason: "equivalent trees must not claim a head validation result of " + headValidationResult + ".",
+        };
+      }
+      if (integrationValidationResult !== "success") {
+        return {
+          pass: false,
+          reason: "equivalent trees require merge-integration success, got "
+            + (integrationValidationResult || "missing") + ".",
+        };
+      }
+    } else {
+      if (headValidationResult !== "success") {
+        return {
+          pass: false,
+          reason: "non-equivalent trees require head validation success, got "
+            + (headValidationResult || "missing") + ".",
+        };
+      }
+      if (integrationValidationResult !== "success") {
+        return {
+          pass: false,
+          reason: "non-equivalent trees require merge-integration success, got "
+            + (integrationValidationResult || "missing") + ".",
+        };
+      }
     }
   }
 
@@ -323,21 +568,55 @@ function runPlanCli() {
 }
 
 function runAggregateCli() {
+  const eventName = asString(process.env.EVENT_NAME || process.env.GITHUB_EVENT_NAME);
+  let headValidationResult = process.env.HEAD_VALIDATION_RESULT;
+  let integrationValidationResult = process.env.INTEGRATION_VALIDATION_RESULT;
+  let laneValidationRequired = false;
+
+  if (eventName === "pull_request") {
+    try {
+      const expectations = parseLaneJobExpectations(process.env.MATRIX_JOB_EXPECTATIONS);
+      const requiredJobIds = Object.values(expectations).some(Boolean);
+      laneValidationRequired = requiredJobIds;
+      const laneJobResults = readValidationLaneJobResults(
+        process.env.LANE_JOB_RESULTS_DIRECTORY,
+        process.env.GITHUB_RUN_ATTEMPT,
+      );
+      const laneResults = summarizeValidationLaneResults(
+        laneJobResults,
+        process.env.VALIDATION_LANES,
+        expectations,
+        process.env.GITHUB_RUN_ATTEMPT,
+      );
+      ({ headValidationResult, integrationValidationResult } =
+        validationLaneResultsForPlan(process.env.VALIDATION_LANES, laneResults));
+    } catch (error) {
+      console.error(
+        "[ci-validation-plan] Could not collect required lane results: "
+          + (error instanceof Error ? error.message : String(error)),
+      );
+      laneValidationRequired = true;
+      headValidationResult = "missing";
+      integrationValidationResult = "missing";
+    }
+  }
+
   const result = evaluateValidationAggregate({
-    eventName: asString(process.env.EVENT_NAME || process.env.GITHUB_EVENT_NAME),
+    eventName,
     planResult: process.env.PLAN_RESULT,
     treeEquivalent: process.env.TREE_EQUIVALENT,
     headValidationRequired: process.env.HEAD_VALIDATION_REQUIRED,
     validationLanes: process.env.VALIDATION_LANES,
     validationLane: process.env.VALIDATION_LANE,
     laneJobResult: process.env.LANE_JOB_RESULT,
-    headValidationResult: process.env.HEAD_VALIDATION_RESULT,
-    integrationValidationResult: process.env.INTEGRATION_VALIDATION_RESULT,
+    headValidationResult,
+    integrationValidationResult,
+    laneValidationRequired,
     planValid: process.env.PLAN_VALID,
   });
   console.log(JSON.stringify(result, null, 2));
   if (!result.pass) {
-    console.error(`[ci-validation-plan] ${result.reason}`);
+    console.error("[ci-validation-plan] " + result.reason);
     process.exitCode = 1;
   }
 }
