@@ -1,15 +1,15 @@
 # Issue #366：macOS Hosted managed-scan admission 超时调查
 
-**调查结论：SQLite 等待机制和时间线已有直接证据；5 秒设置与约 9 秒墙钟差值的精确 OS 级分解仍未验证；没有证据支持测试层修复。**
+**调查结论：两个阶段化 macOS 样本确认单次 SQLite `BEGIN IMMEDIATE` 占用 8.827–9.148 秒墙钟；SQLite 的 5 秒 busy timeout 是累计请求睡眠预算，不是墙钟截止时间。10 秒 channel deadline 因而只留约 0.85–1.17 秒余量，旧样本最少仅 0.249 秒。已实施最小 test-only 缓冲修复：先验证数据库池的正常默认值仍为 5 秒，再把本 ignored test 的所有池连接设为 500ms。OS 额外墙钟的精确分摊仍未测得；修复后的 exact-head CI 待验证。**
 
 - 起始 `origin/master`：`58062c5c356969f332f19c7458028bf2e097595e`
-- 诊断代码头：`3c96555aa9046665451985f14e3e9df9ce6096be`
+- 首次阶段诊断代码头：`3c96555aa9046665451985f14e3e9df9ce6096be`
 - 分支：`investigate/issue-366-macos-managed-scan-busy-timeout`
 - Draft PR：[ #367 ](https://github.com/ArdenZC/Zen-Canvas/pull/367)
 - Issue：[ #366 ](https://github.com/ArdenZC/Zen-Canvas/issues/366)
 - Owner 授权：[Issue comment 6100291859](https://github.com/ArdenZC/Zen-Canvas/issues/366#issuecomment-6100291859)
 
-PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查没有修改生产 SQLite 行为、timeout、scan admission、scheduler、Schema、IPC、Global Search 或其他 track，也没有运行 Codex Review、500k/1m benchmark 或 Full Validation。
+PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查未修改生产 SQLite busy timeout、SQL、scan admission、scheduler、Schema、IPC、Global Search 或其他 track。仅在 D2 ignored test 中覆盖 test fixture 的 busy timeout。没有运行 Codex Review、500k/1m benchmark 或 Full Validation。
 
 ## 1. 范围与证据等级
 
@@ -20,7 +20,7 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查没有修改生�
 本报告区分三类证据：
 
 1. **历史失败记录**：原始 macOS job 在无阶段日志时超出 10 秒 channel receive deadline；这些失败保持原样，没有被后续成功覆盖。
-2. **本轮 Hosted 实测**：精确头 `3c96555…` 在 macOS arm64 Hosted 上执行了目标测试，获得 method、SQLite transaction、线程 CPU、send/receive 的共同时间线。
+2. **本轮 Hosted 实测**：两个 macOS arm64 Hosted run 对生产默认 `busy_timeout=5000ms` 执行目标测试，获得 method、SQLite transaction、线程 CPU、send/receive 的共同时间线；修复后 exact-head CI 另待确认 test-only 覆盖结果。
 3. **源码可证实机制**：仓库锁定的 rusqlite 和 bundled SQLite 源码说明 timeout 是按累计请求 sleep 时长工作，而不是严格的 monotonic 墙钟截止时间。该源码机制不能单独证明 Hosted 内核每次 sleep 的实际时长。
 
 ## 2. 实际代码路径
@@ -74,6 +74,19 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查没有修改生�
 
 本样本在 10 秒 channel deadline 前约 851ms 返回；先前 9,751ms 样本仅余 249ms。历史失败日志没有这些 marker，不能证明其失败时也已经进入 SQLite 或已经返回 BUSY。
 
+第二次有效阶段观测来自 exact PR-head run [38074989532](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38074989532)，macOS Native job [114280260772](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38074989532/job/114280260772)，synthetic request key `issue366-admission-timeout-01a1270e-29cf-7df2-9db4-6a6b6870c71c`：
+
+| 阶段 | elapsed / wall | 说明 |
+|---|---:|---|
+| writer lock 建立 / start signal / admission call | +59,376µs / +59,536µs / +59,573µs | signal 到 call 37µs。 |
+| method 进入 / pool connection | +59,578µs / +59,759µs | root 解析 63µs、hash 32µs、pool 21µs wall / 22,375ns thread CPU。 |
+| 配置与 deadline 起点 | pool PRAGMA `5000ms`；`BEGIN IMMEDIATE` 边界 +59,770µs；channel wait +59,621µs | watchdog 比 BEGIN 早 149µs；计时原点差不足 0.2ms。 |
+| `transaction_with_behavior` 返回 | +8,887,093µs | `begin_wall_us=8,827,310`、thread CPU `1,658,875ns`、SQLite primary/extended `5/5`。 |
+| admission 返回 / send 返回 / receive | +8,887,272µs / +8,887,343µs / +8,887,491µs | send-to-receive 186µs；channel wait 8,827,869µs。 |
+| 测试结果 | `elapsed_ms=8828`，通过 | plain `SQLITE_BUSY 5/5`，`partial_authority=false`；清理/join 通过。 |
+
+第二样本 BEGIN 线程 CPU 约占墙钟的 **0.019%**；它以 8.827s 返回真实 BUSY，距 10s watchdog 约 1.173s。两个新样本中 watchdog 与 SQLite 事务起点相差仅 `-149µs` 与 `+71µs`，因此这两次成功观测不支持 timer 起点错位造成秒级差异。
+
 ## 5. SQLite busy timeout 源码核对
 
 依赖锁定为 `rusqlite 0.39.0` 与 `libsqlite3-sys 0.37.0`，项目启用 bundled SQLite。代码证据在 Cargo registry 对应锁定源码：
@@ -84,7 +97,7 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查没有修改生�
 - `unixSleep`（约 46348 行）在 `nanosleep` 分支调用 `nanosleep(&sp, NULL)`，随后返回请求的 `microseconds`；它不测量并返回实际经过的 monotonic 墙钟时间。`libsqlite3-sys` build 脚本设置 `HAVE_USLEEP`，没有设置 `HAVE_NANOSLEEP=0`；macOS 构建走默认 nanosleep 分支。
 - 代码里没有证据显示 application 在这次 admission 周围重启多个独立 5 秒 timeout；观察到的延迟位于单条 `BEGIN IMMEDIATE` 调用本身。
 
-源码能解释“5,000ms 是 SQLite 请求 sleep 的累计目标，而不是承诺 5,000ms 后按墙钟返回”。实测的 9.148s BEGIN 中，CPU 只有约 2.3ms，支持额外墙钟时间来自 sleep/wakeup 或调度等待，而不是计算、池等待或 channel handoff。
+源码能解释“5,000ms 是 SQLite 请求 sleep 的累计目标，而不是承诺 5,000ms 后按墙钟返回”。两个 Hosted BEGIN 分别耗时 9.148s 与 8.827s，线程 CPU 分别约 2.3ms 与 1.7ms；额外墙钟来自 SQLite 调用中的非 CPU 等待，而不是计算、池等待或 channel handoff。
 
 **仍未实测的部分：**本次没有逐次量取 SQLite 每个 `nanosleep` 的请求时长与实际返回时长，也没有 macOS scheduler trace。因而约 `9.148s - 5.000s = 4.148s` 的额外墙钟，尚不能在内核 sleep overshoot 和 Hosted runner 调度延迟之间精确分摊。将全部差额直接归因于某个 macOS bug 或 GitHub runner 缺陷都超出证据。
 
@@ -95,26 +108,28 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查没有修改生�
 | 连接池等待 | 40µs wall。 | 排除为本次 9 秒延迟来源。 |
 | admission 前的 root/hash 工作 | 合计为亚毫秒级；call 到 BEGIN 边界约 0.4ms。 | 排除为主要延迟来源。 |
 | WorkScheduler / channel deadlock | admission 路径不调用 WorkScheduler；SQLite 返回后 send/receive 少于 0.3ms。 | 本次成功样本不支持；原始失败无法回溯到具体阶段。 |
-| SQLite 内部锁等待 | `BEGIN IMMEDIATE` wall 9.148s，返回真实 `BUSY 5/5`。 | 本次近 10 秒耗时直接位于 SQLite transaction call 内。 |
+| SQLite 内部锁等待 | 两次 `BEGIN IMMEDIATE` 分别 wall 9.148s、8.827s，均返回真实 `BUSY 5/5`。 | 近 9 秒耗时直接位于 SQLite transaction call 内。 |
 | 5 秒配置被多次 application retry | 源码路径只有一次 Immediate transaction call，没有应用层重试。 | 未发现多次独立 5 秒预算；SQLite 内部会重复调用 busy callback。 |
-| OS sleep / 调度 | BEGIN CPU 2.318ms 对比 9.148s wall。 | 强烈支持非 CPU 等待，但尚未区分实际 sleep 超时和 runner 调度。 |
-| send/receive 竞态 | send wall 120µs、send-start 至 receive 159µs；receiver deadline 本样本在 BEGIN 边界之后启动。 | 本次没有交付延迟或提前启动 watchdog 的证据。历史失败无法回溯。 |
-| 部分 authority / 生产 fail-closed 错误 | D2 返回 plain BUSY，root/session/run 计数均为 0。 | 本次无部分授权证据；不是所有可能生产时序的证明。 |
+| OS sleep / 调度 | BEGIN CPU 2.318ms/1.659ms 对比 9.148s/8.827s wall。 | 强烈支持非 CPU 等待；尚不能分解实际 sleep overshoot 与 runner 调度。 |
+| send/receive 竞态 | 两次 send-to-receive 分别 159µs、186µs；deadline 起点与 BEGIN 相差不足 0.2ms。 | 未见秒级 handoff 延迟或秒级 timer 起点错位；历史失败仍无阶段数据。 |
+| 部分 authority / 生产 fail-closed 错误 | 两次 D2 均 plain BUSY，root/session/run 计数均为 0。 | 两次受控锁争用均无部分授权；不是所有生产时序的证明。 |
 
 ## 7. 是否存在可以证明的测试层缺陷
 
-本轮唯一重现的失败是诊断补丁自身的编译错误，已通过一行返回类型修正解决。它不是原始 10 秒 timeout 的原因。
+本轮修复过两类不同问题：第一轮诊断补丁的一个 Rust 返回类型编译错误；第二轮 exact-head CI 中，Windows 与 macOS Rust Quality 在非 `performance-test-tauri` 编译配置下将诊断专用 fallback variable 和 elapsed helper 当作 warning-as-error。后者是本 PR 诊断代码的 cfg/lint 缺陷，不是原始 timeout 根因；已最小收窄 helper cfg 并删除非诊断分支的无用变量，待 exact-head CI 验证。
 
-诊断样本显示，实际 BEGIN 已运行约 9.148 秒后成功返回 BUSY，结果 send/receive 延迟仅微秒级。没有发现测试把 pool 等待、hash、或结果交付时间误算成数秒。当前测试在达到 10 秒 watchdog 时仍会 fail，保留真实超时信号；将 watchdog 增至 10 秒以上、忽略失败或放宽门槛都会掩盖该边界，不符合 Owner 合同。
+原始 harness 的时间余量问题有直接支持：SQLite 配置是 5,000ms requested-sleep 预算，但两次实测事务墙钟达 8.827–9.148s；更早成功样本达 9.751s，而失败 watchdog 是 10s。两次成功样本的阶段时间又排除了 pool、预处理、timer 起点偏移和 result channel 交付是秒级来源。历史失败没有 stage marker，所以不能证明两次失败都在 SQLite BEGIN 内超时；不过现有 10s wall deadline 与 SQLite 非严格 wall-clock timeout 的组合留下的余量过小，足以构成真实测试稳定性缺陷。
 
-因此没有实施测试语义修复，也没有新增 forced-slow regression：只有在确认 harness 缺陷并改变 harness 后，forced scenario 才能验证该修复；当前证据没有支持此类改动。生产 busy timeout 仍为 5 秒，result channel deadline 仍为 10 秒，writer safety release 仍为 20 秒。没有更换 busy handler、重试、skip 或取消 Gate。
+最小 test-only 修复将 D2 fixture 连接池每个连接的初始 `PRAGMA busy_timeout` 校验为 5,000ms，然后仅把该 ignored test 的全部池连接覆盖到 500ms；生产 `configure_connection` 的 5 秒配置不变。D2 仍须在 writer 锁保持时收到真实 plain `SQLITE_BUSY 5/5`、在 10 秒内 fail boundedly、确认 root/session/run authority 均为 0，并正常释放/join writer 与 contender。该测试不再要求消耗生产的 5 秒等待预算，保留 10 秒 watchdog 和原有 fail-closed 校验。修复后的 macOS Hosted exact-head 结果尚待验证。
 
 ## 8. 改动范围
 
 本 PR 现有修改仅包括：
 
 - `scan.rs` 的 `#[cfg(all(test, feature = "performance-test-tauri"))]`、synthetic `issue366-` 限定阶段日志：method/root/hash/pool/BEGIN entry-return、SQLite primary/extended error、macOS thread CPU。
-- D2 测试的 writer barrier、start signal、channel wait、admission call、send/receive 与 timeout cleanup 诊断时间戳；保留测试的 5s/10s/20s 语义和所有 fail-closed assertions。
+- D2 测试的 writer barrier、start signal、channel wait、admission call、send/receive 与 timeout cleanup 诊断时间戳；保留 10s channel deadline、20s holder safety release 和所有 fail-closed assertions。test fixture 会在验证默认 5s 后用 500ms 预算执行这条语义测试。
+- `connection.rs` 新增 `#[cfg(test)]` pool helper：逐一借出整个连接池，校验每个连接的默认 `busy_timeout=5000ms` 后才应用测试 fixture 的 500ms 覆盖；release 配置不变。
+- D2 ignored test 使用该 500ms test-only timeout，仍验证 `SQLITE_BUSY 5/5`、无部分 authority、10 秒 watchdog 和清理/join；诊断 helper cfg 修正非 performance Rust Quality 构建的 warning-as-error。
 - Native macOS performance 源文件路由与合同测试，确保 `scan.rs` 变更会选中已存在 Native job。
 - 本中文调查报告。
 
@@ -136,17 +151,20 @@ CI：
 - 同一 run 的 Windows Rust Quality job `114275286600` 有一个无关测试失败：`file_workspace::change::tests::change_arriving_during_refresh_supersedes_page_and_is_not_lost` 在 `src/file_workspace/change.rs:590` 创建 fixture root 时返回 Windows `Access is denied`。本调查未修改或重跑该用例；run 的 Windows Quality aggregate 因此失败。
 - 报告编写时，该 run 的 `Rust quality (macos-latest) (merge_integration)` job `114275927656` 仍为 queued，终态 **NOT VERIFIED**；不据此声称完整 CI aggregate 成功。
 - 该 CI 使用 `extended` profile，未启用 Full Validation；Native job 中 10k mixed-filesystem classifier、100k macOS bookkeeping 以及 Workspace Foundation suite（含 D2）均通过。没有执行 500k 或 1m。
+- [38074989532](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38074989532)，PR head `5efcc9b…`：第二次 Native macOS job `114280260772` 成功，D2 使用原生产 5000ms 默认值并再次以 `SQLITE_BUSY 5/5` 在 8.828s 内 fail closed、`partial_authority=false`。同 run 的 macOS/Windows release compile、Windows Global Index、Frontend/format、六个 scoped shards、Performance profile 均通过；Windows 与 macOS Rust Quality 因本 PR 诊断代码在无 performance feature 构建下的两个 warning-as-error 而失败。失败具体为 fallback diagnostic key unused 与 `issue366_elapsed_from_test_start_us` dead code；此修复属于 test-only instrumentation cfg，已纳入当前工作树，待新的 exact-head CI 验证。
+- 修复后 exact-head CI 将验证：cfg/lint 最小修正、池内逐连接 busy-timeout 5000ms 默认检查及 500ms fixture override、D2 真实 `BUSY 5/5`/无部分 authority，以及适用的 Windows/macOS quality 与 Native job。报告提交时该 run 尚未启动。
 - Codex Review：未运行。PR 仍 Draft。
 
 ## 10. 未验证事项与 Owner 验收
 
 - 历史失败 `38026682784` 与 `38064775222` 没有原始阶段数据；无法判定其 timeout 瞬间是尚在 BEGIN、刚从 SQLite 返回还是 contender 尚未调度。
-- 本次 9.148s 样本确认主要墙钟时间在 SQLite 调用中，不能给出每次 nanosleep 的实际返回时间，也没有 macOS scheduler trace；额外约 4.148s 的来源仍是 OS sleep/wakeup 与 runner 调度之间的未验证差额。
-- 新的原始超时没有在本轮重现，单次通过不覆盖历史失败。Owner 授权最多两次 targeted macOS 观测；当前进行了一次有效阶段化观测。由于尚无可以证明的 harness 修复，没有为追求额外通过率重复跑第二次。
+- 两个 8.827–9.148s 样本确认耗时在 BEGIN 内；无法给出每次 nanosleep 的实际返回时长，也没有 macOS scheduler trace。额外约 3.827–4.148s 仍不能在 sleep overshoot 与 runner 调度之间精确分摊。
+- 原始失败 run 没有阶段 marker；两次新观测都成功返回 plain BUSY，因此不能声称直接复现了旧失败的确切阶段。修复针对已经证实的测试余量问题，不改变 production timeout。
+- 本阶段已经完成授权范围内的两次生产 5s 配置 macOS 阶段观测。修复后的 exact-head CI 是对 test-only 500ms fixture 的验证；不再额外启动独立 targeted run。
 - Windows 本机验收、实际用户负载和 production SQLite 行为没有在本任务范围内修改或声称已验证。
 
-**建议 Owner 决策：**保留该 test 和 10 秒失败边界；如需继续精确分解额外墙钟，另行授权 macOS Hosted syscall/scheduler 级采样。当前证据不足以安全地作测试层修复，也未证明 production SQLite policy 应变更。
+**建议 Owner 决策：**审阅 test-only 500ms fixture 修复与 exact-head CI。若需精确分解剩余墙钟差，需另行授权 macOS Hosted syscall/scheduler 级采样；当前没有 production SQLite policy 变更建议。
 
 ## 当前状态
 
-**#366 NOT QUALIFIED — OS sleep/wakeup 与 Hosted 调度导致的约 4.15 秒额外墙钟尚未被逐次测量；未证明可安全修复的测试层缺陷。** 失败记录保留；PR #367 OPEN/Draft，Issue #366 OPEN，不合并、不标记 Ready。
+**#366 TEST HARNESS REMEDIATION IN PROGRESS — 5 秒累计 sleep 预算与 10 秒 wall deadline 的余量过小已用两次实测量化；仅测试 fixture 改为 500ms 并保留 5s 默认配置核验。等待修复后 exact-head CI；OS 额外墙钟的精确分摊仍未测量。** 历史失败记录保留；PR #367 OPEN/Draft，Issue #366 OPEN，不合并、不标记 Ready。

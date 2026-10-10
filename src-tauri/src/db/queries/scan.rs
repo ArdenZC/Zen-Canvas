@@ -86,7 +86,7 @@ fn issue366_set_test_start(started_at: std::time::Instant) {
     ISSUE366_TEST_START.with(|origin| origin.set(Some(started_at)));
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "performance-test-tauri"))]
 fn issue366_elapsed_from_test_start_us() -> Option<u128> {
     ISSUE366_TEST_START.with(|origin| {
         origin
@@ -475,8 +475,6 @@ impl Database {
             .as_deref()
             .map(str::trim)
             .filter(|value| value.starts_with("issue366-"));
-        #[cfg(not(all(test, feature = "performance-test-tauri")))]
-        let issue366_diagnostic_key: Option<&str> = None;
         #[cfg(all(test, feature = "performance-test-tauri"))]
         let issue366_admission_started = issue366_diagnostic_key.map(|_| std::time::Instant::now());
         #[cfg(all(test, feature = "performance-test-tauri"))]
@@ -3774,6 +3772,15 @@ mod tests {
         let test_started_at = Instant::now();
         let request_key = new_job_id("issue366-admission-timeout");
         let db = test_db("issue366-admission-timeout-lock");
+        const TEST_BUSY_TIMEOUT_MS: u64 = 500;
+        db.set_test_busy_timeout_for_all_connections(
+            5_000,
+            Duration::from_millis(TEST_BUSY_TIMEOUT_MS),
+        )
+        .expect("verify production timeout then bound the test fixture timeout");
+        eprintln!(
+            "[issue366-test] request_key={request_key} stage=test_busy_timeout_configured production_default_ms=5000 fixture_busy_timeout_ms={TEST_BUSY_TIMEOUT_MS}"
+        );
         let holder = HeldManagedScanWriter::start(db.clone());
         let writer_lock_acquired_at = holder.wait_until_held();
         eprintln!(
@@ -3976,7 +3983,7 @@ mod tests {
         contender.join().expect("admission contender joins");
 
         assert!(
-            elapsed >= Duration::from_secs(4),
+            elapsed >= Duration::from_millis(TEST_BUSY_TIMEOUT_MS / 2),
             "busy timeout returned too early: {elapsed:?}"
         );
         assert!(
@@ -3985,8 +3992,8 @@ mod tests {
         );
         assert_eq!((root_count, session_count, run_count), (0, 0, 0));
         println!(
-            "issue345_d2 admission_waited=true success=false elapsed_ms={} primary_code={} extended_code={} partial_authority=false",
-            elapsed.as_millis(), primary_code, extended_code
+            "issue345_d2 admission_waited=true success=false elapsed_ms={} fixture_busy_timeout_ms={} primary_code={} extended_code={} partial_authority=false",
+            elapsed.as_millis(), TEST_BUSY_TIMEOUT_MS, primary_code, extended_code
         );
     }
 
