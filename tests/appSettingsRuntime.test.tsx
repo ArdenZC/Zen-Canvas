@@ -107,6 +107,51 @@ describe("useAppSettings load and save epochs", () => {
     expect(latest?.settings.backgroundIndexOnStartup).toBe(false);
   });
 
+  it("keeps runtime settings at the persisted revision until a save succeeds", async () => {
+    settingsMocks.getSettings.mockResolvedValue({ settings: DEFAULT_APP_SETTINGS, revision: 4 });
+    const saved = deferred<ReturnType<typeof versionedSettings>>();
+    settingsMocks.saveSettings.mockReturnValue(saved.promise);
+    const container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root?.render(createElement(SettingsHarness, { onState: (state) => { latest = state; } })));
+    await flushPromises();
+
+    const selectedRoot = createScanRootSetting("C:/OwnerQualification/fixture", "2026-10-10T00:00:00.000Z");
+    let saving: Promise<unknown> | undefined;
+    act(() => {
+      saving = latest?.updateSettingsWithResult({ defaultScanFolders: [selectedRoot] });
+    });
+    await flushPromises();
+
+    expect(latest?.settings.defaultScanFolders).toEqual([selectedRoot]);
+    expect(latest?.persistedSettings.defaultScanFolders).toEqual([]);
+
+    saved.resolve({ settings: { ...DEFAULT_APP_SETTINGS, defaultScanFolders: [selectedRoot] }, revision: 5 });
+    await saving;
+    await flushPromises();
+
+    expect(latest?.persistedSettings.defaultScanFolders).toEqual([selectedRoot]);
+  });
+
+  it("does not expose an unpersisted root to runtime consumers after a failed save", async () => {
+    settingsMocks.getSettings.mockResolvedValue({ settings: DEFAULT_APP_SETTINGS, revision: 4 });
+    settingsMocks.saveSettings.mockRejectedValue(new Error("settings_save_failure:watcher_runtime_failure"));
+    const container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root?.render(createElement(SettingsHarness, { onState: (state) => { latest = state; } })));
+    await flushPromises();
+
+    const selectedRoot = createScanRootSetting("C:/OwnerQualification/fixture", "2026-10-10T00:00:00.000Z");
+    let persisted = true;
+    await act(async () => {
+      persisted = (await latest?.updateSettingsWithResult({ defaultScanFolders: [selectedRoot] }))?.persisted ?? true;
+    });
+
+    expect(persisted).toBe(false);
+    expect(latest?.settings.defaultScanFolders).toEqual([]);
+    expect(latest?.persistedSettings.defaultScanFolders).toEqual([]);
+  });
+
   it("serializes fast partial updates against the latest persisted revision", async () => {
     settingsMocks.getSettings.mockResolvedValue({
       settings: DEFAULT_APP_SETTINGS,

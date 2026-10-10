@@ -112,6 +112,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   });
   const {
     settings: appSettings,
+    persistedSettings,
     isLoadingSettings,
     updateSettings,
     updateSettingsWithResult
@@ -144,16 +145,20 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   useFsWatcher({ onRefreshData: refreshCurrentQuery, onError: showError, rules, enabled: !isSearchMode });
 
   useEffect(() => {
-    if (isSearchMode) return;
-    useScanManagerStore.getState().setDefaultScanRoots(appSettings.defaultScanFolders);
-  }, [appSettings.defaultScanFolders, isSearchMode]);
+    if (isSearchMode || isLoadingSettings) return;
+    useScanManagerStore.getState().setDefaultScanRoots(persistedSettings.defaultScanFolders);
+    const library = useFileLibraryStore.getState();
+    if (library.adoptConfiguredRootsIfScopeEmpty(persistedSettings.defaultScanFolders)) {
+      void library.refresh(useAppStore.getState().searchQuery);
+    }
+  }, [isLoadingSettings, isSearchMode, persistedSettings.defaultScanFolders]);
 
   const backgroundIndexRoots = useMemo(
     () => [
-      ...enabledScanRootPaths(appSettings.defaultScanFolders),
-      ...enabledSearchRootPaths(appSettings.customSearchRoots)
+      ...enabledScanRootPaths(persistedSettings.defaultScanFolders),
+      ...enabledSearchRootPaths(persistedSettings.customSearchRoots)
     ],
-    [appSettings.defaultScanFolders, appSettings.customSearchRoots]
+    [persistedSettings.defaultScanFolders, persistedSettings.customSearchRoots]
   );
   const backgroundIndexRootSignature = useMemo(
     () => backgroundIndexRoots.map(backgroundIndexRootKey).sort().join("\n"),
@@ -162,14 +167,14 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isSearchMode || isLoadingSettings) return;
-    if (appSettings.backgroundIndexOnStartup === false) return;
+    if (persistedSettings.backgroundIndexOnStartup === false) return;
     enqueueBackgroundIndexRoots(backgroundIndexRoots);
   }, [
-    appSettings.backgroundIndexOnStartup,
     backgroundIndexRootSignature,
     enqueueBackgroundIndexRoots,
     isLoadingSettings,
-    isSearchMode
+    isSearchMode,
+    persistedSettings.backgroundIndexOnStartup
   ]);
 
   useSearchNavigationHandoff(isSearchMode, setView, activateFileLibraryFile, showError);

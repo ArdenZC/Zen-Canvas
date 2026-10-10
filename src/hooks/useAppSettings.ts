@@ -305,6 +305,7 @@ export function useAppSettings({
   formatSaveError = defaultFormatSettingsError
 }: UseAppSettingsOptions) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [persistedSettings, setPersistedSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
   const latestSettingsRef = useRef(DEFAULT_APP_SETTINGS);
   const persistedSettingsRef = useRef(DEFAULT_APP_SETTINGS);
@@ -353,6 +354,7 @@ export function useAppSettings({
         if (!cancelled && loadEpochRef.current === loadEpoch) {
           settingsRevisionRef.current = loaded.revision;
           persistedSettingsRef.current = loaded.settings;
+          setPersistedSettings(loaded.settings);
           settingsLoadPendingRef.current = false;
           settingsLoadFailedRef.current = false;
           settingsLoadedRef.current = true;
@@ -417,6 +419,7 @@ export function useAppSettings({
           if (initialLoad && !settingsLoadedRef.current) {
             persistedSettingsRef.current = initialLoad.settings;
             settingsRevisionRef.current = initialLoad.revision;
+            if (mountedRef.current) setPersistedSettings(initialLoad.settings);
             settingsLoadPendingRef.current = false;
             settingsLoadFailedRef.current = false;
             settingsLoadedRef.current = true;
@@ -436,6 +439,7 @@ export function useAppSettings({
           );
           persistedSettingsRef.current = saved.settings;
           settingsRevisionRef.current = saved.revision;
+          if (mountedRef.current) setPersistedSettings(saved.settings);
           if (mountedRef.current && requestId === saveRequestIdRef.current) {
             latestSettingsRef.current = saved.settings;
             setSettings(saved.settings);
@@ -451,6 +455,7 @@ export function useAppSettings({
             if (latest) {
               persistedSettingsRef.current = latest.settings;
               settingsRevisionRef.current = latest.revision;
+              if (mountedRef.current) setPersistedSettings(latest.settings);
             }
             if (mountedRef.current && requestId === saveRequestIdRef.current) {
               latestSettingsRef.current = persistedSettingsRef.current;
@@ -480,6 +485,7 @@ export function useAppSettings({
 
   return {
     settings,
+    persistedSettings,
     isLoadingSettings: isLoadingSettings || (isDatabaseReady && !settingsLoadedRef.current),
     updateSettings,
     updateSettingsWithResult

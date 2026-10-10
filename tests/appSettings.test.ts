@@ -280,6 +280,8 @@ describe("app settings helpers", () => {
       "const rootsMatch = defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next)"
     );
     expect(runtimeProvidersSource).toContain("return result.persisted && rootsMatch");
+    expect(runtimeProvidersSource).toContain("persistedSettings.defaultScanFolders");
+    expect(runtimeProvidersSource).toContain("library.adoptConfiguredRootsIfScopeEmpty(persistedSettings.defaultScanFolders)");
     expect(i18nSource).not.toContain("file watching updates after restarting the app");
     expect(i18nSource).not.toContain("文件监听会在重启应用后更新");
   });

@@ -11,6 +11,8 @@ use crate::{
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+#[cfg(feature = "native-qa")]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
@@ -23,6 +25,35 @@ pub const APP_SETTINGS_KEY: &str = "app_settings_v1";
 pub const DEFAULT_SEARCH_HOTKEY: &str = "CmdOrCtrl+K";
 const DEFAULT_SCAN_ROOT_CREATED_AT: &str = "1970-01-01T00:00:00.000Z";
 static VERSIONED_SETTINGS_SAVE_LOCK: Mutex<()> = Mutex::new(());
+#[cfg(feature = "native-qa")]
+static NATIVE_QA_SETTINGS_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+fn native_qa_settings_trace(event: &'static str, details: impl FnOnce() -> String) {
+    #[cfg(feature = "native-qa")]
+    {
+        if std::env::var("ZC_NATIVE_QA_SETTINGS_TRACE").as_deref() != Ok("1") {
+            return;
+        }
+        let sequence = NATIVE_QA_SETTINGS_TRACE_COUNT.fetch_add(1, Ordering::Relaxed);
+        if sequence >= 64 {
+            return;
+        }
+        let details = details().chars().take(500).collect::<String>();
+        eprintln!("native_qa settings event={event} {details}");
+    }
+    #[cfg(not(feature = "native-qa"))]
+    {
+        let _ = (event, details);
+    }
+}
+
+fn enabled_scan_root_count(settings: &AppSettings) -> usize {
+    settings
+        .default_scan_folders
+        .iter()
+        .filter(|root| root.enabled && !root.path.trim().is_empty())
+        .count()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SettingsSaveFailureCode {
@@ -748,10 +779,68 @@ fn reconcile_versioned_settings_side_effect_failure_locked(
             expected_revision: failed_save.revision,
         },
         launch_at_login,
-    )?;
-    restore_other_side_effects(&previous.settings)
-        .map_err(|_| SettingsError::SideEffectReconciliation)?;
+    )
+    .map_err(|error| {
+        native_qa_settings_trace("rollback_settings_save_failed", || {
+            format!(
+                "previous_revision={} failed_revision={} failure={}",
+                previous.revision,
+                failed_save.revision,
+                settings_error_diagnostic_code(&error)
+            )
+        });
+        error
+    })?;
+    native_qa_settings_trace("rollback_settings_persisted", || {
+        format!(
+            "revision={} enabled_scan_roots={}",
+            rollback.revision,
+            enabled_scan_root_count(&rollback.settings)
+        )
+    });
+    if restore_other_side_effects(&previous.settings).is_err() {
+        native_qa_settings_trace("rollback_runtime_restore_failed", || {
+            format!(
+                "revision={} enabled_scan_roots={}",
+                rollback.revision,
+                enabled_scan_root_count(&previous.settings)
+            )
+        });
+        return Err(SettingsError::SideEffectReconciliation);
+    }
+    native_qa_settings_trace("rollback_runtime_restore_succeeded", || {
+        format!(
+            "revision={} enabled_scan_roots={}",
+            rollback.revision,
+            enabled_scan_root_count(&previous.settings)
+        )
+    });
     Ok(rollback)
+}
+
+fn db_error_diagnostic_code(error: &DbError) -> String {
+    match error {
+        DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _)) => format!(
+            "sqlite_primary_{}_extended_{}",
+            code.extended_code & 0xff,
+            code.extended_code
+        ),
+        DbError::Sqlite(_) => "sqlite_failure".to_string(),
+        DbError::Pool(_) => "database_pool_failure".to_string(),
+        DbError::Io(_) => "database_io_failure".to_string(),
+        DbError::Json(_) => "database_json_failure".to_string(),
+        DbError::Validation(_) => "database_validation_failure".to_string(),
+    }
+}
+
+fn settings_error_diagnostic_code(error: &SettingsError) -> String {
+    match error {
+        SettingsError::Db(error) => db_error_diagnostic_code(error),
+        SettingsError::RevisionConflict => "revision_conflict".to_string(),
+        SettingsError::AutostartRollback => "autostart_rollback_failure".to_string(),
+        SettingsError::SideEffectReconciliation => "runtime_restore_failure".to_string(),
+        SettingsError::Autostart(_) => "unknown_failure".to_string(),
+    }
 }
 
 pub fn sync_launch_at_login_from_system(
@@ -812,14 +901,46 @@ fn save_settings_with_watcher_reload(
     // and any compensation. This keeps the rollback snapshot authoritative and
     // prevents another Settings CAS from being overwritten by stale settings.
     let _save_guard = versioned_settings_save_guard();
-    let previous =
-        get_versioned_app_settings(db).map_err(|_| SettingsSaveFailureCode::DatabaseFailure)?;
+    let previous = get_versioned_app_settings(db).map_err(|error| {
+        native_qa_settings_trace("save_previous_settings_read_failed", || {
+            format!("failure={}", db_error_diagnostic_code(&error))
+        });
+        SettingsSaveFailureCode::DatabaseFailure
+    })?;
+    native_qa_settings_trace("save_begin", || {
+        format!(
+            "previous_revision={} expected_revision={} requested_enabled_scan_roots={}",
+            previous.revision,
+            request.expected_revision,
+            enabled_scan_root_count(&request.settings)
+        )
+    });
     let saved =
         save_versioned_app_settings_with_launch_at_login_locked(db, request, launch_at_login)
-            .map_err(|error| settings_save_failure_code(&error))?;
+            .map_err(|error| {
+                let failure = settings_save_failure_code(&error);
+                native_qa_settings_trace("settings_persist_failed", || {
+                    format!("failure={}", failure.as_str())
+                });
+                failure
+            })?;
+    native_qa_settings_trace("settings_persisted", || {
+        format!(
+            "revision={} enabled_scan_roots={}",
+            saved.revision,
+            enabled_scan_root_count(&saved.settings)
+        )
+    });
 
     if let Err(watcher_error) = reload_watcher(&saved.settings) {
         let failure_code = watcher_save_failure_code(watcher_error);
+        native_qa_settings_trace("watcher_reload_failed", || {
+            format!(
+                "revision={} failure={}",
+                saved.revision,
+                failure_code.as_str()
+            )
+        });
         let rollback = reconcile_versioned_settings_side_effect_failure_locked(
             db,
             &previous,
@@ -832,11 +953,21 @@ fn save_settings_with_watcher_reload(
             },
         );
         if rollback.is_err() {
+            native_qa_settings_trace("save_failed_after_rollback", || {
+                format!(
+                    "failure={}",
+                    SettingsSaveFailureCode::RollbackReconciliationFailure.as_str()
+                )
+            });
             return Err(SettingsSaveFailureCode::RollbackReconciliationFailure);
         }
+        native_qa_settings_trace("save_failed_after_successful_rollback", || {
+            format!("failure={}", failure_code.as_str())
+        });
         return Err(failure_code);
     }
 
+    native_qa_settings_trace("save_succeeded", || format!("revision={}", saved.revision));
     Ok(saved)
 }
 
@@ -936,6 +1067,19 @@ mod settings_save_tests {
                 |row| row.get(0),
             )
             .expect("read catalog revision")
+    }
+
+    fn enabled_library_root(database: &Database, path: &str) -> i64 {
+        let normalized = normalize_scan_root_path(path);
+        database
+            .conn()
+            .expect("borrow pooled connection")
+            .query_row(
+                "SELECT COALESCE(MAX(enabled), 0) FROM scan_roots WHERE source_kind = 'file_library' AND normalized_path = ?1",
+                [normalized],
+                |row| row.get(0),
+            )
+            .expect("read file library root enablement")
     }
 
     #[test]
@@ -1126,6 +1270,114 @@ mod settings_save_tests {
             serde_json::to_value(&persisted.settings).expect("serialize rolled-back settings"),
             serde_json::to_value(&initial.settings).expect("serialize initial settings")
         );
+    }
+
+    #[test]
+    fn runtime_restore_failure_reports_rollback_error_with_settings_and_root_state_observable() {
+        let (_directory, database) = open_database();
+        save_app_settings(&database, &AppSettings::default()).expect("seed app settings");
+        let initial = get_versioned_app_settings(&database).expect("load seeded settings");
+        let root_path = std::env::temp_dir().join(format!(
+            "zen-canvas-issue-329-runtime-rollback-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root_path).expect("create valid disposable root");
+        let root_path_text = root_path.to_string_lossy().into_owned();
+        let mut requested_settings = initial.settings.clone();
+        requested_settings.default_scan_folders = vec![ScanRootSetting {
+            id: "issue-329-runtime-rollback-root".to_string(),
+            path: root_path_text.clone(),
+            label: "Fixture root".to_string(),
+            enabled: true,
+            created_at: "2026-10-10T00:00:00.000Z".to_string(),
+        }];
+        let reload_calls = Cell::new(0);
+
+        let result = save_settings_with_watcher_reload(
+            &database,
+            &SaveSettingsRequest {
+                settings: requested_settings,
+                expected_revision: initial.revision,
+            },
+            &NoopAutostart,
+            |settings| {
+                database
+                    .sync_file_library_watcher_roots(&settings.default_scan_folders)
+                    .map_err(|_| SettingsWatcherReloadFailure::RootSynchronization)?;
+                reload_calls.set(reload_calls.get() + 1);
+                Err(SettingsWatcherReloadFailure::RuntimeRestart)
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(SettingsSaveFailureCode::RollbackReconciliationFailure)
+        ));
+        assert_eq!(reload_calls.get(), 2, "initial reload and rollback reload");
+        let persisted = get_versioned_app_settings(&database).expect("read rolled-back settings");
+        assert_eq!(persisted.revision, initial.revision + 2);
+        assert_eq!(
+            serde_json::to_value(&persisted.settings).expect("serialize persisted settings"),
+            serde_json::to_value(&initial.settings).expect("serialize original settings")
+        );
+        assert_eq!(enabled_library_root(&database, &root_path_text), 0);
+        let _ = fs::remove_dir_all(root_path);
+    }
+
+    #[test]
+    fn reconciliation_schedule_failure_restores_real_settings_owned_root_state() {
+        let (_directory, database) = open_database();
+        save_app_settings(&database, &AppSettings::default()).expect("seed app settings");
+        let initial = get_versioned_app_settings(&database).expect("load seeded settings");
+        let root_path = std::env::temp_dir().join(format!(
+            "zen-canvas-issue-329-schedule-rollback-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root_path).expect("create valid disposable root");
+        let root_path_text = root_path.to_string_lossy().into_owned();
+        let mut requested_settings = initial.settings.clone();
+        requested_settings.default_scan_folders = vec![ScanRootSetting {
+            id: "issue-329-schedule-rollback-root".to_string(),
+            path: root_path_text.clone(),
+            label: "Fixture root".to_string(),
+            enabled: true,
+            created_at: "2026-10-10T00:00:00.000Z".to_string(),
+        }];
+        let reload_calls = Cell::new(0);
+
+        let result = save_settings_with_watcher_reload(
+            &database,
+            &SaveSettingsRequest {
+                settings: requested_settings,
+                expected_revision: initial.revision,
+            },
+            &NoopAutostart,
+            |settings| {
+                database
+                    .sync_file_library_watcher_roots(&settings.default_scan_folders)
+                    .map_err(|_| SettingsWatcherReloadFailure::RootSynchronization)?;
+                reload_calls.set(reload_calls.get() + 1);
+                if reload_calls.get() == 1 {
+                    Err(SettingsWatcherReloadFailure::ReconciliationScheduling)
+                } else {
+                    Ok(true)
+                }
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(SettingsSaveFailureCode::WatcherReconciliationScheduleFailure)
+        ));
+        assert_eq!(reload_calls.get(), 2, "initial reload and rollback reload");
+        let persisted = get_versioned_app_settings(&database).expect("read rolled-back settings");
+        assert_eq!(persisted.revision, initial.revision + 2);
+        assert_eq!(
+            serde_json::to_value(&persisted.settings).expect("serialize persisted settings"),
+            serde_json::to_value(&initial.settings).expect("serialize original settings")
+        );
+        assert_eq!(enabled_library_root(&database, &root_path_text), 0);
+        let _ = fs::remove_dir_all(root_path);
     }
 
     #[test]

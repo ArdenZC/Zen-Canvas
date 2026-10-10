@@ -232,6 +232,37 @@ describe("Onboarding settings persistence boundary", () => {
     expect(setView).not.toHaveBeenCalledWith("library");
   });
 
+  it("allows a failed first save to be retried before completing Onboarding", async () => {
+    const backendError = "settings_save_failure:watcher_runtime_failure";
+    apiMocks.saveSettings
+      .mockRejectedValueOnce(new Error(backendError))
+      .mockImplementationOnce(async (request: SaveSettingsRequest) => ({
+        settings: request.settings,
+        revision: request.expectedRevision + 1
+      }));
+    renderOnboarding();
+    await flushAsync();
+    await selectFolderAtOnboardingStep();
+
+    await clickNext();
+
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
+    expect(setView).not.toHaveBeenCalledWith("library");
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("First-run settings were not saved");
+
+    await clickNext();
+
+    expect(apiMocks.saveSettings).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('[data-onboarding-step="5"]')).toBeTruthy();
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
+
+    await clickNext();
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(setView).toHaveBeenCalledWith("library");
+  });
+
   it("fails closed when rollback returns an already equivalent enabled root", async () => {
     const backendError = "file watcher reload failed: injected watcher restart failure; settings were restored";
     const priorRoot = {

@@ -1,8 +1,41 @@
 # Issue #329 V2 — Native Failure Root-Cause Remediation
 
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 
-## Latest-master reconciliation — 2026-10-10
+## Native failure follow-up — 2026-10-11
+
+Owner reported the frozen installer result as **RECOVERED (PARTIAL), NOT PASS**. The Cloud workspace cannot access `D:/Install_Package/Zen-Canvas-Windows-11658618364/NATIVE-QUALIFICATION-REPORT.md`; this follow-up uses only the observations repeated in the Owner request and does not claim to have read the Windows report or logs.
+
+The starting PR candidate was `8fe826238052846df37414944af732f200224d23`, tree `5d8aafd39fe08ead5f0d246440d8bd02ddf99aa7`. The latest fetched master was `58062c5c356969f332f19c7458028bf2e097595e`. It was merged into the existing PR branch by `52650e4fc440dcfe46afcea1ff6cf5a23c6d64ee`, tree `6b3d25e73b94875d0c217face71e079b2ffa65a6`, without conflicts. Master changes did not overlap the existing Settings / Onboarding files. The current source candidate still requires exact-head Hosted CI; PR #335 remains OPEN / Draft and Issue #329 remains OPEN.
+
+The native sequence remains: first Settings save showed the generic first-use error; retry was followed by `rollback_reconciliation_failure`; Settings later showed an enabled root while File Library was initially empty until the same folder was selected again. Global Index showed C: permission required and D: unavailable. No file move, delete or rename was observed. The native Settings failure stage, Settings revision sequence, root-sync outcome, active watcher owner, reconciliation admission outcome, clean-first-run reproducibility, and Global Index service logs were not supplied to Cloud. The original failure therefore remains **unattributed**.
+
+Two source-level issues are now covered by bounded changes:
+
+- `useAppSettings` exposes the currently persisted Settings snapshot separately from optimistic editor state. `AppRuntimeProviders` now derives scan roots, custom search roots, startup background-index admission and scanner defaults from that persisted snapshot. A failed root save no longer admits background indexing using a root that exists only in optimistic renderer state. Backend CAS / watcher ordering and existing fail-closed errors are unchanged.
+- When persisted Settings contain an enabled scan root but the saved File Library scope is still the empty default `current_scan`, the File Library adopts its existing `all_enabled_roots` scope and persists it. Explicit scopes and completed scan-session scopes are preserved. This matches the observed “Settings enabled, Library empty until selecting the same folder” path in the source; the actual installer sequence was not independently reproduced in Cloud.
+
+For the next authorized native qualification, `native-qa` builds can opt in to `ZC_NATIVE_QA_SETTINGS_TRACE=1`. The bounded trace records Settings revisions, enabled-root counts, save/rollback stage, runtime-restore outcome, and SQLite primary/extended result codes without paths or raw database errors. Watcher trace separately records restart and reconciliation-scheduling outcomes. This is diagnostic evidence for a future run, not proof about the frozen run.
+
+Global Index behavior was not changed. The reported C: permission-required and D: unavailable states are source/provider availability signals; no lock-owner, SQLite contention, or index-service startup trace was supplied. There is no evidence that the #329 Settings/Onboarding failure and #328 Global Index issue share a root cause. #328 remains independent.
+
+| Validation | Result |
+| --- | --- |
+| Focused Settings, Onboarding, Library scope, background-index tests | 5 files, 38 tests PASS |
+| Full frontend suite | 176 files, 1,874 tests PASS |
+| Frontend typecheck | PASS |
+| Performance architecture | 3 files, 30 tests PASS |
+| Frontend production build | PASS; existing CSS optimizer and PDF dynamic-import warnings remain |
+| Governance and documentation | PASS (`DOCS_DIFF_BASE=origin/master`) |
+| Cargo format | PASS |
+| `git diff --check` | PASS |
+| Local Rust Settings unit tests | BLOCKED before test execution by the existing Linux-only missing `keyring` target dependency; no source compile error remains in the edited Settings code |
+| Exact-head Hosted CI | Pending on the pushed candidate |
+| Windows native qualification / installer | Not run in Cloud |
+
+No package version, Schema, IPC, or global SQLite timeout change was made. No #328 Global Index production behavior was modified.
+
+## Prior latest-master reconciliation — 2026-10-10
 
 The actual master baseline was `9ac78cf86ed99deed16caaddab4164bdd631c3be`. Existing PR #335 HEAD `8c38e12676e77f72d206f3ab81e99ba14cbeb3ea`, tree `59f31f68e0fcb8166ef40145540c18762860e3d5`, was integrated by history-preserving merge `8b9a7805734e47cd8bda9d52a196bfccea58954c`, tree `93cb937263ae6fb983d05a86a4491891f98844f7`. The merge's first parent is the previous PR HEAD and second parent is the fetched master baseline. It completed without conflicts and preserved all V2 commits.
 
@@ -56,9 +89,7 @@ The watcher-root synchronization path already uses `BEGIN IMMEDIATE`. Its acquis
 
 Watcher runtime failure is separate from SQLite contention. A regression supplies a valid existing directory and injects a watcher-manager state-lock failure without a database operation; no watcher owner is installed. The production reload preserves the shared startup/wake behavior of attempting reconciliation scheduling even if restart fails, while keeping restart failure as the reported stage. Scheduling failure is separately classified and tested through the Settings compensation boundary. Settings compensation remains fail-closed: failure to restore runtime state yields `rollback_reconciliation_failure`, never success.
 
-The current production-path mechanism is proven to match the deferred-CAS writer-contention mechanism investigated in #328. Therefore:
-
-**#329 ROOT CAUSE CORRELATES WITH #328 SQLITE WRITER CONTENTION**
+The V2 tests prove a Settings CAS writer-contention mechanism that matches a deferred-CAS mechanism investigated separately in #328. This is implementation-mechanism overlap only. It does **not** prove that the frozen Windows native event or the currently reported Global Index states shared that cause; the original native failure remains unattributed, and no shared historical root cause is claimed.
 
 The exact historical Windows native event remains **INFERRED**, not PROVED: the frozen run exposed only a generic save failure and did not record its stage or SQLite lock owner. The patch proves and repairs a real Settings CAS failure mechanism on the current production path; it does not retrospectively prove that the native event reached that stage.
 

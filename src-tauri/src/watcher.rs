@@ -307,7 +307,18 @@ fn restart_and_schedule_for_settings(
     // work after a watcher restart failure. Preserve restart as the reported
     // error when both stages fail.
     let restart_result = restart();
+    native_qa_watcher_trace("settings_reload_restart", || match &restart_result {
+        Ok(changed) => format!("result=success changed={changed}"),
+        Err(error) => format!("result=failure code={}", error.as_support_code()),
+    });
     let schedule_result = schedule();
+    native_qa_watcher_trace(
+        "settings_reload_reconciliation_schedule",
+        || match &schedule_result {
+            Ok(()) => "result=success".to_string(),
+            Err(error) => format!("result=failure code={}", error.as_support_code()),
+        },
+    );
     let changed = restart_result?;
     schedule_result?;
     Ok(changed)
