@@ -143,6 +143,40 @@ const FTS_WITHOUT_MANAGED_SQL: &str = r#"
     LIMIT ?2
 "#;
 
+// Exact read-side SQL shapes used by repository.rs when it builds the
+// production search snapshot. Kept here as test-only mirrors so their cost is
+// visible separately from the search tier itself.
+const SNAPSHOT_SOURCE_HEALTH_SQL: &str = r#"
+    SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+           COUNT(ge.id), MAX(ge.last_seen_at)
+    FROM global_volumes gv
+    LEFT JOIN global_entries ge
+      ON ge.volume_id = gv.id AND ge.is_stale = 0
+    GROUP BY gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at
+    ORDER BY gv.id ASC
+"#;
+
+const SNAPSHOT_INDEX_STATUS_SQL: &str = r#"
+    SELECT
+        (SELECT COUNT(*)
+         FROM global_entries entry
+         JOIN global_volumes volume ON volume.id = entry.volume_id
+         WHERE entry.is_stale = 0 AND volume.enabled = 1),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
+        (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
+        (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
+        (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
+"#;
+
 #[derive(Clone, Copy)]
 struct PrefixQuery {
     class: &'static str,
@@ -290,7 +324,7 @@ fn profile_sql_stage(
         "uses_temp_btree": plan.iter().any(|line| line.contains("USE TEMP B-TREE")),
         "possible_full_table_scan": plan.iter().any(|line| line.contains("SCAN ge") || line.contains("SCAN global_entries ")),
         "sqlite_statement_counters": last_counters,
-        "timing_includes_prepare": true
+        "timing_includes_prepare": false
     }));
     last_count
 }
@@ -910,12 +944,15 @@ fn populate_scale_overlay(conn: &Connection) -> (f64, Vec<(String, usize)>) {
     }
     let overlay_entries: i64 = transaction
         .query_row(
-            "SELECT COUNT(*) FROM global_entries WHERE id LIKE 'issue352-scale-%'",
+            "SELECT COUNT(*) FROM global_entries WHERE id LIKE 'issue352-scale%'",
             [],
             |row| row.get(0),
         )
         .expect("count temporary scale rows");
-    assert_eq!(overlay_entries, 40_201);
+    assert_eq!(
+        overlay_entries, 40_201,
+        "count temporary scale overlay rows"
+    );
 
     for (label, expected) in &actual {
         let query = if label.starts_with("zzz") {
@@ -1329,6 +1366,30 @@ fn global_search_query_cost_diagnostic() {
         "filesystem_or_OS_file_discovery_measured": false,
         "process_cpu_and_working_set_bytes": "NOT CAPTURED; VM steps and SQLite sort counters are reported instead"
     }));
+
+    // The real command calls search_global_entries_snapshot(), which runs
+    // these two repository reads after search. Profile their exact SQL shapes
+    // separately so its extra latency is not attributed to candidate search.
+    for (stage, sql) in [
+        (
+            "repository_snapshot_source_health_count_max",
+            SNAPSHOT_SOURCE_HEALTH_SQL,
+        ),
+        (
+            "repository_snapshot_index_status_aggregate",
+            SNAPSHOT_INDEX_STATUS_SQL,
+        ),
+    ] {
+        profile_sql_stage(
+            &conn,
+            &context,
+            "repository_snapshot_facts",
+            "search_global_files",
+            stage,
+            sql,
+            Vec::new(),
+        );
+    }
 
     for spec in PREFIX_QUERIES.iter().copied() {
         let expectation_index = QUERY_MATRIX
