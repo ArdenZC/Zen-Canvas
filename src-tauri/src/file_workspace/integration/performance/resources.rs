@@ -39,13 +39,11 @@ pub(super) struct ProcessHeapResources {
 pub(super) fn process_heap_snapshot() -> Option<ProcessHeapResources> {
     use windows_sys::Win32::{
         Foundation::{GetLastError, ERROR_NO_MORE_ITEMS},
-        System::Memory::{
-            GetProcessHeaps, HeapLock, HeapUnlock, HeapWalk, PROCESS_HEAP_ENTRY,
-            PROCESS_HEAP_ENTRY_BUSY,
-        },
+        System::Memory::{GetProcessHeaps, HeapLock, HeapUnlock, HeapWalk, PROCESS_HEAP_ENTRY},
     };
 
     const MAX_PROCESS_HEAPS: usize = 64;
+    const PROCESS_HEAP_ENTRY_BUSY: u16 = 0x0004;
     let started = Instant::now();
     let mut heaps = [std::ptr::null_mut(); MAX_PROCESS_HEAPS];
     let heap_count = unsafe { GetProcessHeaps(heaps.len() as u32, heaps.as_mut_ptr()) };
