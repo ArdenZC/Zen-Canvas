@@ -1,6 +1,20 @@
 # Issue #329 V2 — Native Failure Root-Cause Remediation
 
-Last verified: 2026-10-09
+Last verified: 2026-10-10
+
+## Latest-master reconciliation — 2026-10-10
+
+The actual master baseline was `9ac78cf86ed99deed16caaddab4164bdd631c3be`. Existing PR #335 HEAD `8c38e12676e77f72d206f3ab81e99ba14cbeb3ea`, tree `59f31f68e0fcb8166ef40145540c18762860e3d5`, was integrated by history-preserving merge `8b9a7805734e47cd8bda9d52a196bfccea58954c`, tree `93cb937263ae6fb983d05a86a4491891f98844f7`. The merge's first parent is the previous PR HEAD and second parent is the fetched master baseline. It completed without conflicts and preserved all V2 commits.
+
+Relative to that master, the PR still changes the same 16 files: 14 Settings, watcher, Onboarding, and regression source/test files plus `docs/project/STATUS.md` and this report. No `package.json`, lockfile, database Schema, Tauri command/IPC contract, or #328 Global Index production behavior was changed by the reconciliation. Current master changes from CI validation-plan governance, the #345 contention investigation, and Global Search benchmark/query work are inherited from master; they were not copied into the #329 diff. Draft PRs #356 and #358 were checked for scope overlap.
+
+The V2 invariants remain unchanged: the CAS starts `BEGIN IMMEDIATE` before its in-transaction prior-settings read; the configured SQLite busy timeout remains 5,000 ms; persistence requires an explicit successful save result; the selected initial folder intent and normalized path comparison remain; watcher reload, reconciliation scheduling, compensation, and stable failure classification remain fail-closed; and a failed save cannot mark Onboarding complete or add a Managed Scope. No second settings/watcher/SQLite coordination authority or generic retry layer was added.
+
+Local checks on the reconciled source passed: focused Settings/Onboarding/error tests (4 files, 26 tests), frontend typecheck, full frontend suite (176 files, 1,870 tests), remediation tests (14), performance architecture checks (30 tests), frontend build, Cargo format, governance, documentation, YAML parsing, helper syntax, and diff check. The frontend build retained its existing CSS optimizer and PDF chunking warnings. A Linux attempt to run the Rust Settings/CAS tests stopped during crate compilation because the existing Linux target does not include the `keyring` dependency referenced in `src/ai/settings.rs`; no Rust test binary ran locally. Windows/macOS Hosted Rust quality and the real-pool SQLite CAS contention tests remain required evidence.
+
+The prior exact-head failures, including CI `37863698017` and `37861489174`, remain preserved as failures. The fresh exact-head Hosted CI and its Windows/macOS Rust, Settings CAS contention, Performance profile, Windows Global Index qualification, and aggregate validation-plan outcomes must be read from PR #335's checks on the reconciled candidate; no older run is promoted as a pass. This reconciliation does not change the original Windows event's evidence: no exact SQLite stage or lock owner was retained, so its historical root cause remains unproved. #328 remains independent, and no Windows local build, installer, or native qualification was run here.
+
+## Historical V2 disposition
 
 ## Disposition
 
