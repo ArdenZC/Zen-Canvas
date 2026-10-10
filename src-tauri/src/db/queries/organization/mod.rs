@@ -1271,21 +1271,6 @@ impl Database {
                 "organization_execution_confirmation_required".to_string(),
             ));
         }
-        let dry_run = {
-            #[cfg(test)]
-            let _profile = OrganizationExecutionProfileTimer::new("execution.preflight_dry_run");
-            self.get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
-                plan_id: request.plan_id.clone(),
-                expected_plan_revision: request.expected_plan_revision,
-                item_ids: request.item_ids.clone(),
-                all_accepted: request.all_accepted,
-            })?
-        };
-        if dry_run.dry_run_fingerprint != request.dry_run_fingerprint {
-            return Err(DbError::Validation(
-                "organization_dry_run_expired".to_string(),
-            ));
-        }
         let execution_id = format!("organization-execution-{}", uuid::Uuid::new_v4());
         let operation_batch_id = format!("organization-operation-{}", uuid::Uuid::new_v4());
         let mut conn = {
@@ -1321,9 +1306,7 @@ impl Database {
                 },
             )?
         };
-        if live_dry_run.dry_run_fingerprint != request.dry_run_fingerprint
-            || live_dry_run.dry_run_fingerprint != dry_run.dry_run_fingerprint
-        {
+        if live_dry_run.dry_run_fingerprint != request.dry_run_fingerprint {
             return Err(DbError::Validation(
                 "organization_dry_run_expired".to_string(),
             ));
@@ -2552,6 +2535,31 @@ fn build_organization_dry_run(
         let _profile = OrganizationExecutionProfileTimer::new("dry_run.current_files_batch_load");
         load_indexed_files_for_projection(conn, &file_ids)?
     };
+    let scope_memberships = {
+        const SCOPE_ID_CHUNK: usize = 500;
+        let mut memberships = HashMap::with_capacity(file_ids.len());
+        for chunk in file_ids.chunks(SCOPE_ID_CHUNK) {
+            let matching_ids = {
+                #[cfg(test)]
+                let _profile =
+                    OrganizationExecutionProfileTimer::new("dry_run.scope_membership_query");
+                files_matching_authoritative_query_scope(conn, &source_query, chunk)
+            };
+            match matching_ids {
+                Ok(matching_ids) => {
+                    for file_id in chunk {
+                        memberships.insert(file_id.clone(), Ok(matching_ids.contains(file_id)));
+                    }
+                }
+                Err(_) => {
+                    for file_id in chunk {
+                        memberships.insert(file_id.clone(), Err(()));
+                    }
+                }
+            }
+        }
+        memberships
+    };
     let mut items = Vec::with_capacity(selected.len());
     let mut kinds = HashSet::new();
     let mut total_bytes = 0_i64;
@@ -2580,12 +2588,10 @@ fn build_organization_dry_run(
                 source_health = "stale";
                 blocking_code = Some("source_identity_changed".to_string());
             }
-            let scope_match = {
-                #[cfg(test)]
-                let _profile =
-                    OrganizationExecutionProfileTimer::new("dry_run.scope_membership_query");
-                file_matches_authoritative_query_scope(conn, &source_query, &item.file_id_snapshot)
-            };
+            let scope_match = scope_memberships
+                .get(&item.file_id_snapshot)
+                .copied()
+                .unwrap_or(Err(()));
             match scope_match {
                 Ok(true) => {}
                 Ok(false) => {
@@ -5493,6 +5499,19 @@ pub(crate) mod tests {
             "live item must be executable: {:?}",
             dry_run.items[0]
         );
+        let stale_dispatch =
+            db.begin_organization_plan_execution(&ExecuteOrganizationPlanRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: reviewed.revision,
+                dry_run_fingerprint: "stale-fingerprint".into(),
+                item_ids: Vec::new(),
+                all_accepted: true,
+                confirmed: true,
+            });
+        assert!(matches!(
+            stale_dispatch,
+            Err(DbError::Validation(code)) if code == "organization_dry_run_expired"
+        ));
         let dispatch = db
             .begin_organization_plan_execution(&ExecuteOrganizationPlanRequest {
                 plan_id: plan.id.clone(),
@@ -6105,7 +6124,26 @@ pub(crate) mod tests {
         let root_prefix = format!("{root}/%");
         let windows_root_prefix = format!("{root}\\%");
         let source_path = format!("{root}/source-00000.txt");
-        let file_id = "bench-file-00000";
+        let scope_file_ids = (0..500)
+            .map(|index| format!("bench-file-{index:05}"))
+            .collect::<Vec<_>>();
+        let scope_placeholders = (1..=scope_file_ids.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut scope_params = scope_file_ids
+            .iter()
+            .map(|id| id as &dyn ToSql)
+            .collect::<Vec<_>>();
+        scope_params.extend([
+            &root as &dyn ToSql,
+            &root_prefix as &dyn ToSql,
+            &windows_root_prefix as &dyn ToSql,
+        ]);
+        let scope_sql = format!(
+            "SELECT f.id FROM files AS f WHERE f.id IN ({scope_placeholders}) AND f.is_stale = 0
+               AND (f.path = ?501 OR f.path LIKE ?502 ESCAPE '~' OR f.path LIKE ?503 ESCAPE '~')"
+        );
         print_plan(
             conn,
             "selected_plan_items",
@@ -6123,10 +6161,9 @@ pub(crate) mod tests {
         );
         print_plan(
             conn,
-            "file_scope_membership",
-            "SELECT f.id FROM files AS f WHERE f.id IN (?1) AND f.is_stale = 0
-               AND (f.path = ?2 OR f.path LIKE ?3 ESCAPE '~' OR f.path LIKE ?4 ESCAPE '~')",
-            &[&file_id, &root, &root_prefix, &windows_root_prefix],
+            "file_scope_membership_500_ids",
+            &scope_sql,
+            &scope_params,
         );
         print_plan(
             conn,
@@ -6617,11 +6654,13 @@ pub(crate) mod tests {
                     );
                     let selected_count = dispatch.item_ids.len();
                     let file_id_chunks = selected_count.div_ceil(500);
-                    let sql_statements_per_dry_run = 3 + file_id_chunks + selected_count * (3 + 6);
+                    let scope_sql_statements = file_id_chunks * 3;
+                    let sql_statements_per_dry_run =
+                        3 + file_id_chunks + scope_sql_statements + selected_count * 6;
                     let execution_sql_statements =
-                        2 * sql_statements_per_dry_run + 1 + 2 * selected_count + 1;
+                        sql_statements_per_dry_run + 1 + 2 * selected_count + 1;
                     println!(
-                        "[organization-plan-profile] query_counts source_derived=true internal_dry_run_builds=2 selected_items={selected_count} file_id_chunks_per_build={file_id_chunks} scope_validation_calls_per_build={selected_count} scope_sql_per_item=3 semantic_proposal_calls_per_build={selected_count} semantic_sql_per_item=6 execution_item_snapshot_selects={selected_count} execution_item_claim_updates={selected_count} plan_claim_updates=1 estimated_execution_sql_statements={execution_sql_statements} filesystem_exists_checks_per_build={}",
+                        "[organization-plan-profile] query_counts source_derived=true internal_dry_run_builds=1 selected_items={selected_count} file_id_chunks_per_build={file_id_chunks} scope_validation_batches_per_build={file_id_chunks} scope_sql_statements_per_batch=3 semantic_proposal_calls_per_build={selected_count} semantic_sql_per_proposal=6 execution_item_snapshot_selects={selected_count} execution_item_claim_updates={selected_count} plan_claim_updates=1 estimated_execution_sql_statements={execution_sql_statements} filesystem_exists_checks_per_build={}",
                         selected_count * 2,
                     );
                     let conn = db.conn().expect("profile organization database");
