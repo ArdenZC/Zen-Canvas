@@ -1,6 +1,6 @@
 # #359 Global Search Source-health Snapshot 优化审计
 
-> 状态：production SQL 的受控 500k Windows Hosted 诊断（run `38030877088`）和 production source SHA `cd02f47ac4994413106d0ddfeabc6cfa9caf1530` 的 Exact-HEAD CI（run `38030877064`）均 SUCCESS；完整等价、revision hash 与 12/12 correctness 均通过。最终 PR 仍 OPEN / Draft，Issue #359 仍 OPEN。性能结论只在 Windows Hosted 合成 SQLite fixture 上成立，不能代表 Windows/macOS 实机文件系统或完整 Tauri IPC/UI 延迟。
+> 状态：Owner 补充验收已在 Windows Hosted 上以同一个 500k fixture 完成四种 stale / volume 拓扑；run `38046309971`、attempt 1、source SHA `ddaa782307ac87daf46d8f81f634bbca18649909` SUCCESS。B 在四种拓扑都快于 Original，但 test-only Candidate C 在两种 90% stale 拓扑显著快于 B（SQL p95 快 27.9% / 39.1%，10 卷 no-result / high-hit Snapshot p95 快 36.2% / 20.4%）。因此旧的“建议直接接受 B”结论由第 10 节取代：保持生产 SQL 不变，暂不建议合并，等待 Owner 决定是否接受 B 的拓扑折衷或另行授权 Candidate C 实现评审。PR #361 保持 OPEN / Draft，Issue #359 保持 OPEN。结果仅代表 Windows Hosted 合成 SQLite fixture，不代表 Windows/macOS 实机文件系统或完整 Tauri IPC/UI 延迟。
 
 ## 1. 基线与审计范围
 
@@ -108,7 +108,7 @@ GROUP BY gv.id
 ORDER BY gv.id ASC
 ```
 
-50k / 10-volume Python SQLite `3.53.1` 预检的 plan 仍按 `(volume_id,is_stale)` 对每个 volume seek，没有宽字段 GROUP BY / ORDER BY temp B-tree。在全 active 数据上 p95 `14.270ms`（原始 `35.967ms`，B `11.064ms`）；90% stale 数据上 p95 `1.303ms`（原始 `3.642ms`，B `2.717ms`）。四个 SQL 的有序 source facts 在这个简化 fixture 中相同。Candidate C 有希望在 stale-heavy 情形减少 B 的全索引扫描；但没有同 Rust fixture、Windows SQLite `3.51.3`、500k 数据或实际 Repository snapshot 的 paired evidence，所以本次不把 C 作为生产实现，也不把该短样本作为正式基准。
+50k / 10-volume Python SQLite `3.53.1` 预检的 plan 仍按 `(volume_id,is_stale)` 对每个 volume seek，没有宽字段 GROUP BY / ORDER BY temp B-tree。在全 active 数据上 p95 `14.270ms`（原始 `35.967ms`，B `11.064ms`）；90% stale 数据上 p95 `1.303ms`（原始 `3.642ms`，B `2.717ms`）。四个 SQL 的有序 source facts 在这个简化 fixture 中相同。该预检仅是探索结果；第 10 节的 Windows Hosted 500k 配对测量现已正式覆盖 Candidate C 的 SQL 与完整 Repository Snapshot。Candidate C 仍只存在于测试代码，本次没有替换生产 SQL。
 
 ## 4. 语义与同一快照验证
 
@@ -130,7 +130,7 @@ Hosted 500k 诊断也在每轮 SQL/function/snapshot 配对中检查 row/facts/r
 
 ### 小数据预检（仅方向性）
 
-在执行受控 Hosted run 前，以 Python SQLite `3.53.1` 做过两次 50k / 10-volume 短样本预检。全 active 的 5-sample 查询预检：原 SQL p50/p95 `37.077/37.184ms`，Candidate A `36.404/37.329ms`，Candidate B `22.887/26.093ms`。随后追加 Candidate C 与 90% stale 场景，5 warmups / 30 samples，数值见上节。它们都不是 Rust production path 或 Windows Hosted `3.51.3`，只作方向性/风险证据；生产选择以 500k 同 runner artifact 为主，stale-heavy 与多-volume外推仍是 residual risk。
+在执行受控 Hosted run 前，以 Python SQLite `3.53.1` 做过两次 50k / 10-volume 短样本预检。全 active 的 5-sample 查询预检：原 SQL p50/p95 `37.077/37.184ms`，Candidate A `36.404/37.329ms`，Candidate B `22.887/26.093ms`。随后追加 Candidate C 与 90% stale 场景，5 warmups / 30 samples，数值见上节。它们都不是 Rust production path 或 Windows Hosted `3.51.3`，仅作方向性/风险证据；stale-heavy 与多-volume结论以第 10 节同 fixture 500k artifact 为准。
 
 | 项目 | 设置 |
 |---|---|
@@ -158,7 +158,7 @@ Hosted 500k 诊断也在每轮 SQL/function/snapshot 配对中检查 row/facts/r
 | Repository snapshot：prefix `quarterly` | 1515.496 / 1552.570 / 1562.026 | 630.061 / 643.555 / 647.589 | 每组 30，5 warmup；80 results |
 | Repository snapshot：FTS `report` | 1663.265 / 1735.612 / 1744.893 | 748.901 / 874.966 / 935.985 | 每组 30，5 warmup；80 results |
 
-Candidate A 的相同配对 p95：SQL `1187.856 → 384.049ms`，source-health 函数 `1280.653 → 591.125ms`，完整 snapshots no-result `1373.824 → 632.109ms`、prefix `1523.914 → 841.669ms`、FTS report `1746.382 → 1003.868ms`。A 比原 SQL 快，但 B 的每项 p95 都更低；全 active 的 50k/10-volume 预检中 A p95 `37.329ms`，接近原 SQL `37.184ms`，也慢于 B 的 `26.093ms`。因此在现有 500k evidence 下选择 B，拒绝 A 作为默认生产形状。Candidate C 的 stale-heavy 小样本有优势，但缺少正式大 fixture 与 Rust production snapshot 证据，不足以替换本次 B 的选择。
+Candidate A 的相同配对 p95：SQL `1187.856 → 384.049ms`，source-health 函数 `1280.653 → 591.125ms`，完整 snapshots no-result `1373.824 → 632.109ms`、prefix `1523.914 → 841.669ms`、FTS report `1746.382 → 1003.868ms`。A 比原 SQL 快，但 B 的每项 p95 都更低；全 active 的 50k/10-volume 预检中 A p95 `37.329ms`，接近原 SQL `37.184ms`，也慢于 B 的 `26.093ms`。因此 A 不作为默认生产形状。此前 Candidate C 只有 stale-heavy 小样本；第 10 节现已有正式 Hosted 500k / Rust Repository Snapshot 证据，结论是 C 在 stale-heavy 下明显胜 B、在全 active 下慢于 B，故当前生产 B 保持不动并等待 Owner 决策。
 
 在独立的 actual-entrypoint validation record 中，真实 `Database::search_global_entries_snapshot()` 的旧生产路径与 test-only Candidate B snapshot helper 同 runner 交替比较：
 
@@ -198,7 +198,7 @@ Candidate A 最终 run 的完整分位数也保留在 artifact；以下原 SQL/A
 | Snapshot：prefix `quarterly` | 1522.773 / 1572.107 / 1578.766 | 840.961 / 863.834 / 870.220 |
 | Snapshot：FTS `report` | 1621.430 / 1718.325 / 1737.837 | 948.301 / 1001.857 / 1021.488 |
 
-最终 run 的 SQL plan 和 StatementStatus 与首轮一致：原 SQL 18,500,060 VM / 2 SORT / 0 Fullscan，A 5,500,045 / 0 / 0，B 7,500,077 / 0 / 499,999。最终 source-health SQL p95 为 `1191.642 → 269.662ms`（降低 77.4%）；同 run no-result/prefix/FTS snapshot p95 分别为 `1328.452 → 417.145ms`（68.6%）、`1709.584 → 753.081ms`（55.9%）、`1764.120 → 825.244ms`（53.2%）。Candidate B 仍然全扫 entries 索引，CPU/RSS、memory peak 和 stale-heavy 500k 多卷拓扑没有测；这是明确的剩余风险。
+最终 run 的 SQL plan 和 StatementStatus 与首轮一致：原 SQL 18,500,060 VM / 2 SORT / 0 Fullscan，A 5,500,045 / 0 / 0，B 7,500,077 / 0 / 499,999。最终 source-health SQL p95 为 `1191.642 → 269.662ms`（降低 77.4%）；同 run no-result/prefix/FTS snapshot p95 分别为 `1328.452 → 417.145ms`（68.6%）、`1709.584 → 753.081ms`（55.9%）、`1764.120 → 825.244ms`（53.2%）。第 10 节现已补测 stale-heavy / 多卷 500k，并采集进程级 CPU / working set / private commit。B 仍会全扫 entries index；SQLite 临时内存字节不能由现有采样隔离，标记为 NOT VERIFIED。
 
 ### 执行计划与 SQLite counters
 
@@ -235,7 +235,7 @@ B 消除了两项临时排序，VM steps 比原 SQL 少 59.5%，SQL p95 少 75.4
 
 首轮 run artifact：run `38026682828` / attempt 1 / job `114138897338`，结论 SUCCESS；source SHA `b7ff5bda49bf45a13f526bb6e241502adbad1091`。artifact ID `11661506696`，ZIP SHA-256 `27dff119839559c825b59a05d20d6a295d9894dfc1883f369b8fc16f7a217091`，JSONL SHA-256 `ff2e3626b6ee16d281f3b48165f00c046745bc4a0641aa549882abbd6136d4a5`。最终 production-source run 的 run/source/artifact/digests 见上一节。Hosted environment 两次均为 Windows x86_64 image `win25-vs2026` / `20260925.250.1`、SQLite `3.51.3`；单个合成 DB、同一 fixture 重复配对，没有为候选分别建库。
 
-该 run 的 process CPU 与 working set/RSS **NOT CAPTURED**。候选不新增持久表、持久索引、migration 或 writer 工作；source-health SQL 本身只读，临时物化发生在 SQLite memory temp-store。fixture 只含一个 source row，50k/10-volume quick precheck 为 10 volumes；500k 多 volume 严格性能曲线/峰值 memory 未测。
+该历史 production-source run 的 process CPU 与 working set/RSS **NOT CAPTURED**；这是该 run 的采样范围，不适用于第 10 节新的拓扑 run，后者已加入 Windows process sampler。候选不新增持久表、持久索引、migration 或 writer 工作；source-health SQL 本身只读，临时物化发生在 SQLite memory temp-store。历史 fixture 只含一个 source row；第 10 节另外补测 10-volume 500k 拓扑。
 
 上面的 plan 块列出每个 SQL 的完整 operator 输出，不是摘要。生产替换门槛是：事实/哈希/事务等价、候选有稳定且显著的 SQL 和完整 snapshot 收益、没有新增持久写入/索引或额外磁盘数据；SQLite 临时内存的峰值、进程 CPU 与 RSS 没有从首轮 artifact 采集，仍作为残余风险报告，不能据此宣称资源成本为零。
 
@@ -263,7 +263,7 @@ production source SHA `cd02f47ac4994413106d0ddfeabc6cfa9caf1530` 的 exact-code 
 
 ## 7. 性能、资源与正确性风险
 
-候选 B 把原先按 volume 索引 seek + 宽字段 GROUP BY/ORDER BY 改成 active entries 索引全扫、窄键聚合 CTE 及临时 materialization。最终 plan 的 Fullscan counter 是 499,999，虽 VM step 从 18.5m 降至 7.5m 且同-run SQL/snapshot p95 显著改善，但 stale-heavy/多卷 500k 和 CPU/RSS/临时内存峰值未测；不能把本次 one-volume 结果推广到所有拓扑。该只读查询未变更持久 DB schema/index、没有新增持久写放大或磁盘数据，`temp_store=MEMORY`；内存峰值仍是残余风险。
+候选 B 把原先按 volume/stale 复合索引 seek + 宽字段 GROUP BY/ORDER BY 改成 active entries 索引全扫、窄键聚合 CTE 及临时 materialization。首轮 one-volume 结果的拓扑局限已由第 10 节补测：四个 500k 拓扑中 B 的完整 Snapshot p95 均快于 Original；在 90% stale 下 Candidate C 进一步减少扫描工作量并取得更低 p95。Hosted 已测进程 CPU、working set 与 private commit；SQLite 临时分配字节不能从 SQLite connection/cache 中单独分离，仍标为 NOT VERIFIED。该只读查询没有变更持久 DB schema/index，也没有新增持久写放大或磁盘数据。
 
 语义风险集中在 LEFT JOIN 对空卷的保留、stale 过滤位置、NULL 与 `COUNT(id)`、volume 稳定排序、revision fact 字段顺序/序列化和事务快照边界。新增 fixtures 对这些点均设有显式比较。500k artifact 标记 12/12 既有 search correctness classes 通过、`diagnostic_complete` 成功、rollback 后仍为 500,000 rows、无 schema/index change、未改正式 100ms gate。连接池、search tier、pagination/window、FTS/prefix SQL、source_revision 算法及错误传播没有计划改动。
 
@@ -291,15 +291,132 @@ production source SHA `cd02f47ac4994413106d0ddfeabc6cfa9caf1530` 的 exact-code 
 
 Candidate B 在生产 SQL 源 SHA `cd02f47ac4994413106d0ddfeabc6cfa9caf1530` 的最终 Hosted run `38030877088` 上通过：12/12 correctness、完整 source-health facts、revision JSON/BLAKE3 与三类完整 snapshot facts/results 相等；SQLite 计划/counters 方向与首轮一致。Local source-health/adversarial/concurrency tests 为 22 passed、3 个既有 benchmark ignored；生产源 Exact-HEAD CI `38030877064` SUCCESS。生产改动只替换 `repository.rs` 的 source-health SQL 查询字符串，保留 `GlobalSearchRevisionFact` 字段/序列化、BLAKE3、同一个 SQLite read transaction、row mapping、错误处理和所有搜索语义。
 
-建议 Owner 接受这个限范围 SQL 优化进入审查：Windows Hosted one-volume 500k 上收益大且重复测得，Candidate A 更慢，Candidate C 只有小规模 exploratory evidence。剩余风险要在审查中明确：B 对所有 entries 的索引全扫；CPU/RSS/temporary memory 峰值和 stale-heavy、多卷 500k 未测。SQLite query 只读，不新增 Schema/索引/写入或持久磁盘数据；这些事实不能替代未测资源峰值。macOS source-health SQL 性能和真实 Windows/macOS Tauri/IPC/文件系统体验仍 NOT VERIFIED。
+第 10 节的 Owner 补充验收 supersedes 本节基于单卷全 active 500k 的建议：B 在四种测得拓扑中都比 Original 快，语义与完整 snapshot 均一致；但 Candidate C 在两种 stale-heavy 拓扑的 SQL p95 快 27.9% / 39.1%，10 卷 stale-heavy 的完整 Snapshot no-result / high-hit p95 快 36.2% / 20.4%。在全 active 情形 C 又比 B 慢。因此这是拓扑折衷，不是无条件优胜者；本次结论为**暂不建议合并，等待 Owner 决定**，不自动把 C 换入生产。进程 CPU/RSS 已采样，但临时 SQLite 内存仍 NOT VERIFIED；macOS SQL 性能和真实 Windows/macOS Tauri/IPC/文件系统体验也仍 NOT VERIFIED。
 
 本次没有实现索引 schema 重构、缓存或事务外快照。Owner 决定前不合并、不关闭 Issue、不启动 #360。
 
 ### 建议任务拆分
 
-1. Owner 复核最终 run `38030877088` 的 JSONL artifact、原始/Candidate B 计划与所有分位数；
+1. Owner 复核 production-source run `38030877088` 与拓扑 run `38046309971` 的 JSONL artifacts、Original/B/C 计划与完整分位数；
 2. Owner 审阅 `repository.rs` 中的最小查询替换以及 adversarial/concurrency tests；
 3. Owner 在真实 Windows/macOS 设备上做 Global Search 端到端 smoke/延迟验收；Hosted 结果不能代替；
 4. 只有另行授权后再讨论 prefix/FTS 或其他瓶颈，避免在 #359 里扩展范围。
 
-**最终状态：`#359 SOURCE-HEALTH OPTIMIZATION QUALIFIED — READY FOR OWNER REVIEW`**
+## 10. Owner 补充验收：500k stale-heavy / 多卷拓扑
+
+本节按 PR #361 Owner 评论 `6096506704` 执行，补足旧实验未覆盖 stale-heavy 与多卷 500k 的风险。它不改生产 SQL，也不改变前述任何历史 artifact 或失败记录。测试在 source SHA `ddaa782307ac87daf46d8f81f634bbca18649909` 上运行；测试代码含 test-only Candidate C，生产仍使用 Candidate B。
+
+### Run、artifact 与 fixture
+
+| 项目 | 结果 |
+|---|---|
+| Hosted run / attempt / job | [38046309971](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38046309971) / 1 / `114196449981`，SUCCESS |
+| Source SHA | `ddaa782307ac87daf46d8f81f634bbca18649909` |
+| Runner | Windows x86_64，`win25-vs2026`，image `20260925.250.1` |
+| SQLite | `3.51.3`；`journal_mode=WAL`、`synchronous=1`、`foreign_keys=1`、`temp_store=MEMORY`、`mmap_size=2147418112`、`page_size=4096` |
+| Fixture | 一次生成一个 production-schema 合成 SQLite DB，共 500,000 rows；四态均在同一文件上事务更新并恢复，无 per-candidate / per-topology 重建 |
+| Fixture 建立 | `988,867.255ms`；人口写入 `987,433.868ms`；DB `655,818,752 B` + WAL `23,768,312 B` = `679,587,064 B` |
+| Artifact | [ID `11668666649`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38046309971)；ZIP SHA-256 `5d076132a68771e578e14fea85c5973e3ade3c0b7750f0d526238faff264a117`；JSONL SHA-256 `577fcb2f339b61a89f0e8e18ab30f7ac6fe93f0b3383b58562c8646eef10dbfd` |
+| Scope guards | 固定 500k；未重跑完整 12 类 performance matrix；未跑 1m；production SQL/schema/index/performance gate 均未修改 |
+
+四态的 volume 全部 enabled，disabled=0；每卷缓存 `entry_count` 与实际 active rows 一致：
+
+| 拓扑 | Volume 数 / rows 每卷 | Active rows | Stale rows | enabled / disabled |
+|---|---:|---:|---:|---:|
+| `one_volume_zero_stale` | 1 / 500,000 | 500,000 | 0 | 1 / 0 |
+| `one_volume_ninety_percent_stale` | 1 / 500,000 | 50,000 | 450,000 | 1 / 0 |
+| `ten_volumes_zero_stale` | 10 / 50,000 | 500,000（50,000/卷） | 0 | 10 / 0 |
+| `ten_volumes_ninety_percent_stale` | 10 / 50,000 | 50,000（5,000/卷） | 450,000（45,000/卷） | 10 / 0 |
+
+每态先记录完整行计数、卷状态与 cached count，再比较候选并 rollback 回单卷、全 active 基线后才应用下一态。四态均完成；最终仍有 500,000 rows，四次 rollback 校验通过，schema/index signature 前后相同 `44c7419a0ad16e8c7af554d794be256ceee94c4ad08280f6d0448393d248e671`。状态切换 p50/p95 `62,491.045/145,964.392ms`，恢复 p50/p95 `49,324.619/115,375.342ms`；此为 fixture 准备开销，不计入 candidate latency。
+
+### Source-health SQL：配对延迟与工作量
+
+每一候选 5 warmups + 30 samples，同 runner、同 SQLite fixture，候选次序轮转。单位 ms；每个 cell 为 p50 / p95 / p99。`Fullscan` 是 SQLite StatementStatus 计数；不是 CPU 时间。
+
+| 拓扑 | Candidate | SQL p50 / p95 / p99 | VM steps | SORT | Fullscan |
+|---|---|---:|---:|---:|---:|
+| 1 卷 / 0% stale | Original | 782.768 / 839.750 / 855.465 | 18,500,060 | 2 | 0 |
+| 1 卷 / 0% stale | B（当前 production） | 217.548 / 227.923 / 233.725 | 7,500,077 | 0 | 499,999 |
+| 1 卷 / 0% stale | C（test-only） | 376.007 / 399.666 / 423.258 | 10,000,043 | 0 | 0 |
+| 1 卷 / 90% stale | Original | 77.432 / 86.520 / 93.786 | 1,850,061 | 2 | 0 |
+| 1 卷 / 90% stale | B（当前 production） | 49.715 / 62.742 / 75.160 | 2,550,077 | 0 | 499,999 |
+| 1 卷 / 90% stale | C（test-only） | 43.104 / 45.237 / 46.093 | 1,000,044 | 0 | 0 |
+| 10 卷 / 0% stale | Original | 713.182 / 743.973 / 761.018 | 18,500,375 | 2 | 9 |
+| 10 卷 / 0% stale | B（当前 production） | 232.621 / 240.687 / 242.552 | 7,500,500 | 0 | 500,008 |
+| 10 卷 / 0% stale | C（test-only） | 295.210 / 302.136 / 320.544 | 10,000,241 | 0 | 9 |
+| 10 卷 / 90% stale | Original | 66.149 / 72.305 / 73.161 | 1,850,376 | 2 | 9 |
+| 10 卷 / 90% stale | B（当前 production） | 51.722 / 57.152 / 57.898 | 2,550,500 | 0 | 500,008 |
+| 10 卷 / 90% stale | C（test-only） | 32.636 / 34.794 / 35.558 | 1,000,242 | 0 | 9 |
+
+代表性 `EXPLAIN QUERY PLAN`（各拓扑每个候选的 plan 形状一致；卷数改变对应 `Fullscan` 小计）：
+
+```text
+Original:
+SCAN gv USING INDEX sqlite_autoindex_global_volumes_1
+SEARCH ge USING INDEX idx_global_entries_volume (volume_id=? AND is_stale=?) LEFT-JOIN
+USE TEMP B-TREE FOR GROUP BY
+USE TEMP B-TREE FOR ORDER BY
+
+Candidate B:
+MATERIALIZE active_volume_facts
+SCAN global_entries USING INDEX idx_global_entries_volume
+SCAN gv USING INDEX sqlite_autoindex_global_volumes_1
+SEARCH active_volume_facts USING AUTOMATIC COVERING INDEX (volume_id=?) LEFT-JOIN
+
+Candidate C:
+SCAN gv USING INDEX sqlite_autoindex_global_volumes_1
+SEARCH ge USING INDEX idx_global_entries_volume (volume_id=? AND is_stale=?) LEFT-JOIN
+```
+
+B 在全 active 时将 sort/VM 工作换成遍历约 500k index rows，仍明显快于 Original；但 90% stale 时 Original/C 只 seek 并遍历约 50k active rows，B 仍遍历约 500k。C 按唯一 `gv.id` 分组，保留逐卷 active/stale 索引 seek，去掉宽分组和两项排序；这与 C 在 stale-heavy 拓扑更快相符。B 在这四种拓扑均未慢于 Original；C 相对 B 的 SQL p95：90% stale 单卷快 `27.9%`、90% stale 十卷快 `39.1%`；全 active 单卷慢 `75.4%`、全 active 十卷慢 `25.5%`。
+
+### 完整 Repository Snapshot 配对测量
+
+以下每候选每查询 5 warmups + 30 samples，单位 ms，p50 / p95 / p99。请求在同一 `Database::search_global_entries_snapshot()` 方法和一个 read transaction 内执行搜索、source facts/revision 与 index status；B 是当前未 override 的生产 SQL，Original/C 只用已有 test-only SQL override。`no_result` 使用 `zzznomatchtoken`，high-hit FTS 使用 `report`，结果数分别为 0 和 80。
+
+| 拓扑 / 查询 | Original | Candidate B（生产） | Candidate C（test-only） | snapshot equality |
+|---|---:|---:|---:|---|
+| 1 卷 / 0% / no-result | 750.408 / 803.456 / 826.322 | 237.326 / 293.004 / 299.978 | 258.041 / 278.940 / 317.154 | 3 项候选一致 |
+| 1 卷 / 0% / high-hit FTS | 882.629 / 970.512 / 989.512 | 389.892 / 401.693 / 419.803 | 407.460 / 426.508 / 454.790 | 80 results；一致 |
+| 1 卷 / 90% / no-result | 80.808 / 92.920 / 107.005 | 52.280 / 59.085 / 76.288 | 46.583 / 56.570 / 64.527 | 3 项候选一致 |
+| 1 卷 / 90% / high-hit FTS | 128.761 / 137.177 / 154.819 | 102.282 / 106.608 / 108.185 | 96.050 / 100.451 / 124.677 | 80 results；一致 |
+| 10 卷 / 0% / no-result | 731.837 / 771.930 / 786.338 | 251.580 / 255.904 / 277.307 | 312.509 / 339.030 / 347.464 | 3 项候选一致 |
+| 10 卷 / 0% / high-hit FTS | 848.307 / 888.906 / 894.781 | 365.017 / 400.823 / 406.862 | 426.081 / 435.166 / 459.078 | 80 results；一致 |
+| 10 卷 / 90% / no-result | 63.147 / 68.545 / 70.179 | 49.082 / 55.308 / 58.920 | 32.438 / 35.302 / 36.189 | 3 项候选一致 |
+| 10 卷 / 90% / high-hit FTS | 113.213 / 123.716 / 127.244 | 99.146 / 110.909 / 116.605 | 82.202 / 88.286 / 104.370 | 80 results；一致 |
+
+Candidate C 的完整 Snapshot p95 对 B：1 卷 90% stale no-result / FTS 分别快 `4.3% / 5.8%`；10 卷 90% stale 分别快 `36.2% / 20.4%`。全 active 拓扑中 C 则落后 B：10 卷 no-result / FTS 分别慢 `32.5% / 8.6%`。这些数据说明 Candidate C 不是跨拓扑无条件更快，且 1 卷 high-hit 的 C p99 `124.677ms` 高于 B `108.185ms`；报告其 p95 改善时保留这一尾延迟观察。
+
+### 语义、资源与限制
+
+每个 topology revision-fact equality 记录均确认 Original/B/C 的有序 source facts 相等、revision facts JSON 字节相等、source-revision BLAKE3 原始字节相等；4/4 topology 成功。24/24 Snapshot records 均确认 search results、source-health、revision、index_status 全部相等。Snapshot 候选仍在同一个单读事务中运行。数据库 rows 及 schema/index signature 在结束后恢复；Candidate C 只在 `#[cfg(test)]` 测试路径中。
+
+每个 topology/candidate 的下表 resource 值取同 topology 下该 candidate 的 SQL、no-result Snapshot 与 high-hit Snapshot resource records 的最大采样工作集/private commit；CPU 是这些 records 平均进程 CPU 的范围与最大 observed query 值。内存是整个 Windows 测试进程采样，不是 SQLite 单条语句的分配归因，也不是设备级常驻内存预算。
+
+| 拓扑 | Candidate | 平均 CPU % of one core（记录范围）/峰值采样 | Peak working set MiB（相对 topology 起点增量） | Peak private commit MiB（相对起点增量） |
+|---|---|---:|---:|---:|
+| 1 卷 / 0% | Original | 99.6–99.8 / 103.1 | 283.98 (+48.24) | 70.17 (+52.79) |
+| 1 卷 / 0% | B | 98.5–99.9 / 106.6 | 280.79 (+45.05) | 66.86 (+49.48) |
+| 1 卷 / 0% | C | 100.0–100.4 / 105.8 | 280.62 (+44.88) | 66.38 (+48.99) |
+| 1 卷 / 90% | Original | 99.6–100.6 / 118.2 | 398.44 (+134.43) | 60.00 (+1.52) |
+| 1 卷 / 90% | B | 100.2–101.7 / 128.7 | 398.44 (+134.43) | 60.00 (+1.52) |
+| 1 卷 / 90% | C | 97.1–99.9 / 115.8 | 398.44 (+134.43) | 60.00 (+1.52) |
+| 10 卷 / 0% | Original | 99.5–99.8 / 103.2 | 547.82 (+123.43) | 77.93 (+9.98) |
+| 10 卷 / 0% | B | 99.8–100.8 / 105.8 | 547.82 (+123.43) | 77.93 (+9.98) |
+| 10 卷 / 0% | C | 99.0–100.0 / 106.3 | 547.82 (+123.43) | 77.93 (+9.98) |
+| 10 卷 / 90% | Original | 96.4–100.6 / 124.8 | 398.97 (+87.52) | 69.63 (+0.12) |
+| 10 卷 / 90% | B | 97.1–102.2 / 127.5 | 398.97 (+87.52) | 69.59 (+0.09) |
+| 10 卷 / 90% | C | 100.0–100.5 / 148.0 | 398.97 (+87.52) | 69.59 (+0.09) |
+
+`temp_store=MEMORY` 已记录。**SQLite temp allocation bytes = NOT VERIFIED**：当前 sampler 无法把临时 B-tree / materialization 的真实 allocation 与 SQLite connection/cache 及 memory-mapped 页分开，因此不能声称临时内存为零。进程级 CPU 约一个逻辑 core；peak sampling 中短窗口百分数超过 100%，按 observed peak 原样保留，不能当作持续多核 CPU。最高采样工作集约 `547.82 MiB`，最高 private commit 约 `77.93 MiB`；峰值主要因 topology/process 窗口和 SQLite memory map/caches，候选间差值不能解释为单条语句新增内存。
+
+### Owner 决策结论与本轮状态
+
+- B 相对 Original：四种拓扑所有 SQL 与完整 Snapshot p95 都更快，没有测到 B 相对 Original 的 stale-heavy / multi-volume 回退；但 90% stale 的 B 仍为全 entries index scan，而 Original/C 通过复合索引只遍历 active rows。
+- C 相对 B：在 stale-heavy SQL 上 27.9% / 39.1% p95 收益，在 10 卷 stale-heavy Snapshot 上 no-result / high-hit 取得 36.2% / 20.4% p95 收益；全 active 时 C 比 B 慢。达到 Owner 评论要求的“若 C materially wins 则回报 Owner 并等待决策”条件。
+- **不建议当前直接合并**：不因这个诊断把生产 SQL 从 B 换成 C，也不修改生产 query；将 B vs C 的拓扑取舍留给 Owner。Candidate C 实现若获批准应另作受控生产改造，并保留本节 evidence 做回归基线。
+- PR exact-head CI：run `38046309973`，SHA `ddaa782307ac87daf46d8f81f634bbca18649909`，19 jobs SUCCESS / 0 failure / 8 scoped skips。Owner benchmark job `114196449981` SUCCESS，artifact upload SUCCESS。
+- PR #361 仍 OPEN / Draft，Issue #359 仍 OPEN。没有 merge、#360 工作、1m benchmark 或 Codex Review；历史 run/failure 原样保留。
+
+**最终状态：`#359 OWNER TOPOLOGY EVIDENCE COMPLETE — MERGE ON HOLD — WAITING FOR OWNER DECISION`**
