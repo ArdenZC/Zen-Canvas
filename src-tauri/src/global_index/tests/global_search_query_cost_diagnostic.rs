@@ -2,13 +2,17 @@
 //! production SQL, schema, candidate cap, and result semantics are untouched.
 
 use super::{
-    actual_match_count, benchmark_context, benchmark_escape_glob, candidate_plan_sql,
-    configured_connection, database_metrics, emit_record, populate_synthetic_database,
-    sidecar_bytes, summarize_samples, test_db_path, BenchmarkCleanup, INSERT_SYNTHETIC_ENTRY,
-    QUERY_MATRIX, SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
+    actual_match_count, assert_search_results, benchmark_context, benchmark_escape_glob,
+    candidate_plan_sql, configured_connection, database_metrics, emit_record,
+    populate_synthetic_database, sidecar_bytes, summarize_samples, test_db_path, BenchmarkCleanup,
+    INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX, SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
 };
 use crate::db::Database;
 use crate::global_index::models::GlobalSearchResult;
+use crate::global_index::repository::{
+    load_global_search_source_health_candidate, DiagnosticSourceHealth, GlobalSearchSnapshot,
+    GlobalSearchSourceHealthQueryCandidate as SourceHealthCandidate,
+};
 use crate::global_index::search::{
     diagnostic_search_fts, diagnostic_search_fts_sql, diagnostic_search_tier,
     search_global_entries_on_connection,
@@ -603,6 +607,310 @@ fn record_production_results(
         "sample_policy": format!("{} warm samples after {} warmups", samples.len(), PAIRED_WARMUPS),
         "timing_scope": timing_scope
     }));
+}
+
+fn source_health_candidate_name(candidate: SourceHealthCandidate) -> &'static str {
+    match candidate {
+        SourceHealthCandidate::Original => "original",
+        SourceHealthCandidate::CorrelatedAggregates => "correlated_aggregates",
+        SourceHealthCandidate::NarrowAggregate => "narrow_aggregate",
+    }
+}
+
+fn measure_source_health_sql_once(
+    conn: &Connection,
+    candidate: SourceHealthCandidate,
+) -> (usize, f64, JsonValue) {
+    execute_count_once(conn, candidate.sql(), &[])
+}
+
+fn profile_source_health_sql_candidates(context: &JsonValue, conn: &Connection, path: &Path) {
+    let original = SourceHealthCandidate::Original;
+    for candidate in [
+        SourceHealthCandidate::CorrelatedAggregates,
+        SourceHealthCandidate::NarrowAggregate,
+    ] {
+        let mut original_rows = 0;
+        let mut candidate_rows = 0;
+        for _ in 0..PAIRED_WARMUPS {
+            let (base_count, _, _) = measure_source_health_sql_once(conn, original);
+            let (candidate_count, _, _) = measure_source_health_sql_once(conn, candidate);
+            original_rows = base_count;
+            candidate_rows = candidate_count;
+            assert_eq!(base_count, candidate_count);
+        }
+
+        let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut original_counters = JsonValue::Null;
+        let mut candidate_counters = JsonValue::Null;
+        for sample in 0..PAIRED_SAMPLES {
+            if sample % 2 == 0 {
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, original);
+                original_rows = count;
+                original_samples.push(elapsed);
+                original_counters = counters;
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, candidate);
+                candidate_rows = count;
+                candidate_samples.push(elapsed);
+                candidate_counters = counters;
+            } else {
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, candidate);
+                candidate_rows = count;
+                candidate_samples.push(elapsed);
+                candidate_counters = counters;
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, original);
+                original_rows = count;
+                original_samples.push(elapsed);
+                original_counters = counters;
+            }
+            assert_eq!(original_rows, candidate_rows);
+        }
+        let original_plan = explain_details(conn, original.sql(), &[]);
+        let candidate_plan = explain_details(conn, candidate.sql(), &[]);
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_sql_paired",
+            "context": context,
+            "candidate": source_health_candidate_name(candidate),
+            "pairing": "alternating execution order on same Windows runner, same SQLite connection and same 500k fixture",
+            "warmups_per_variant": PAIRED_WARMUPS,
+            "samples_per_variant": PAIRED_SAMPLES,
+            "original": {
+                "sql": original.sql(),
+                "parameters": [],
+                "row_count": original_rows,
+                "latency_ms": summarize_samples(&original_samples),
+                "explain_query_plan": original_plan,
+                "sqlite_statement_counters": original_counters
+            },
+            "candidate_result": {
+                "sql": candidate.sql(),
+                "parameters": [],
+                "row_count": candidate_rows,
+                "latency_ms": summarize_samples(&candidate_samples),
+                "explain_query_plan": candidate_plan,
+                "sqlite_statement_counters": candidate_counters
+            },
+            "database": database_metrics(conn, path),
+            "schema_or_index_changes": false
+        }));
+    }
+}
+
+fn measure_source_health_function_once(
+    conn: &mut Connection,
+    candidate: SourceHealthCandidate,
+) -> (DiagnosticSourceHealth, f64) {
+    let transaction = conn
+        .transaction()
+        .expect("begin source-health function sample");
+    let started = Instant::now();
+    let result = load_global_search_source_health_candidate(&transaction, candidate)
+        .expect("run complete source-health function candidate");
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    transaction
+        .commit()
+        .expect("commit source-health function sample");
+    (result, elapsed_ms)
+}
+
+fn profile_source_health_functions(db: &Database, path: &Path, context: &JsonValue) {
+    let mut conn = db.conn().expect("borrow source-health function connection");
+    let original = SourceHealthCandidate::Original;
+    for candidate in [
+        SourceHealthCandidate::CorrelatedAggregates,
+        SourceHealthCandidate::NarrowAggregate,
+    ] {
+        for _ in 0..PAIRED_WARMUPS {
+            let (baseline, _) = measure_source_health_function_once(&mut conn, original);
+            let (optimized, _) = measure_source_health_function_once(&mut conn, candidate);
+            assert_eq!(baseline, optimized);
+        }
+
+        let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut facts_match = true;
+        for sample in 0..PAIRED_SAMPLES {
+            let (baseline, baseline_ms, optimized, candidate_ms) = if sample % 2 == 0 {
+                let (baseline, baseline_ms) =
+                    measure_source_health_function_once(&mut conn, original);
+                let (optimized, candidate_ms) =
+                    measure_source_health_function_once(&mut conn, candidate);
+                (baseline, baseline_ms, optimized, candidate_ms)
+            } else {
+                let (optimized, candidate_ms) =
+                    measure_source_health_function_once(&mut conn, candidate);
+                let (baseline, baseline_ms) =
+                    measure_source_health_function_once(&mut conn, original);
+                (baseline, baseline_ms, optimized, candidate_ms)
+            };
+            facts_match &= baseline == optimized;
+            assert_eq!(baseline, optimized);
+            original_samples.push(baseline_ms);
+            candidate_samples.push(candidate_ms);
+        }
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_function_paired",
+            "context": context,
+            "candidate": source_health_candidate_name(candidate),
+            "pairing": "alternating execution order, same pooled SQLite connection, each call in a fresh read transaction",
+            "warmups_per_variant": PAIRED_WARMUPS,
+            "samples_per_variant": PAIRED_SAMPLES,
+            "original": summarize_samples(&original_samples),
+            "candidate_result": summarize_samples(&candidate_samples),
+            "complete_source_health_equal": facts_match,
+            "revision_facts_bytes_and_blake3_equal": facts_match,
+            "database": database_metrics(&conn, path),
+            "timing_scope": "query execution, row mapping, revision-facts JSON serialization and BLAKE3; excludes pool checkout and transaction setup"
+        }));
+    }
+}
+
+fn run_snapshot_variant(
+    db: &Database,
+    query: &str,
+    candidate: SourceHealthCandidate,
+) -> GlobalSearchSnapshot {
+    db.search_global_entries_snapshot_with_source_health_candidate(query, QUERY_LIMIT, 0, candidate)
+        .expect("run diagnostic repository snapshot variant")
+}
+
+fn assert_snapshot_results_equal(
+    original: &GlobalSearchSnapshot,
+    candidate: &GlobalSearchSnapshot,
+) {
+    assert_eq!(original.results, candidate.results);
+    assert_eq!(original.source_health, candidate.source_health);
+    assert_eq!(
+        original.source_revision.as_bytes(),
+        candidate.source_revision.as_bytes()
+    );
+    assert_eq!(original.index_status, candidate.index_status);
+}
+
+fn profile_repository_snapshot_candidates(db: &Database, path: &Path, context: &JsonValue) {
+    for (class, query) in [
+        ("no_result", "zzznomatchtoken"),
+        ("name_prefix", "quarterly"),
+        ("fts_high_fanout_report", "report"),
+    ] {
+        let original_kind = SourceHealthCandidate::Original;
+        for candidate in [
+            SourceHealthCandidate::CorrelatedAggregates,
+            SourceHealthCandidate::NarrowAggregate,
+        ] {
+            for _ in 0..PAIRED_WARMUPS {
+                let original = run_snapshot_variant(db, query, original_kind);
+                let optimized = run_snapshot_variant(db, query, candidate);
+                assert_snapshot_results_equal(&original, &optimized);
+            }
+            let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+            let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+            for sample in 0..PAIRED_SAMPLES {
+                let (original, original_ms, optimized, candidate_ms) = if sample % 2 == 0 {
+                    let started = Instant::now();
+                    let original = run_snapshot_variant(db, query, original_kind);
+                    let original_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    let started = Instant::now();
+                    let optimized = run_snapshot_variant(db, query, candidate);
+                    let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    (original, original_ms, optimized, candidate_ms)
+                } else {
+                    let started = Instant::now();
+                    let optimized = run_snapshot_variant(db, query, candidate);
+                    let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    let started = Instant::now();
+                    let original = run_snapshot_variant(db, query, original_kind);
+                    let original_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    (original, original_ms, optimized, candidate_ms)
+                };
+                assert_snapshot_results_equal(&original, &optimized);
+                original_samples.push(original_ms);
+                candidate_samples.push(candidate_ms);
+            }
+            let final_snapshot = run_snapshot_variant(db, query, candidate);
+            emit_record(&json!({
+                "schema_version": 1,
+                "record_type": "repository_snapshot_paired",
+                "context": context,
+                "query_class": class,
+                "query": query,
+                "candidate": source_health_candidate_name(candidate),
+                "pairing": "alternating complete snapshot calls, same 500k database and connection pool; each call performs search, source-health/revision and index status in one read transaction",
+                "warmups_per_variant": PAIRED_WARMUPS,
+                "samples_per_variant": PAIRED_SAMPLES,
+                "original": summarize_samples(&original_samples),
+                "candidate_result": summarize_samples(&candidate_samples),
+                "source_health_equal": true,
+                "source_revision_byte_equal": true,
+                "index_status_equal": true,
+                "search_results_equal": true,
+                "result_count": final_snapshot.results.len(),
+                "database": database_metrics(
+                    &db.conn().expect("borrow database metrics connection"),
+                    path,
+                )
+            }));
+        }
+
+        // The candidate selected for production is also exercised through the
+        // public repository entry point on this same large fixture.
+        let candidate = SourceHealthCandidate::NarrowAggregate;
+        for _ in 0..PAIRED_WARMUPS {
+            let actual = db
+                .search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+                .expect("warm production repository snapshot");
+            let candidate_snapshot = run_snapshot_variant(db, query, candidate);
+            assert_snapshot_results_equal(&actual, &candidate_snapshot);
+        }
+        let mut production_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        for sample in 0..PAIRED_SAMPLES {
+            let (production, production_ms, candidate_snapshot, candidate_ms) = if sample % 2 == 0 {
+                let started = Instant::now();
+                let production = db
+                    .search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+                    .expect("measure actual production repository snapshot");
+                let production_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                let started = Instant::now();
+                let candidate_snapshot = run_snapshot_variant(db, query, candidate);
+                let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                (production, production_ms, candidate_snapshot, candidate_ms)
+            } else {
+                let started = Instant::now();
+                let candidate_snapshot = run_snapshot_variant(db, query, candidate);
+                let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                let started = Instant::now();
+                let production = db
+                    .search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+                    .expect("measure actual production repository snapshot");
+                let production_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                (production, production_ms, candidate_snapshot, candidate_ms)
+            };
+            assert_snapshot_results_equal(&production, &candidate_snapshot);
+            production_samples.push(production_ms);
+            candidate_samples.push(candidate_ms);
+        }
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "production_repository_snapshot_validation",
+            "context": context,
+            "query_class": class,
+            "query": query,
+            "candidate": source_health_candidate_name(candidate),
+            "pairing": "actual Database::search_global_entries_snapshot and test-only candidate snapshot alternate on the same 500k fixture; both use a read transaction for search, source facts and index status",
+            "warmups_per_variant": PAIRED_WARMUPS,
+            "samples_per_variant": PAIRED_SAMPLES,
+            "production_entrypoint": summarize_samples(&production_samples),
+            "candidate_snapshot_helper": summarize_samples(&candidate_samples),
+            "source_health_equal": true,
+            "source_revision_byte_equal": true,
+            "index_status_equal": true,
+            "search_results_equal": true
+        }));
+    }
 }
 
 fn measure_production_tier(
@@ -1391,6 +1699,42 @@ fn global_search_query_cost_diagnostic() {
         );
     }
 
+    // Reuse this exact fixture for Issue #359: compare both exact source-health
+    // candidates, their facts/hash work, and complete repository snapshots.
+    profile_source_health_sql_candidates(&context, &conn, &path);
+    profile_source_health_functions(&db, &path, &context);
+    profile_repository_snapshot_candidates(&db, &path, &context);
+
+    let mut correctness_classes = 0;
+    for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
+        let actual_count = actual_match_count(&conn, query_case);
+        assert_eq!(
+            actual_count as u64, expectation.total_matches,
+            "500k count oracle for {}",
+            query_case.class
+        );
+        assert_search_results(
+            &conn,
+            query_case,
+            expectation,
+            SEARCH_RESULT_LIMIT,
+            0,
+            DIAGNOSTIC_ENTRIES,
+        );
+        correctness_classes += 1;
+    }
+    assert_eq!(correctness_classes, QUERY_MATRIX.len());
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "source_health_diagnostic_500k_correctness",
+        "context": context,
+        "official_query_classes_checked": correctness_classes,
+        "official_query_classes_passed": correctness_classes,
+        "query_correctness": true,
+        "performance_matrix_repeated": false,
+        "performance_gate_changed": false
+    }));
+
     for spec in PREFIX_QUERIES.iter().copied() {
         let expectation_index = QUERY_MATRIX
             .iter()
@@ -1803,6 +2147,9 @@ fn global_search_query_cost_diagnostic() {
         "base_rows_after_rollback": final_rows,
         "100ms_historical_gate_changed": false,
         "production_search_source_changed": false,
+        "source_health_candidates_and_full_snapshots_measured": true,
+        "official_500k_query_correctness_classes_checked": QUERY_MATRIX.len(),
+        "official_500k_query_correctness_passed": true,
         "one_fixture_build": true,
         "one_million_row_benchmark_run": false,
         "official_full_benchmark_matrix_repeated": false,

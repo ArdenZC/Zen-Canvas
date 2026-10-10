@@ -24,6 +24,77 @@ struct GlobalSearchRevisionFact {
     max_last_seen_at: Option<i64>,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GlobalSearchSourceHealthQueryCandidate {
+    Original,
+    CorrelatedAggregates,
+    NarrowAggregate,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE: std::cell::Cell<Option<GlobalSearchSourceHealthQueryCandidate>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+impl GlobalSearchSourceHealthQueryCandidate {
+    pub(crate) fn sql(self) -> &'static str {
+        match self {
+            Self::Original => {
+                r#"
+                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                       COUNT(ge.id), MAX(ge.last_seen_at)
+                FROM global_volumes gv
+                LEFT JOIN global_entries ge
+                  ON ge.volume_id = gv.id AND ge.is_stale = 0
+                GROUP BY gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at
+                ORDER BY gv.id ASC
+                "#
+            }
+            Self::CorrelatedAggregates => {
+                r#"
+                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                       (SELECT COUNT(ge.id)
+                        FROM global_entries ge
+                        WHERE ge.volume_id = gv.id AND ge.is_stale = 0),
+                       (SELECT MAX(ge.last_seen_at)
+                        FROM global_entries ge
+                        WHERE ge.volume_id = gv.id AND ge.is_stale = 0)
+                FROM global_volumes gv
+                ORDER BY gv.id ASC
+                "#
+            }
+            Self::NarrowAggregate => {
+                r#"
+                WITH active_volume_facts AS (
+                    SELECT volume_id,
+                           COUNT(id) AS active_entry_count,
+                           MAX(last_seen_at) AS max_last_seen_at
+                    FROM global_entries
+                    WHERE is_stale = 0
+                    GROUP BY volume_id
+                )
+                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                       COALESCE(active_volume_facts.active_entry_count, 0),
+                       active_volume_facts.max_last_seen_at
+                FROM global_volumes gv
+                LEFT JOIN active_volume_facts ON active_volume_facts.volume_id = gv.id
+                ORDER BY gv.id ASC
+                "#
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DiagnosticSourceHealth {
+    pub(crate) source_health: Vec<GlobalSearchSourceHealth>,
+    pub(crate) source_revision: String,
+    pub(crate) revision_facts_json: Vec<u8>,
+}
+
 struct GlobalIndexStatusCounts {
     total_entries: i64,
     indexed_volumes: i64,
@@ -349,8 +420,7 @@ impl Database {
         let transaction = conn.transaction()?;
         let results =
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
-        let (source_health, source_revision) =
-            load_global_search_sources_from_connection(&transaction)?;
+        let (source_health, source_revision) = load_snapshot_source_health(&transaction)?;
         let index_status = global_index_status_from_connection(&transaction)?;
         transaction.commit()?;
         Ok(GlobalSearchSnapshot {
@@ -358,6 +428,19 @@ impl Database {
             source_health,
             source_revision,
             index_status,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn search_global_entries_snapshot_with_source_health_candidate(
+        &self,
+        query: &str,
+        limit: u32,
+        offset: u32,
+        candidate: GlobalSearchSourceHealthQueryCandidate,
+    ) -> Result<GlobalSearchSnapshot, DbError> {
+        with_source_health_candidate_override(candidate, || {
+            self.search_global_entries_snapshot(query, limit, offset)
         })
     }
 
@@ -423,6 +506,27 @@ impl Database {
         .optional()
         .map_err(DbError::from)
     }
+}
+
+#[cfg(test)]
+fn with_source_health_candidate_override<T>(
+    candidate: GlobalSearchSourceHealthQueryCandidate,
+    operation: impl FnOnce() -> T,
+) -> T {
+    struct ResetCandidate(Option<GlobalSearchSourceHealthQueryCandidate>);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE
+                .with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(Some(candidate));
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
 }
 
 fn global_index_status_from_connection(
@@ -583,6 +687,103 @@ fn load_global_search_sources_from_connection(
     let serialized = serde_json::to_vec(&facts).unwrap_or_default();
     let revision = blake3::hash(&serialized).to_hex().to_string();
     Ok((source_health, revision))
+}
+
+fn load_snapshot_source_health(
+    conn: &rusqlite::Connection,
+) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
+    #[cfg(test)]
+    if let Some(candidate) =
+        GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE.with(std::cell::Cell::get)
+    {
+        let health = load_global_search_source_health_candidate(conn, candidate)?;
+        return Ok((health.source_health, health.source_revision));
+    }
+
+    load_global_search_sources_from_connection(conn)
+}
+
+#[cfg(test)]
+pub(crate) fn load_global_search_source_health_candidate(
+    conn: &rusqlite::Connection,
+    candidate: GlobalSearchSourceHealthQueryCandidate,
+) -> Result<DiagnosticSourceHealth, DbError> {
+    let mut statement = conn.prepare(candidate.sql())?;
+    let mut facts = Vec::new();
+    let mut source_health = Vec::new();
+    let rows = statement.query_map([], |row| {
+        let source_id = row.get::<_, String>(0)?;
+        let enabled = row.get::<_, i64>(1)? != 0;
+        let provider = row.get::<_, String>(2)?;
+        let status = row.get::<_, String>(3)?;
+        let last_error = row.get::<_, Option<String>>(4)?;
+        let updated_at = row.get::<_, i64>(5)?;
+        let active_entry_count = row.get::<_, i64>(6)?;
+        let max_last_seen_at = row.get::<_, Option<i64>>(7)?;
+        Ok((
+            GlobalSearchSourceHealth {
+                source_id: source_id.clone(),
+                enabled,
+                provider: provider.clone(),
+                status: status.clone(),
+                last_error: last_error.clone(),
+                updated_at,
+            },
+            GlobalSearchRevisionFact {
+                source_id,
+                enabled,
+                provider,
+                status,
+                last_error,
+                updated_at,
+                active_entry_count,
+                max_last_seen_at,
+            },
+        ))
+    })?;
+    for row in rows {
+        let (health, fact) = row?;
+        source_health.push(health);
+        facts.push(fact);
+    }
+    let revision_facts_json = serde_json::to_vec(&facts).unwrap_or_default();
+    let source_revision = blake3::hash(&revision_facts_json).to_hex().to_string();
+    Ok(DiagnosticSourceHealth {
+        source_health,
+        source_revision,
+        revision_facts_json,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_compare_snapshot_queries_on_connection(
+    conn: &rusqlite::Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    candidate: GlobalSearchSourceHealthQueryCandidate,
+) -> Result<(GlobalSearchSnapshot, GlobalSearchSnapshot), DbError> {
+    let results = super::search::search_global_entries_on_connection(conn, query, limit, offset)?;
+    let original_source_health = load_global_search_source_health_candidate(
+        conn,
+        GlobalSearchSourceHealthQueryCandidate::Original,
+    )?;
+    let candidate_source_health = load_global_search_source_health_candidate(conn, candidate)?;
+    let index_status = global_index_status_from_connection(conn)?;
+    Ok((
+        GlobalSearchSnapshot {
+            results: results.clone(),
+            source_health: original_source_health.source_health,
+            source_revision: original_source_health.source_revision,
+            index_status: index_status.clone(),
+        },
+        GlobalSearchSnapshot {
+            results,
+            source_health: candidate_source_health.source_health,
+            source_revision: candidate_source_health.source_revision,
+            index_status,
+        },
+    ))
 }
 
 #[derive(Debug, Clone)]
