@@ -3873,9 +3873,9 @@ mod tests {
                 .duration_since(start_receiver_wait_at)
                 .as_micros()
         );
-        // SQLite retains the production 5 s busy timeout. Leave hosted-runner
-        // scheduling variance room while still failing well before the holder's
-        // 20 s fail-safe release.
+        // This D2 fixture verified the pool's production 5 s default, then
+        // overrides its connections to 500 ms. Keep hosted-runner scheduling
+        // variance room while still failing well before the 20 s holder release.
         let channel_wait_started_at = Instant::now();
         eprintln!(
             "[issue366-test] request_key={request_key} stage=result_channel_wait_started elapsed_from_test_start_us={} receiver_deadline_ms=10000",
@@ -4015,6 +4015,26 @@ mod tests {
         let path_text = path.to_string_lossy().replace('\\', "/");
         let entry_id = format!("issue345-test:{path_text}");
         let expected_file_id = entry_id.clone();
+        let batch_entry = InsertFileRequest {
+            id: entry_id,
+            path: path_text.clone(),
+            name: "issue345-batch-entry.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 17,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        };
+        const TEST_BUSY_TIMEOUT_MS: u64 = 500;
+        db.set_test_busy_timeout_for_all_connections(
+            5_000,
+            Duration::from_millis(TEST_BUSY_TIMEOUT_MS),
+        )
+        .expect("verify production timeout then bound the test fixture timeout");
+        println!(
+            "[issue366-d3-test] stage=test_busy_timeout_configured production_default_ms=5000 fixture_busy_timeout_ms={TEST_BUSY_TIMEOUT_MS}"
+        );
         let holder = HeldManagedScanWriter::start(db.clone());
         holder.wait_until_held();
 
@@ -4023,30 +4043,18 @@ mod tests {
         let run_revision = claimed.dto.revision;
         let root_revision = claimed.root_revision;
         let session_revision = claimed.session_revision;
-        let contender_path = path_text.clone();
         let (started_tx, started_rx) = mpsc::sync_channel(1);
         let (result_tx, result_rx) = mpsc::sync_channel(1);
         let started_at = Instant::now();
         let contender = std::thread::spawn(move || {
             let _ = started_tx.send(());
-            let entry = InsertFileRequest {
-                id: entry_id,
-                path: contender_path,
-                name: "issue345-batch-entry.txt".to_string(),
-                extension: "txt".to_string(),
-                size: 17,
-                mtime: 1,
-                ctime: 1,
-                is_dir: false,
-                state_code: 0,
-            };
             let result = contender_db.persist_scan_batch(
                 &run_id,
                 run_revision,
                 root_revision,
                 session_revision,
                 &ScanBatchInput {
-                    entries: &[entry],
+                    entries: &[batch_entry],
                     errors: &[],
                     scanned_files: 1,
                     scanned_directories: 0,
@@ -4094,7 +4102,10 @@ mod tests {
         holder.release_and_join();
         contender.join().expect("batch writer contender joins");
 
-        assert!(elapsed >= Duration::from_secs(4));
+        assert!(
+            elapsed >= Duration::from_millis(TEST_BUSY_TIMEOUT_MS / 2),
+            "batch BUSY returned too early: {elapsed:?}"
+        );
         assert!(
             elapsed < Duration::from_secs(10),
             "batch BUSY result was not bounded: {elapsed:?}"
@@ -4155,8 +4166,8 @@ mod tests {
         )
         .expect("settle the test run");
         println!(
-            "issue345_d3 operation=persist_scan_batch transaction=BEGIN_IMMEDIATE elapsed_ms={} primary_code={} extended_code={} rollback_atomic=true after_release_success=true",
-            elapsed.as_millis(), primary_code, extended_code
+            "issue345_d3 operation=persist_scan_batch transaction=BEGIN_IMMEDIATE elapsed_ms={} production_default_ms=5000 fixture_busy_timeout_ms={} primary_code={} extended_code={} rollback_atomic=true after_release_success=true",
+            elapsed.as_millis(), TEST_BUSY_TIMEOUT_MS, primary_code, extended_code
         );
         fs::remove_dir_all(root).expect("remove managed scan root fixture");
     }

@@ -1,6 +1,6 @@
 # Issue #366：macOS Hosted managed-scan admission 超时调查
 
-**调查结论：两个阶段化 macOS 样本确认单次 SQLite `BEGIN IMMEDIATE` 占用 8.827–9.148 秒墙钟；SQLite 的 5 秒 busy timeout 是累计请求睡眠预算，不是墙钟截止时间。10 秒 channel deadline 因而只留约 0.85–1.17 秒余量，旧样本最少仅 0.249 秒。已实施最小 test-only 缓冲修复：先验证数据库池的正常默认值仍为 5 秒，再把本 ignored test 的所有池连接设为 500ms。OS 额外墙钟的精确分摊仍未测得；修复后的 exact-head CI 待验证。**
+**调查结论：两个阶段化 macOS D2 样本确认单次 SQLite `BEGIN IMMEDIATE` 占用 8.827–9.148 秒墙钟；SQLite 的 5 秒 busy timeout 是累计请求睡眠预算，不是墙钟截止时间。D3 在四轮 Native macOS Hosted CI 中以 9.035–9.232 秒通过，距原 10 秒 watchdog 仅 0.768–0.965 秒。D2 已由 Owner 接受 test-harness 修复；本次只把同一 test-only fixture 方案用于 D3：先完成 durable admission、claim 和 batch 数据初始化，再验证池内每个连接的 5 秒默认值，最后仅对该测试数据库设为 500ms。两个测试都保留 10 秒 watchdog 和原子性断言。OS 额外墙钟的精确分摊仍未测得；本次 exact-head CI 在以下代码及报告提交时待验证。**
 
 - 起始 `origin/master`：`58062c5c356969f332f19c7458028bf2e097595e`
 - 首次阶段诊断代码头：`3c96555aa9046665451985f14e3e9df9ce6096be`
@@ -8,8 +8,9 @@
 - Draft PR：[ #367 ](https://github.com/ArdenZC/Zen-Canvas/pull/367)
 - Issue：[ #366 ](https://github.com/ArdenZC/Zen-Canvas/issues/366)
 - Owner 授权：[Issue comment 6100291859](https://github.com/ArdenZC/Zen-Canvas/issues/366#issuecomment-6100291859)
+- D2 接受及 D3 补充要求：[PR review comment 6101274015](https://github.com/ArdenZC/Zen-Canvas/pull/367#issuecomment-6101274015)
 
-PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查未修改生产 SQLite busy timeout、SQL、scan admission、scheduler、Schema、IPC、Global Search 或其他 track。仅在 D2 ignored test 中覆盖 test fixture 的 busy timeout。没有运行 Codex Review、500k/1m benchmark 或 Full Validation。
+PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。D2 逻辑不重查、不重写，仅修正其过时注释。本轮只修改 D3 test-only fixture 与本报告；未修改生产 SQLite busy timeout、SQL、scan admission、scheduler、Schema、IPC、Global Search 或其他 track。没有运行 Codex Review、500k/1m benchmark 或 Full Validation。
 
 ## 1. 范围与证据等级
 
@@ -20,7 +21,7 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查未修改生产 
 本报告区分三类证据：
 
 1. **历史失败记录**：原始 macOS job 在无阶段日志时超出 10 秒 channel receive deadline；这些失败保持原样，没有被后续成功覆盖。
-2. **本轮 Hosted 实测**：两个 macOS arm64 Hosted run 对生产默认 `busy_timeout=5000ms` 执行目标测试，获得 method、SQLite transaction、线程 CPU、send/receive 的共同时间线；修复后 exact-head CI 另待确认 test-only 覆盖结果。
+2. **本轮 Hosted 实测**：两个 macOS arm64 Hosted run 对 D2 生产默认 `busy_timeout=5000ms` 执行目标测试，获得 method、SQLite transaction、线程 CPU、send/receive 的共同时间线；另有四轮 Native macOS CI 为 D3 在原 5000ms 默认值下留下独立 wall-time 记录。D3 修复后的 exact-head CI 结果将在对应 PR 证据评论记录。
 3. **源码可证实机制**：仓库锁定的 rusqlite 和 bundled SQLite 源码说明 timeout 是按累计请求 sleep 时长工作，而不是严格的 monotonic 墙钟截止时间。该源码机制不能单独证明 Hosted 内核每次 sleep 的实际时长。
 
 ## 2. 实际代码路径
@@ -33,6 +34,7 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查未修改生产 
 - 锁定的 `rusqlite 0.39.0` 在 `Transaction::new_unchecked` 中把 `Immediate` 映射为一条 `BEGIN IMMEDIATE`，经 `conn.execute_batch(query)` 执行。此 admission 路径没有应用层循环或重试。
 - 测试中的 `HeldManagedScanWriter` 使用一个池连接持有真实 `BEGIN IMMEDIATE`，正常通过路径在读出 root/session/run authority 计数后释放并 join writer，再 join contender。holder 另有 20 秒安全释放。
 - 测试对 contender 结果 channel 保持原有 10 秒 receive deadline；检测到 timeout 时仍失败，先释放 writer，再仅额外等待 3 秒以记录 contender 后续结果，不把超时转换为成功。
+- D3 `managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release` 先建立 managed root、durable admission、queued-run claim 和待写 `InsertFileRequest`，之后才调用既有 `#[cfg(test)]` pool helper。helper 逐一借出池内所有连接，验证每个连接当前 `PRAGMA busy_timeout=5000ms`，再为该 D3 数据库全部连接设置 500ms；随后才开启真实 held writer。该测试的 10 秒 result-channel watchdog、20 秒 holder safety release、BUSY/rollback/无部分写入/版本不变、释放 writer 后重试成功及线程 join 均保留。
 - `scripts/performanceManifest.mjs` 将该 ignored 测试列为 `workspace_foundation_sqlite_admission_timeout`；macOS Native Performance job 使用精确测试名执行它。
 
 ## 3. 历史 Hosted 时间线
@@ -45,6 +47,19 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查未修改生产 
 | [38068879734](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38068879734)，Native job [114262149859](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38068879734/job/114262149859)，attempt 1 | pool 0ms、busy timeout 5000ms；D2 返回 `BUSY 5/5`，8,807ms，无部分 authority。 | 首个阶段化 Hosted 样本；仍未测线程 CPU。日志 SHA-256：`bfba60e956ef8b6ecd29cb98c8a8e6690356dd177f9aea6b31ca83800a80f910`。 |
 | 同一 run attempt 2，job [114264864189](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38068879734/job/114264864189) | pool 0ms；D2 `BUSY 5/5`，9,751ms，无部分 authority，距 10 秒 deadline 仅 249ms。 | 真实成功记录，不是失败，也不覆盖历史失败。日志 SHA-256：`9f06e5e51e34800ccf7a56b9e9268c274f54e39d4e5f402844dd14b8651c3bd1`。 |
 | [38070488344](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38070488344)，Native job [114266812181](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38070488344/job/114266812181) | 精确当时 PR 头 `e7b8b4c…`：pool 0ms，`BUSY 5/5`，9,050ms，无部分 authority。 | 成功没有解释原失败的完整根因。日志 SHA-256：`159db331121e9b16f333fcb1472900a8f3da0cb292b52eb82c8e74ac4fdb0852`。 |
+
+### D3 原始 5000ms fixture 的 Hosted 观测
+
+下列四次均为真实 Native macOS Hosted D3 PASS 结果；它们不是失败记录，也未因后续 fixture 调整而删除。四次均在 10 秒 channel watchdog 内返回 plain BUSY 并完成其测试断言，但只剩 768–965ms 余量：
+
+| CI run / job | D3 真实结果 | 到 10 秒 watchdog 的余量 | 证据 |
+|---|---:|---:|---|
+| [38070488344 / 114266812181](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38070488344/job/114266812181) | 9,035ms | 965ms | `SQLITE_BUSY 5/5`。 |
+| [38073369114 / 114275927570](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38073369114/job/114275927570) | 9,232ms | 768ms | `SQLITE_BUSY 5/5`。 |
+| [38074989532 / 114280260772](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38074989532/job/114280260772) | 9,194ms | 806ms | `SQLITE_BUSY 5/5`。 |
+| [38076196367 / 114283657838](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38076196367/job/114283657838) | 9,051ms | 949ms | `SQLITE_BUSY 5/5`、`rollback_atomic=true`、`after_release_success=true`。 |
+
+这四次 D3 都不是已证实的生产错误；但它们与已测得的 5000ms SQLite timeout 可消耗 8.8–9.75s wall 的 Hosted 现象一致，故 10 秒 watchdog 余量不足。D3 test-only timeout 降为 500ms 后，保留原 10 秒 watchdog 和完整语义检查，避免通过放宽测试阈值掩盖调度差异。
 
 ## 4. 本轮精确阶段观测
 
@@ -120,16 +135,23 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查未修改生产 
 
 原始 harness 的时间余量问题有直接支持：SQLite 配置是 5,000ms requested-sleep 预算，但两次实测事务墙钟达 8.827–9.148s；更早成功样本达 9.751s，而失败 watchdog 是 10s。两次成功样本的阶段时间又排除了 pool、预处理、timer 起点偏移和 result channel 交付是秒级来源。历史失败没有 stage marker，所以不能证明两次失败都在 SQLite BEGIN 内超时；不过现有 10s wall deadline 与 SQLite 非严格 wall-clock timeout 的组合留下的余量过小，足以构成真实测试稳定性缺陷。
 
-最小 test-only 修复将 D2 fixture 连接池每个连接的初始 `PRAGMA busy_timeout` 校验为 5,000ms，然后仅把该 ignored test 的全部池连接覆盖到 500ms；生产 `configure_connection` 的 5 秒配置不变。D2 仍须在 writer 锁保持时收到真实 plain `SQLITE_BUSY 5/5`、在 10 秒内 fail boundedly、确认 root/session/run authority 均为 0，并正常释放/join writer 与 contender。该测试不再要求消耗生产的 5 秒等待预算，保留 10 秒 watchdog 和原有 fail-closed 校验。修复后的 macOS Hosted exact-head 结果尚待验证。
+Owner 已接受 D2 的 test-only fixture 修复；本次不重新调查或改写其逻辑。只将 D2 注释更正为“先验证池内 5000ms 默认值，再在该测试 fixture 使用 500ms”，避免暗示 D2 仍等待生产 5 秒。
+
+本次 D3 修改按 Owner 明确顺序进行：完整完成 admission、claim、构造待写文件条目后，使用既有 `Database::set_test_busy_timeout_for_all_connections(5_000, Duration::from_millis(500))`；此辅助函数会先持有池内所有连接并分别验证 `PRAGMA busy_timeout=5000ms`，然后逐连接设置和复验 fixture 的 500ms。真实 writer lock 在该步骤之后取得。D3 的 lower-bound elapsed 断言由 4 秒改为 fixture timeout 的一半（250ms），继续证明操作确实等待锁；upper bound 仍为 10 秒。
+
+D3 锁住 writer 时仍要求 `SQLITE_BUSY` primary/extended code `5/5`；然后验证失败批次在 `files` 和 `scan_seen` 中均没有部分写入，并确认 scan run/session revision 及扫描计数不变。释放并 join writer 后，用相同 revision/token 再次持久化成功、推进 finalization 并 settle run，最后 join contender。10 秒 channel watchdog、20 秒 holder safety release 和 Holder 的 Drop 释放/join 仍保留。新增日志显式记录 `production_default_ms=5000`、`fixture_busy_timeout_ms=500`，结果日志包含 rollback/after-release 成功标记。
+
+上述差异仅属于 ignored test fixture 与其报告。生产 `configure_connection`、SQLite busy policy、SQL、schema、scheduler、IPC 与扫描行为均没有变更。本次代码及报告提交时，新 exact-head Hosted CI 尚待执行；终态 CI 与 D2/D3 实测会通过 PR #367 的最终证据评论提供，避免把旧 D3 PASS 误当成新 fixture 验证。
 
 ## 8. 改动范围
 
 本 PR 现有修改仅包括：
 
 - `scan.rs` 的 `#[cfg(all(test, feature = "performance-test-tauri"))]`、synthetic `issue366-` 限定阶段日志：method/root/hash/pool/BEGIN entry-return、SQLite primary/extended error、macOS thread CPU。
-- D2 测试的 writer barrier、start signal、channel wait、admission call、send/receive 与 timeout cleanup 诊断时间戳；保留 10s channel deadline、20s holder safety release 和所有 fail-closed assertions。test fixture 会在验证默认 5s 后用 500ms 预算执行这条语义测试。
+- D2 测试的 writer barrier、start signal、channel wait、admission call、send/receive 与 timeout cleanup 诊断时间戳；Owner 已接受 500ms test-only fixture，本次只修正文案。保留 10s channel deadline、20s holder safety release 和所有 fail-closed assertions。
 - `connection.rs` 新增 `#[cfg(test)]` pool helper：逐一借出整个连接池，校验每个连接的默认 `busy_timeout=5000ms` 后才应用测试 fixture 的 500ms 覆盖；release 配置不变。
-- D2 ignored test 使用该 500ms test-only timeout，仍验证 `SQLITE_BUSY 5/5`、无部分 authority、10 秒 watchdog 和清理/join；诊断 helper cfg 修正非 performance Rust Quality 构建的 warning-as-error。
+- D2 与 D3 ignored test 均只在各自的 test database pool 上使用 helper 验证 5000ms 默认值并覆写成 500ms。D3 在 admission/claim/data 初始化后、held writer 开始前设置；仍验证真实 `SQLITE_BUSY 5/5`、无部分写入、revision 不变、释放 writer 后成功以及线程/连接清理。D3 10 秒 watchdog 未变，仅将 4 秒最小耗时改为 250ms fixture 预算的一半。
+- 诊断 helper cfg 修正非 performance Rust Quality 构建的 warning-as-error。
 - Native macOS performance 源文件路由与合同测试，确保 `scan.rs` 变更会选中已存在 Native job。
 - 本中文调查报告。
 
@@ -142,7 +164,9 @@ PR #367 和 Issue #366 保持 OPEN；PR 保持 Draft。本调查未修改生产 
 - `cargo fmt --manifest-path src-tauri/Cargo.toml --check`：通过。
 - `npm run test:governance`：通过。
 - `node scripts/checkPerformanceArchitecture.mjs`：通过，3 个文件、30 个测试。
-- 本机 Linux 不能执行目标 Tauri test：`glib-2.0 >= 2.70` 开发包缺失，且环境此前拒绝 apt 索引写入。这个结果不作为 macOS/Windows 性能证据；Hosted macOS 实测和 Windows/macOS release compile 提供跨平台编译覆盖。
+- 为执行 D3 的 release ignored test，已将 GTK/WebKit 原生开发依赖（约 68 MB 下载）缓存至共享 `/workspace/zen-canvas-native-deps/archives`，并解包至 `/workspace/zen-canvas-native-sysroot`；不修改容器系统包。`pkg-config` 现可找到 GLib 2.84.4、GDK/GTK 3.24.49、WebKit2GTK 2.54.0。
+- 本地 D3 exact 命令 `cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib db::queries::scan::tests::managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release -- --exact --ignored --nocapture --test-threads=1` **未能在 Linux 编译完成**：应用的 `ai/settings.rs` 使用 `keyring::Entry`，但仓库仅在 `cfg(target_os="windows")` / `cfg(target_os="macos")` 声明 keyring target dependency；Linux build 因 `keyring` 未链接退出 101。该阻塞与 D3 patch 无关；没有改业务/Cargo target 配置来绕过它。目标测试由 macOS Hosted Native CI 执行。
+- Linux 结果不作为 macOS/Windows 性能证据。此次针对测试源文件的 Windows/macOS release 编译与 Native macOS D2/D3 实测均由本次 exact-head Hosted CI 验证，并在 PR 最终证据评论报告。
 
 CI：
 
@@ -152,7 +176,7 @@ CI：
 - 报告编写时，该 run 的 `Rust quality (macos-latest) (merge_integration)` job `114275927656` 仍为 queued，终态 **NOT VERIFIED**；不据此声称完整 CI aggregate 成功。
 - 该 CI 使用 `extended` profile，未启用 Full Validation；Native job 中 10k mixed-filesystem classifier、100k macOS bookkeeping 以及 Workspace Foundation suite（含 D2）均通过。没有执行 500k 或 1m。
 - [38074989532](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38074989532)，PR head `5efcc9b…`：第二次 Native macOS job `114280260772` 成功，D2 使用原生产 5000ms 默认值并再次以 `SQLITE_BUSY 5/5` 在 8.828s 内 fail closed、`partial_authority=false`。同 run 的 macOS/Windows release compile、Windows Global Index、Frontend/format、六个 scoped shards、Performance profile 均通过；Windows 与 macOS Rust Quality 因本 PR 诊断代码在无 performance feature 构建下的两个 warning-as-error 而失败。失败具体为 fallback diagnostic key unused 与 `issue366_elapsed_from_test_start_us` dead code；此修复属于 test-only instrumentation cfg，已纳入当前工作树，待新的 exact-head CI 验证。
-- 修复后 exact-head CI 将验证：cfg/lint 最小修正、池内逐连接 busy-timeout 5000ms 默认检查及 500ms fixture override、D2 真实 `BUSY 5/5`/无部分 authority，以及适用的 Windows/macOS quality 与 Native job。报告提交时该 run 尚未启动。
+- 本次 exact-head CI 将验证 D2/D3 池内逐连接 5000ms 默认检查和 500ms fixture override、D2 无部分 authority、D3 `BUSY 5/5` 与 rollback/after-release 成功，以及适用的 Windows/macOS Rust Quality、Native macOS Performance 和 Performance Profile。报告随代码提交时该 run 尚未启动；完成后的准确 run/job/测量值通过 PR #367 顶层证据评论追加，保持此报告提交与受测代码 head 一致。
 - Codex Review：未运行。PR 仍 Draft。
 
 ## 10. 未验证事项与 Owner 验收
@@ -167,4 +191,4 @@ CI：
 
 ## 当前状态
 
-**#366 TEST HARNESS REMEDIATION IN PROGRESS — 5 秒累计 sleep 预算与 10 秒 wall deadline 的余量过小已用两次实测量化；仅测试 fixture 改为 500ms 并保留 5s 默认配置核验。等待修复后 exact-head CI；OS 额外墙钟的精确分摊仍未测量。** 历史失败记录保留；PR #367 OPEN/Draft，Issue #366 OPEN，不合并、不标记 Ready。
+**本报告描述 D3 test-only fixture 提交时的状态：D2 已获 Owner 接受；D3 新增的 500ms test-only fixture 尚待本次 exact-head Hosted CI 实测。** 原始历史失败、D3 四次约 9 秒的先前 PASS 和 D2 先前/修复后测量均保留；CI 完成态与本次 D2/D3 最终数字在 PR #367 顶层证据评论记录。PR #367 保持 OPEN/Draft，Issue #366 保持 OPEN；不合并、不标记 Ready。OS 额外墙钟的精确分摊仍未测量。
