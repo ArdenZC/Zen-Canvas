@@ -3670,7 +3670,7 @@ mod tests {
             self.ready
                 .recv_timeout(Duration::from_secs(5))
                 .expect("writer lock holder reaches its barrier")
-                .expect("writer lock holder begins a real SQLite transaction");
+                .expect("writer lock holder begins a real SQLite transaction")
         }
 
         fn release_and_join(mut self) {
@@ -3794,6 +3794,7 @@ mod tests {
         let (started_tx, started_rx) = mpsc::sync_channel(1);
         let (result_tx, result_rx) = mpsc::sync_channel(1);
         let started_at = test_started_at;
+        let admission_watch_started_at = Instant::now();
         let contender = std::thread::spawn(move || {
             issue366_set_test_start(started_at);
             let start_signal_sent_at = Instant::now();
@@ -3945,7 +3946,7 @@ mod tests {
             }
             Err(error) => panic!("admission result channel closed unexpectedly: {error}"),
         };
-        let elapsed = started_at.elapsed();
+        let elapsed = admission_watch_started_at.elapsed();
         let (primary_code, extended_code) = assert_plain_sqlite_busy(&error);
 
         let conn = db.conn().expect("inspect admission transaction state");
