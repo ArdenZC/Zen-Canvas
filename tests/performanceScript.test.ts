@@ -272,10 +272,12 @@ describe("performance profile and manifest contract", () => {
     expect(resources).toContain("pub(super) error_code: Option<u32>");
 
     expect(workflow).toContain("Run Workspace Foundation suite with heap diagnostics disabled");
+    expect(workflow).toContain("Run standard Windows resource test with heap diagnostics disabled");
     expect(workflow).toContain('ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS: "0"');
     expect(workflow).toContain("Run explicitly enabled Windows heap diagnostic variant");
     expect(workflow).toContain('ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS: "1"');
     expect(workflow).toContain('"--benchmark-id=workspace_foundation_resource_steady_state"');
+    expect(workflow).toContain("!cancelled() && matrix.validation_lane == 'merge_integration'");
     expect(runner).toContain('"--benchmark-id"');
   });
 
