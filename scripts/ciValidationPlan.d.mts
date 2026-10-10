@@ -68,6 +68,7 @@ export interface ValidationLaneJobResult {
   lane?: ValidationLane;
   run_attempt?: string | number;
   result?: string;
+  artifact_name?: string;
 }
 
 export function summarizeValidationLaneResults(

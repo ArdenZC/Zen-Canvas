@@ -95,8 +95,10 @@ function positiveRunAttempt(value, label) {
 
 /**
  * Read sanitized lane result artifacts from every attempt in the current
- * workflow run. The workflow publishes one credential-free record per matrix
- * job and attempt; older records remain eligible for partial reruns.
+ * workflow run. A single matched artifact is extracted directly into root;
+ * its embedded artifact_name is checked against the job/lane/attempt tuple.
+ * Multiple artifacts retain name-bearing directories, which are checked
+ * against the same record. Older records remain eligible for partial reruns.
  */
 export function readValidationLaneJobResults(directory, runAttempt) {
   const root = asString(directory);
@@ -113,6 +115,21 @@ export function readValidationLaneJobResults(directory, runAttempt) {
 
   const results = [];
   const seen = new Set();
+  const singleArtifactRecord = artifactDirectories.find((entry) => entry.name === "ci-lane-result.json");
+  if (singleArtifactRecord) {
+    if (artifactDirectories.length !== 1 || !singleArtifactRecord.isFile()) {
+      throw new Error("single lane result artifact layout is ambiguous.");
+    }
+    const resultPath = path.join(root, singleArtifactRecord.name);
+    const resultStat = fs.lstatSync(resultPath);
+    if (!resultStat.isFile()) {
+      throw new Error("single lane result artifact does not contain a regular result file.");
+    }
+    const result = readAndValidateLaneArtifactRecord(resultPath, null, currentAttempt);
+    results.push(result);
+    return results;
+  }
+
   for (const entry of artifactDirectories) {
     if (!entry.name.startsWith("ci-lane-result-")) continue;
     if (!entry.isDirectory()) {
@@ -135,35 +152,55 @@ export function readValidationLaneJobResults(directory, runAttempt) {
     if (!resultStat.isFile()) {
       throw new Error("lane result artifact does not contain a regular ci-lane-result.json file.");
     }
-
-    const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
-    const jobId = exactString(result?.job_id);
-    const lane = exactString(result?.lane);
-    const resultAttempt = positiveRunAttempt(result?.run_attempt, "lane result run_attempt");
-    const jobResult = exactString(result?.result);
+    const result = readAndValidateLaneArtifactRecord(resultPath, entry.name, currentAttempt);
     if (
-      !/^[a-z0-9-]+$/u.test(jobId)
-      || !PULL_REQUEST_LANES.includes(lane)
-      || resultAttempt > currentAttempt
-      || !jobResult
-    ) {
-      throw new Error("lane result artifact contains an invalid record.");
-    }
-    if (
-      artifactAttempt !== resultAttempt
-      || artifactName[2] !== jobId
-      || artifactName[3] !== lane
+      artifactAttempt !== Number(result.run_attempt)
+      || artifactName[2] !== result.job_id
+      || artifactName[3] !== result.lane
     ) {
       throw new Error("lane result artifact name does not match its record.");
     }
-    const tuple = `${jobId}\u0000${lane}\u0000${resultAttempt}`;
+    const tuple = `${result.job_id}\u0000${result.lane}\u0000${result.run_attempt}`;
     if (seen.has(tuple)) {
       throw new Error("duplicate lane result artifact record.");
     }
     seen.add(tuple);
-    results.push({ job_id: jobId, lane, run_attempt: String(resultAttempt), result: jobResult });
+    results.push(result);
   }
   return results;
+}
+
+function readAndValidateLaneArtifactRecord(resultPath, artifactNameFromPath, currentAttempt) {
+  const value = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+  const jobId = exactString(value?.job_id);
+  const lane = exactString(value?.lane);
+  const resultAttempt = positiveRunAttempt(value?.run_attempt, "lane result run_attempt");
+  const jobResult = exactString(value?.result);
+  const artifactName = exactString(value?.artifact_name);
+  if (
+    !/^[a-z0-9-]+$/u.test(jobId)
+    || !PULL_REQUEST_LANES.includes(lane)
+    || resultAttempt > currentAttempt
+    || !jobResult
+  ) {
+    throw new Error("lane result artifact contains an invalid record.");
+  }
+
+  const canonicalArtifactName = `ci-lane-result-${resultAttempt}-${jobId}-${lane}`;
+  if (
+    artifactName !== canonicalArtifactName
+    || (artifactNameFromPath !== null && artifactNameFromPath !== artifactName)
+  ) {
+    throw new Error("lane result artifact name does not match its record.");
+  }
+
+  return {
+    job_id: jobId,
+    lane,
+    run_attempt: String(resultAttempt),
+    result: jobResult,
+    artifact_name: artifactName,
+  };
 }
 
 /**
