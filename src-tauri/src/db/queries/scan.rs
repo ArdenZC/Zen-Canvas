@@ -394,8 +394,54 @@ impl Database {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_diagnostic_key = request_key
+            .as_deref()
+            .filter(|value| value.starts_with("issue366-"));
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_diagnostic_started =
+            issue366_diagnostic_key.map(|_| std::time::Instant::now());
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            eprintln!("[issue366-admission] request_key={key} stage=admission_entered");
+        }
+
         let mut conn = self.conn()?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            let configured_busy_timeout_ms = conn
+                .query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1);
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=pool_connection_acquired elapsed_ms={} busy_timeout_ms={configured_busy_timeout_ms}",
+                issue366_diagnostic_started
+                    .as_ref()
+                    .expect("diagnostic timer exists when a key is selected")
+                    .elapsed()
+                    .as_millis()
+            );
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=before_begin_immediate elapsed_ms={}",
+                issue366_diagnostic_started
+                    .as_ref()
+                    .expect("diagnostic timer exists when a key is selected")
+                    .elapsed()
+                    .as_millis()
+            );
+        }
         let tx = begin_managed_scan_write_transaction!(&mut conn, "admit_managed_scan", None)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=begin_immediate_acquired elapsed_ms={}",
+                issue366_diagnostic_started
+                    .as_ref()
+                    .expect("diagnostic timer exists when a key is selected")
+                    .elapsed()
+                    .as_millis()
+            );
+        }
 
         if let Some(request_key) = request_key.as_deref() {
             if let Some((session_id, existing_hash)) = tx
@@ -3592,18 +3638,19 @@ mod tests {
     #[test]
     #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
     fn managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority() {
-        let db = test_db("issue345-admission-timeout-lock");
+        let db = test_db("issue366-admission-timeout-lock");
         let holder = HeldManagedScanWriter::start(db.clone());
         holder.wait_until_held();
+        eprintln!("[issue366-test] stage=writer_begin_immediate_confirmed");
         let root = normalize_scan_root_path(
             &std::env::temp_dir()
                 .join(format!(
-                    "zen-canvas-issue345-admission-timeout-{}",
+                    "zen-canvas-issue366-admission-timeout-{}",
                     new_job_id("root")
                 ))
                 .to_string_lossy(),
         );
-        let request_key = new_job_id("issue345-admission-timeout");
+        let request_key = new_job_id("issue366-admission-timeout");
         let options = request(&root, &request_key);
         let contender_db = db.clone();
         let (started_tx, started_rx) = mpsc::sync_channel(1);
@@ -3617,13 +3664,44 @@ mod tests {
         started_rx
             .recv_timeout(Duration::from_secs(2))
             .expect("admission contender reaches the call boundary");
+        eprintln!("[issue366-test] stage=admission_contender_reached_call_boundary");
         // SQLite retains the production 5 s busy timeout. Leave hosted-runner
         // scheduling variance room while still failing well before the holder's
         // 20 s fail-safe release.
         let error = match result_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Err(error)) => error,
             Ok(Ok(_)) => panic!("admission unexpectedly passed under a held writer"),
-            Err(error) => panic!("admission did not fail boundedly at the busy timeout: {error}"),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                eprintln!(
+                    "[issue366-test] stage=result_channel_timeout elapsed_ms={} writer_lock=still_held",
+                    started_at.elapsed().as_millis()
+                );
+                holder.release_and_join();
+                let after_release = result_rx.recv_timeout(Duration::from_secs(3));
+                let outcome = match &after_release {
+                    Ok(Ok(admission)) => format!(
+                        "admitted(created={}, runs={})",
+                        admission.created,
+                        admission.runs.len()
+                    ),
+                    Ok(Err(error)) => format!("error({error:?})"),
+                    Err(error) => format!("no_result({error})"),
+                };
+                let contender_joined = if after_release.is_ok() {
+                    contender.join().is_ok()
+                } else {
+                    false
+                };
+                eprintln!(
+                    "[issue366-test] stage=after_writer_release elapsed_ms={} contender_result={} contender_joined={contender_joined}",
+                    started_at.elapsed().as_millis(),
+                    outcome
+                );
+                panic!(
+                    "admission did not fail boundedly at the busy timeout: timed out waiting on channel; after_writer_release={outcome}; contender_joined={contender_joined}"
+                );
+            }
+            Err(error) => panic!("admission result channel closed unexpectedly: {error}"),
         };
         let elapsed = started_at.elapsed();
         let (primary_code, extended_code) = assert_plain_sqlite_busy(&error);
