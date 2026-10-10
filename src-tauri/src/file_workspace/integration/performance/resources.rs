@@ -1,4 +1,6 @@
 use serde::Serialize;
+#[cfg(target_os = "windows")]
+use std::time::Instant;
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
@@ -17,6 +19,96 @@ pub(super) struct ProcessResources {
     pub(super) private_committed_bytes: Option<u64>,
     pub(super) handle_count: Option<u64>,
     pub(super) fd_count: Option<u64>,
+}
+
+/// Test-only diagnostic of currently busy allocations in the Windows process
+/// heaps. This complements PrivateUsage: it does not participate in the hard
+/// resource classifier and does not identify which subsystem owns a block.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub(super) struct ProcessHeapResources {
+    pub(super) available: bool,
+    pub(super) heap_count: u32,
+    pub(super) heaps_walked: u32,
+    pub(super) busy_allocation_count: u64,
+    pub(super) busy_allocation_bytes: u64,
+    pub(super) elapsed_us: u64,
+    pub(super) error_code: Option<u32>,
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn process_heap_snapshot() -> Option<ProcessHeapResources> {
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, ERROR_NO_MORE_ITEMS},
+        System::Memory::{
+            GetProcessHeaps, HeapLock, HeapUnlock, HeapWalk, PROCESS_HEAP_ENTRY,
+            PROCESS_HEAP_ENTRY_BUSY,
+        },
+    };
+
+    const MAX_PROCESS_HEAPS: usize = 64;
+    let started = Instant::now();
+    let mut heaps = [std::ptr::null_mut(); MAX_PROCESS_HEAPS];
+    let heap_count = unsafe { GetProcessHeaps(heaps.len() as u32, heaps.as_mut_ptr()) };
+    let mut sample = ProcessHeapResources {
+        heap_count,
+        ..ProcessHeapResources::default()
+    };
+    if heap_count == 0 {
+        sample.error_code = Some(unsafe { GetLastError() });
+        sample.elapsed_us = started.elapsed().as_micros() as u64;
+        return Some(sample);
+    }
+    if heap_count as usize > heaps.len() {
+        sample.elapsed_us = started.elapsed().as_micros() as u64;
+        return Some(sample);
+    }
+
+    sample.available = true;
+    for heap in heaps.iter().take(heap_count as usize).copied() {
+        if unsafe { HeapLock(heap) } == 0 {
+            sample.available = false;
+            sample
+                .error_code
+                .get_or_insert_with(|| unsafe { GetLastError() });
+            continue;
+        }
+
+        let mut entry = unsafe { std::mem::zeroed::<PROCESS_HEAP_ENTRY>() };
+        let mut heap_walk_completed = false;
+        while unsafe { HeapWalk(heap, &mut entry) } != 0 {
+            if entry.wFlags & PROCESS_HEAP_ENTRY_BUSY != 0 {
+                sample.busy_allocation_count += 1;
+                sample.busy_allocation_bytes += u64::from(entry.cbData);
+            }
+        }
+        let walk_error = unsafe { GetLastError() };
+        if walk_error == ERROR_NO_MORE_ITEMS {
+            sample.heaps_walked += 1;
+            heap_walk_completed = true;
+        } else {
+            sample.available = false;
+            sample.error_code.get_or_insert(walk_error);
+        }
+
+        if unsafe { HeapUnlock(heap) } == 0 {
+            sample.available = false;
+            sample
+                .error_code
+                .get_or_insert_with(|| unsafe { GetLastError() });
+        }
+        if !heap_walk_completed {
+            sample.available = false;
+        }
+    }
+
+    sample.available &= sample.heaps_walked == sample.heap_count;
+    sample.elapsed_us = started.elapsed().as_micros() as u64;
+    Some(sample)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(super) fn process_heap_snapshot() -> Option<ProcessHeapResources> {
+    None
 }
 
 impl ProcessResources {

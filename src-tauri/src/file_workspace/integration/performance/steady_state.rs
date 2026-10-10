@@ -2,7 +2,7 @@ use super::{
     fixture::WorkspaceFixture,
     harness::{open_fixture, runtime_for_with_renderer},
     metrics,
-    resources::{self, ProcessResources},
+    resources::{self, ProcessHeapResources, ProcessResources},
 };
 use crate::file_workspace::{
     contracts::{BrowseEntryRef, PreviewHostKind, PreviewSourceRef, WorkClass},
@@ -56,14 +56,20 @@ impl ThumbnailRenderer for PerformanceThumbnailRenderer {
 #[derive(Debug, Clone, Copy, Default)]
 struct EpochObservation {
     preview_before: ProcessResources,
+    preview_before_heaps: Option<ProcessHeapResources>,
     preview_after: ProcessResources,
+    preview_after_heaps: Option<ProcessHeapResources>,
     preview_peak: ProcessResources,
     thumbnail_after: ProcessResources,
+    thumbnail_after_heaps: Option<ProcessHeapResources>,
     thumbnail_peak: ProcessResources,
     target_switch_before: ProcessResources,
+    target_switch_before_heaps: Option<ProcessHeapResources>,
     target_switch_after: ProcessResources,
+    target_switch_after_heaps: Option<ProcessHeapResources>,
     target_switch_peak: ProcessResources,
     settled: ProcessResources,
+    settled_heaps: Option<ProcessHeapResources>,
 }
 
 fn enumerate_fixture(
@@ -234,6 +240,7 @@ fn run_epoch(
         },
     };
     let preview_before = resources::snapshot();
+    let preview_before_heaps = resources::process_heap_snapshot();
     let mut preview_peak = preview_before;
     for index in 0..CYCLES_PER_EPOCH {
         let preview = runtime
@@ -263,6 +270,7 @@ fn run_epoch(
         assert_eq!(runtime.resource_counts().preview_sessions, 0);
     }
     let preview_after = resources::snapshot();
+    let preview_after_heaps = resources::process_heap_snapshot();
 
     let mut thumbnail_peak = preview_after;
     for index in 0..CYCLES_PER_EPOCH {
@@ -286,6 +294,7 @@ fn run_epoch(
         assert_eq!(runtime.resource_counts().thumbnail_requests, 0);
     }
     let thumbnail_after = resources::snapshot();
+    let thumbnail_after_heaps = resources::process_heap_snapshot();
 
     runtime
         .dispose_browse(BrowseSessionRequest {
@@ -299,6 +308,7 @@ fn run_epoch(
     assert_eq!(counts.browse_path_refs, 0);
 
     let target_switch_before = resources::snapshot();
+    let target_switch_before_heaps = resources::process_heap_snapshot();
     let mut target_switch_peak = target_switch_before;
     for index in 0..CYCLES_PER_EPOCH {
         let switched = open_fixture(
@@ -328,17 +338,24 @@ fn run_epoch(
         target_switch_peak = target_switch_peak.max(resources::snapshot());
     }
     let target_switch_after = resources::snapshot();
+    let target_switch_after_heaps = resources::process_heap_snapshot();
 
     EpochObservation {
         preview_before,
+        preview_before_heaps,
         preview_after,
+        preview_after_heaps,
         preview_peak,
         thumbnail_after,
+        thumbnail_after_heaps,
         thumbnail_peak,
         target_switch_before,
+        target_switch_before_heaps,
         target_switch_after,
+        target_switch_after_heaps,
         target_switch_peak,
         settled: ProcessResources::default(),
+        settled_heaps: None,
     }
 }
 
@@ -496,6 +513,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
     let warmed_thumbnail_cache_entries = warm_thumbnail_cache(&runtime, &fixture);
     resources::settle_allocator();
     let idle_process = resources::snapshot();
+    let idle_process_heaps = resources::process_heap_snapshot();
 
     let mut epochs = Vec::with_capacity(EPOCH_COUNT);
     for epoch in 0..EPOCH_COUNT {
@@ -506,6 +524,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         thread::sleep(Duration::from_millis(250));
         resources::settle_allocator();
         observation.settled = resources::snapshot();
+        observation.settled_heaps = resources::process_heap_snapshot();
         let counts = runtime.resource_counts();
         assert_eq!(counts.browse_sessions, 0);
         assert_eq!(counts.browse_service_sessions, 0);
@@ -523,6 +542,8 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
     }
 
     assert!(runtime.dispose());
+    let after_runtime_dispose_process = resources::snapshot();
+    let after_runtime_dispose_heaps = resources::process_heap_snapshot();
     let settled = runtime.resource_counts();
     assert_eq!(settled.browse_sessions, 0);
     assert_eq!(settled.browse_service_sessions, 0);
@@ -608,6 +629,30 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         .iter()
         .map(|epoch| epoch.thumbnail_after)
         .collect::<Vec<_>>();
+    let preview_before_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.preview_before_heaps)
+        .collect::<Vec<_>>();
+    let preview_after_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.preview_after_heaps)
+        .collect::<Vec<_>>();
+    let thumbnail_after_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.thumbnail_after_heaps)
+        .collect::<Vec<_>>();
+    let target_switch_before_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.target_switch_before_heaps)
+        .collect::<Vec<_>>();
+    let target_switch_after_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.target_switch_after_heaps)
+        .collect::<Vec<_>>();
+    let settled_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.settled_heaps)
+        .collect::<Vec<_>>();
 
     metrics::emit_metric(
         "resource_observations",
@@ -639,6 +684,42 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
             ),
             ("idle_rss_bytes".to_string(), json!(idle_process.rss_bytes)),
+            (
+                "windows_process_heap_idle".to_string(),
+                json!(idle_process_heaps),
+            ),
+            (
+                "windows_process_heap_preview_before_samples".to_string(),
+                json!(preview_before_heap_samples),
+            ),
+            (
+                "windows_process_heap_preview_after_samples".to_string(),
+                json!(preview_after_heap_samples),
+            ),
+            (
+                "windows_process_heap_thumbnail_after_samples".to_string(),
+                json!(thumbnail_after_heap_samples),
+            ),
+            (
+                "windows_process_heap_target_switch_before_samples".to_string(),
+                json!(target_switch_before_heap_samples),
+            ),
+            (
+                "windows_process_heap_target_switch_after_samples".to_string(),
+                json!(target_switch_after_heap_samples),
+            ),
+            (
+                "windows_process_heap_settled_samples".to_string(),
+                json!(settled_heap_samples),
+            ),
+            (
+                "windows_process_heap_after_runtime_dispose".to_string(),
+                json!(after_runtime_dispose_heaps),
+            ),
+            (
+                "process_private_committed_after_runtime_dispose_bytes".to_string(),
+                json!(after_runtime_dispose_process.private_committed_bytes),
+            ),
             (
                 "rss_measurement_classification".to_string(),
                 json!(rss_measurement_classification),
