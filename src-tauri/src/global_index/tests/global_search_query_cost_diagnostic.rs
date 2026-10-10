@@ -1,14 +1,14 @@
-//! Bounded Issue #352/#359 investigation. Candidate instrumentation is
-//! test-only; the production source-health SQL is evaluated through the real
-//! repository snapshot path, while schema, search tiers, candidate cap, and
-//! result semantics remain unchanged.
+//! Bounded Issue #352/#359 investigation plus isolated Issue #360 qualification.
+//! Candidate instrumentation is test-only; the new key-only CTE diagnostic
+//! leaves production SQL, source-health SQL, schema, search tiers, candidate
+//! cap, and result semantics unchanged.
 
 use super::{
-    actual_match_count, assert_search_results, benchmark_context, benchmark_escape_glob,
-    candidate_plan_sql, configured_connection, database_metrics, emit_record,
-    populate_synthetic_database, round_ms, sidecar_bytes, summarize_samples, test_db_path,
-    test_volume, BenchmarkCleanup, INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX, SEARCH_CANDIDATE_LIMIT,
-    SEARCH_RESULT_LIMIT,
+    actual_match_count, assert_entry_triggers_enabled, assert_search_results, benchmark_context,
+    benchmark_escape_glob, candidate_plan_sql, configured_connection, database_metrics,
+    emit_record, populate_synthetic_database, round_ms, sidecar_bytes, summarize_samples,
+    test_db_path, test_volume, BenchmarkCleanup, QueryCase, INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX,
+    SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
 };
 use crate::db::Database;
 use crate::global_index::models::GlobalSearchResult;
@@ -17,8 +17,9 @@ use crate::global_index::repository::{
     GlobalSearchSourceHealthQueryCandidate as SourceHealthCandidate,
 };
 use crate::global_index::search::{
-    diagnostic_search_fts, diagnostic_search_fts_sql, diagnostic_search_tier,
-    search_global_entries_on_connection,
+    diagnostic_key_only_cte_sql, diagnostic_search_fts, diagnostic_search_fts_sql,
+    diagnostic_search_tier, diagnostic_search_tier_sql, search_global_entries_on_connection,
+    with_key_only_cte_search_candidate,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, StatementStatus};
@@ -2112,6 +2113,14 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
         r"C:\Unmanaged\Quarterly\unmanaged.pdf",
         1_780_000_000,
     );
+    insert_diagnostic_entry(
+        &transaction,
+        "issue352-cross-tier-jp",
+        "gv_test",
+        "jp-crossover.jpg",
+        r"C:\Shared\jp-crossover.jpg",
+        1_770_000_000,
+    );
     transaction
         .execute_batch(
             r#"
@@ -2139,6 +2148,14 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
     assert_eq!(
         safe, production,
         "safe prefix CTE must preserve every result field"
+    );
+    let cte_helper = with_key_only_cte_search_candidate(|| {
+        diagnostic_search_tier(&transaction, "name_prefix", "quarterly", 80)
+    })
+    .expect("run key-only CTE through the production prefix helper");
+    assert_eq!(
+        cte_helper, production,
+        "key-only CTE helper must preserve every production prefix field"
     );
     assert!(production.iter().any(|row| row.id == "issue352-tie-a"));
     let tie_a = production
@@ -2178,6 +2195,11 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
     let production_page = search_global_entries_on_connection(&transaction, "quarterly", 80, 4_016)
         .expect("production search at candidate-window boundary");
     assert_eq!(production_page, production_4096[4_016..4_096]);
+    let cte_page = with_key_only_cte_search_candidate(|| {
+        search_global_entries_on_connection(&transaction, "quarterly", 80, 4_016)
+    })
+    .expect("key-only CTE full search at candidate-window boundary");
+    assert_eq!(cte_page, production_page);
     assert!(
         search_global_entries_on_connection(&transaction, "quarterly", 80, 4_096)
             .expect("production search after candidate cap")
@@ -2197,6 +2219,13 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
         &prefix_variant_values("quarterly", 200),
     );
     assert_eq!(clamped_candidate, clamped_production);
+    assert_eq!(
+        with_key_only_cte_search_candidate(|| {
+            search_global_entries_on_connection(&transaction, "quarterly", 500, 0)
+        })
+        .expect("key-only CTE full search with the production limit clamp"),
+        clamped_production
+    );
 
     let duplicate_tier_results = search_global_entries_on_connection(
         &transaction,
@@ -2221,6 +2250,24 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
     assert!(duplicate_tier_results
         .iter()
         .any(|row| row.id == "issue352-tie-b"));
+
+    let cross_tier_results = search_global_entries_on_connection(&transaction, "jp", 80, 0)
+        .expect("search for an entry matching both a basename and extension prefix");
+    assert_eq!(
+        cross_tier_results
+            .iter()
+            .filter(|row| row.id == "issue352-cross-tier-jp")
+            .count(),
+        1,
+        "one row matching two tiers must be de-duplicated by stable entry ID"
+    );
+    assert_eq!(
+        with_key_only_cte_search_candidate(|| {
+            search_global_entries_on_connection(&transaction, "jp", 80, 0)
+        })
+        .expect("key-only CTE full search for the cross-tier duplicate"),
+        cross_tier_results
+    );
 
     let unsafe_prefix = r#"
         WITH candidates AS MATERIALIZED (
@@ -2265,6 +2312,14 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
     assert_eq!(
         fts_safe, fts_production,
         "safe FTS CTE must preserve every result field"
+    );
+    let fts_cte_helper = with_key_only_cte_search_candidate(|| {
+        diagnostic_search_tier(&transaction, "fts", "report", 80)
+    })
+    .expect("run key-only CTE through the production FTS helper");
+    assert_eq!(
+        fts_cte_helper, fts_production,
+        "key-only CTE helper must preserve every production FTS field"
     );
     assert!(!fts_production.iter().any(|row| row.id.contains("disabled")));
     assert!(!fts_production.iter().any(|row| row.id.contains("stale")));
@@ -3112,5 +3167,967 @@ fn global_search_query_cost_diagnostic() {
         "one_million_row_benchmark_run": false,
         "official_full_benchmark_matrix_repeated": false,
         "normal_production_search_semantics_modified": false
+    }));
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProcessObservation {
+    cpu_time_ms: f64,
+    working_set_bytes: u64,
+    private_bytes: u64,
+}
+
+#[derive(Debug, Default)]
+struct ProcessResourceAccumulator {
+    cpu_time_ms: f64,
+    peak_sampled_working_set_bytes: u64,
+    peak_sampled_private_bytes: u64,
+    observed_calls: usize,
+}
+
+impl ProcessResourceAccumulator {
+    fn observe(&mut self, observation: Option<ProcessObservation>) {
+        if let Some(observation) = observation {
+            self.cpu_time_ms += observation.cpu_time_ms;
+            self.peak_sampled_working_set_bytes = self
+                .peak_sampled_working_set_bytes
+                .max(observation.working_set_bytes);
+            self.peak_sampled_private_bytes = self
+                .peak_sampled_private_bytes
+                .max(observation.private_bytes);
+            self.observed_calls += 1;
+        }
+    }
+
+    fn json(&self, wall_time_ms: f64) -> JsonValue {
+        if self.observed_calls == 0 {
+            return json!({
+                "status": "NOT_VERIFIED_ON_THIS_RUNNER",
+                "cpu_time_ms": null,
+                "cpu_percent_of_one_logical_core": null,
+                "peak_sampled_working_set_bytes": null,
+                "peak_sampled_private_bytes": null,
+                "sampled_calls": 0
+            });
+        }
+        json!({
+            "status": "WINDOWS_PROCESS_COUNTERS_MEASURED",
+            "process_cpu_time_ms": round_ms(self.cpu_time_ms),
+            "process_wall_time_ms": round_ms(wall_time_ms),
+            "cpu_percent_of_one_logical_core": if wall_time_ms > 0.0 { round_ms(self.cpu_time_ms / wall_time_ms * 100.0) } else { 0.0 },
+            "peak_sampled_working_set_bytes": self.peak_sampled_working_set_bytes,
+            "peak_sampled_private_bytes": self.peak_sampled_private_bytes,
+            "sampled_calls": self.observed_calls,
+            "sampling_scope": "Windows process counters read immediately before and after each measured request; these are process-wide boundary samples, not an OS peak or SQL-attributed memory measurement"
+        })
+    }
+}
+
+fn process_observation(
+    before: Option<NativeProcessSample>,
+    after: Option<NativeProcessSample>,
+) -> Option<ProcessObservation> {
+    let (before, after) = (before?, after?);
+    Some(ProcessObservation {
+        cpu_time_ms: after.cpu_time_100ns.saturating_sub(before.cpu_time_100ns) as f64 / 10_000.0,
+        working_set_bytes: before.working_set_bytes.max(after.working_set_bytes),
+        private_bytes: before.private_bytes.max(after.private_bytes),
+    })
+}
+
+fn measure_with_process_counters<T>(
+    operation: impl FnOnce() -> T,
+) -> (T, f64, Option<ProcessObservation>) {
+    let before = native_process_sample();
+    let started = Instant::now();
+    let value = operation();
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let after = native_process_sample();
+    (value, elapsed_ms, process_observation(before, after))
+}
+
+fn key_only_values(tier: &str, query: &str, limit: u32) -> Vec<SqlValue> {
+    match tier {
+        "fts" => fts_variant_values(query, limit),
+        "punctuation_prefix" => vec![
+            SqlValue::Text(format!("{}*", benchmark_escape_glob(query))),
+            SqlValue::Integer(limit as i64),
+        ],
+        "name_prefix" | "extension_prefix" => prefix_variant_values(query, limit),
+        _ => panic!("unsupported key-only CTE tier: {tier}"),
+    }
+}
+
+fn execute_search_sql_with_counters(
+    conn: &Connection,
+    sql: &str,
+    values: &[SqlValue],
+) -> (
+    Vec<GlobalSearchResult>,
+    f64,
+    JsonValue,
+    Option<ProcessObservation>,
+) {
+    let before = native_process_sample();
+    let started = Instant::now();
+    let mut statement = conn.prepare(sql).expect("prepare measured search SQL");
+    for status in [
+        StatementStatus::Sort,
+        StatementStatus::FullscanStep,
+        StatementStatus::VmStep,
+    ] {
+        statement.reset_status(status);
+    }
+    let results = statement
+        .query_map(params_from_iter(values.iter()), map_search_result)
+        .expect("execute measured search SQL")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("drain measured search SQL");
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let counters = json!({
+        "sort_operations": statement.get_status(StatementStatus::Sort),
+        "fullscan_steps": statement.get_status(StatementStatus::FullscanStep),
+        "vm_steps": statement.get_status(StatementStatus::VmStep),
+        "scope": "last execution; VM steps and sort operations are work indicators, not CPU time or temporary bytes"
+    });
+    let after = native_process_sample();
+    (
+        results,
+        elapsed_ms,
+        counters,
+        process_observation(before, after),
+    )
+}
+
+struct KeyOnlySqlPair<'a> {
+    query_class: &'a str,
+    tier: &'a str,
+    query: &'a str,
+    hit_count: usize,
+    limit: u32,
+    samples: usize,
+}
+
+fn profile_key_only_sql_pair(
+    context: &JsonValue,
+    conn: &Connection,
+    case: KeyOnlySqlPair<'_>,
+) -> JsonValue {
+    let production_sql = diagnostic_search_tier_sql(case.tier);
+    let candidate_sql = diagnostic_key_only_cte_sql(case.tier);
+    let values = key_only_values(case.tier, case.query, case.limit);
+    let expected =
+        diagnostic_search_tier(conn, case.tier, case.query, case.limit).unwrap_or_else(|error| {
+            panic!(
+                "production {} query failed for {:?}: {error}",
+                case.tier, case.query
+            )
+        });
+    let candidate = run_result_sql(conn, &candidate_sql, &values);
+    assert_eq!(
+        candidate, expected,
+        "key-only CTE must match the entire production result object for {}",
+        case.query_class
+    );
+    let helper_candidate = with_key_only_cte_search_candidate(|| {
+        diagnostic_search_tier(conn, case.tier, case.query, case.limit)
+    })
+    .unwrap_or_else(|error| {
+        panic!(
+            "key-only production helper failed for {:?}: {error}",
+            case.query
+        )
+    });
+    assert_eq!(helper_candidate, candidate);
+
+    for _ in 0..PAIRED_WARMUPS {
+        let (original, _, _, _) = execute_search_sql_with_counters(conn, &production_sql, &values);
+        let (candidate, _, _, _) = execute_search_sql_with_counters(conn, &candidate_sql, &values);
+        assert_eq!(original, expected);
+        assert_eq!(candidate, expected);
+    }
+
+    let mut production_samples = Vec::with_capacity(case.samples);
+    let mut candidate_samples = Vec::with_capacity(case.samples);
+    let mut production_resources = ProcessResourceAccumulator::default();
+    let mut candidate_resources = ProcessResourceAccumulator::default();
+    let mut production_counters = JsonValue::Null;
+    let mut candidate_counters = JsonValue::Null;
+    for sample in 0..case.samples {
+        let mut record_original = || {
+            let (results, elapsed, counters, resources) =
+                execute_search_sql_with_counters(conn, &production_sql, &values);
+            assert_eq!(results, expected);
+            production_samples.push(elapsed);
+            production_resources.observe(resources);
+            production_counters = counters;
+        };
+        let mut record_candidate = || {
+            let (results, elapsed, counters, resources) =
+                execute_search_sql_with_counters(conn, &candidate_sql, &values);
+            assert_eq!(results, expected);
+            candidate_samples.push(elapsed);
+            candidate_resources.observe(resources);
+            candidate_counters = counters;
+        };
+        if sample % 2 == 0 {
+            record_original();
+            record_candidate();
+        } else {
+            record_candidate();
+            record_original();
+        }
+    }
+
+    let production_summary = summarize_samples(&production_samples);
+    let candidate_summary = summarize_samples(&candidate_samples);
+    let production_p95 = production_summary["p95"].as_f64().unwrap_or_default();
+    let candidate_p95 = candidate_summary["p95"].as_f64().unwrap_or_default();
+    let candidate_plan = explain_details(conn, &candidate_sql, &values);
+    let production_plan = explain_details(conn, &production_sql, &values);
+    if case.tier == "fts" {
+        assert!(candidate_sql.contains(
+            "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv"
+        ));
+        assert!(candidate_sql.contains("bm25(global_entries_fts, 8.0, 2.0, 1.0)"));
+        assert!(candidate_plan.iter().any(|line| {
+            line.contains("global_entries_fts") && line.contains("VIRTUAL TABLE INDEX")
+        }));
+    }
+    let record = json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_sql_paired",
+        "context": context,
+        "query_class": case.query_class,
+        "tier": case.tier,
+        "query": case.query,
+        "eligible_hit_count": case.hit_count,
+        "limit": case.limit,
+        "result_count": expected.len(),
+        "samples_per_variant": case.samples,
+        "warmups_per_variant": PAIRED_WARMUPS,
+        "paired_order": "same runner, SQLite fixture, connection and query values; Original-first and Candidate-first alternate by sample",
+        "original_latency_ms": production_summary,
+        "key_only_cte_latency_ms": candidate_summary,
+        "p95_improvement_percent": if production_p95 > 0.0 { round_ms((production_p95 - candidate_p95) / production_p95 * 100.0) } else { 0.0 },
+        "original_sql": production_sql,
+        "candidate_sql": candidate_sql,
+        "parameters": sql_values_json(&values),
+        "original_explain_query_plan": production_plan,
+        "candidate_explain_query_plan": candidate_plan,
+        "original_uses_temp_btree": production_plan.iter().any(|line| line.contains("USE TEMP B-TREE")),
+        "candidate_uses_temp_btree": candidate_plan.iter().any(|line| line.contains("USE TEMP B-TREE")),
+        "candidate_materializes_key_columns_before_wide_projection": true,
+        "entire_global_search_result_equal_including_rank": true,
+        "original_sqlite_statement_counters": production_counters,
+        "candidate_sqlite_statement_counters": candidate_counters,
+        "original_process_resources": production_resources.json(production_samples.iter().sum()),
+        "candidate_process_resources": candidate_resources.json(candidate_samples.iter().sum()),
+        "temporary_memory_bytes": "NOT VERIFIED: SQLite exposes temp_store and plans here, but not per-statement temp B-tree bytes",
+        "timing_scope": "statement prepare, full ordered result drain and GlobalSearchResult mapping; excludes pool checkout, remaining tiers and Repository Snapshot"
+    });
+    emit_record(&record);
+    record
+}
+
+fn pooled_search_sample(
+    db: &Database,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    key_only_cte: bool,
+) -> (Vec<GlobalSearchResult>, f64, Option<ProcessObservation>) {
+    let (result, elapsed_ms, resources) = if key_only_cte {
+        with_key_only_cte_search_candidate(|| {
+            measure_with_process_counters(|| db.search_global_entries(query, limit, offset))
+        })
+    } else {
+        measure_with_process_counters(|| db.search_global_entries(query, limit, offset))
+    };
+    (
+        result.unwrap_or_else(|error| panic!("pooled search failed for {query:?}: {error}")),
+        elapsed_ms,
+        resources,
+    )
+}
+
+fn snapshot_sample(
+    db: &Database,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    key_only_cte: bool,
+) -> (GlobalSearchSnapshot, f64, Option<ProcessObservation>) {
+    let (result, elapsed_ms, resources) = if key_only_cte {
+        with_key_only_cte_search_candidate(|| {
+            measure_with_process_counters(|| {
+                db.search_global_entries_snapshot(query, limit, offset)
+            })
+        })
+    } else {
+        measure_with_process_counters(|| db.search_global_entries_snapshot(query, limit, offset))
+    };
+    (
+        result.unwrap_or_else(|error| panic!("repository snapshot failed for {query:?}: {error}")),
+        elapsed_ms,
+        resources,
+    )
+}
+
+fn profile_pooled_search_pair(
+    context: &JsonValue,
+    db: &Database,
+    query_case: QueryCase,
+    hit_count: usize,
+) -> JsonValue {
+    let expected = db
+        .search_global_entries(query_case.query, QUERY_LIMIT, 0)
+        .unwrap_or_else(|error| panic!("warm pooled search failed: {error}"));
+    let cte_expected = with_key_only_cte_search_candidate(|| {
+        db.search_global_entries(query_case.query, QUERY_LIMIT, 0)
+    })
+    .unwrap_or_else(|error| panic!("warm key-only pooled search failed: {error}"));
+    assert_eq!(cte_expected, expected);
+
+    for _ in 0..PAIRED_WARMUPS {
+        assert_eq!(
+            db.search_global_entries(query_case.query, QUERY_LIMIT, 0)
+                .expect("warm original pooled search"),
+            expected
+        );
+        assert_eq!(
+            with_key_only_cte_search_candidate(|| {
+                db.search_global_entries(query_case.query, QUERY_LIMIT, 0)
+            })
+            .expect("warm key-only pooled search"),
+            expected
+        );
+    }
+
+    let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+    let mut cte_samples = Vec::with_capacity(PAIRED_SAMPLES);
+    let mut original_resources = ProcessResourceAccumulator::default();
+    let mut cte_resources = ProcessResourceAccumulator::default();
+    for sample in 0..PAIRED_SAMPLES {
+        let mut original = || {
+            let (results, elapsed, resources) =
+                pooled_search_sample(db, query_case.query, QUERY_LIMIT, 0, false);
+            assert_eq!(results, expected);
+            original_samples.push(elapsed);
+            original_resources.observe(resources);
+        };
+        let mut candidate = || {
+            let (results, elapsed, resources) =
+                pooled_search_sample(db, query_case.query, QUERY_LIMIT, 0, true);
+            assert_eq!(results, expected);
+            cte_samples.push(elapsed);
+            cte_resources.observe(resources);
+        };
+        if sample % 2 == 0 {
+            original();
+            candidate();
+        } else {
+            candidate();
+            original();
+        }
+    }
+    let original_summary = summarize_samples(&original_samples);
+    let cte_summary = summarize_samples(&cte_samples);
+    let original_p95 = original_summary["p95"].as_f64().unwrap_or_default();
+    let cte_p95 = cte_summary["p95"].as_f64().unwrap_or_default();
+    let record = json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_pooled_search_paired",
+        "context": context,
+        "query_class": query_case.class,
+        "query": query_case.query,
+        "eligible_match_count": hit_count,
+        "limit": QUERY_LIMIT,
+        "offset": 0,
+        "result_count": expected.len(),
+        "original_latency_ms": original_summary,
+        "key_only_cte_latency_ms": cte_summary,
+        "p95_improvement_percent": if original_p95 > 0.0 { round_ms((original_p95 - cte_p95) / original_p95 * 100.0) } else { 0.0 },
+        "original_passes_historical_100ms_gate": original_p95 <= 100.0,
+        "key_only_cte_passes_historical_100ms_gate": cte_p95 <= 100.0,
+        "historical_100ms_gate_changed": false,
+        "entire_ordered_results_equal": true,
+        "original_result_ids_prefix": expected.iter().take(8).map(|row| row.id.clone()).collect::<Vec<_>>(),
+        "samples_per_variant": PAIRED_SAMPLES,
+        "warmups_per_variant": PAIRED_WARMUPS,
+        "paired_order": "actual Database::search_global_entries pool entry point; same 100k or 500k database and connection pool; first position alternates each paired sample",
+        "original_process_resources": original_resources.json(original_samples.iter().sum()),
+        "candidate_process_resources": cte_resources.json(cte_samples.iter().sum()),
+        "timing_scope": "pool checkout plus all production search tiers, result de-duplication and page extraction; excludes Snapshot facts"
+    });
+    emit_record(&record);
+    record
+}
+
+fn profile_repository_snapshot_pair(
+    context: &JsonValue,
+    db: &Database,
+    query_case: QueryCase,
+    hit_count: usize,
+) -> JsonValue {
+    let expected = db
+        .search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
+        .unwrap_or_else(|error| panic!("warm original repository snapshot failed: {error}"));
+    let cte_expected = with_key_only_cte_search_candidate(|| {
+        db.search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
+    })
+    .unwrap_or_else(|error| panic!("warm key-only repository snapshot failed: {error}"));
+    assert_snapshot_results_equal(&expected, &cte_expected);
+
+    for _ in 0..PAIRED_WARMUPS {
+        let original = db
+            .search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
+            .expect("warm original repository snapshot");
+        let candidate = with_key_only_cte_search_candidate(|| {
+            db.search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
+        })
+        .expect("warm key-only repository snapshot");
+        assert_snapshot_results_equal(&original, &candidate);
+        assert_snapshot_results_equal(&expected, &original);
+    }
+
+    let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+    let mut cte_samples = Vec::with_capacity(PAIRED_SAMPLES);
+    let mut original_resources = ProcessResourceAccumulator::default();
+    let mut cte_resources = ProcessResourceAccumulator::default();
+    for sample in 0..PAIRED_SAMPLES {
+        let mut original = || {
+            let (snapshot, elapsed, resources) =
+                snapshot_sample(db, query_case.query, QUERY_LIMIT, 0, false);
+            assert_snapshot_results_equal(&expected, &snapshot);
+            original_samples.push(elapsed);
+            original_resources.observe(resources);
+        };
+        let mut candidate = || {
+            let (snapshot, elapsed, resources) =
+                snapshot_sample(db, query_case.query, QUERY_LIMIT, 0, true);
+            assert_snapshot_results_equal(&expected, &snapshot);
+            cte_samples.push(elapsed);
+            cte_resources.observe(resources);
+        };
+        if sample % 2 == 0 {
+            original();
+            candidate();
+        } else {
+            candidate();
+            original();
+        }
+    }
+    let original_summary = summarize_samples(&original_samples);
+    let cte_summary = summarize_samples(&cte_samples);
+    let original_p95 = original_summary["p95"].as_f64().unwrap_or_default();
+    let cte_p95 = cte_summary["p95"].as_f64().unwrap_or_default();
+    let record = json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_repository_snapshot_paired",
+        "context": context,
+        "query_class": query_case.class,
+        "query": query_case.query,
+        "eligible_match_count": hit_count,
+        "limit": QUERY_LIMIT,
+        "offset": 0,
+        "result_count": expected.results.len(),
+        "original_latency_ms": original_summary,
+        "key_only_cte_latency_ms": cte_summary,
+        "p95_improvement_percent": if original_p95 > 0.0 { round_ms((original_p95 - cte_p95) / original_p95 * 100.0) } else { 0.0 },
+        "original_result_ids_prefix": expected.results.iter().take(8).map(|row| row.id.clone()).collect::<Vec<_>>(),
+        "search_results_equal": true,
+        "source_health_equal": true,
+        "source_revision_equal": true,
+        "source_revision_blake3": expected.source_revision,
+        "index_status_equal": true,
+        "same_read_transaction": true,
+        "source_health_candidate": "#359 Candidate B, current production implementation, both variants",
+        "no_source_health_Candidate_C_comparison": true,
+        "samples_per_variant": PAIRED_SAMPLES,
+        "warmups_per_variant": PAIRED_WARMUPS,
+        "paired_order": "actual Database::search_global_entries_snapshot; each call performs the exact production search, #359 source-health, revision hash and index-status reads in one SQLite read transaction; order alternates",
+        "original_process_resources": original_resources.json(original_samples.iter().sum()),
+        "candidate_process_resources": cte_resources.json(cte_samples.iter().sum()),
+        "sqlite_statement_counters": "NOT AVAILABLE from the repository entry point; per-tier SQLite statement counters are reported in key_only_cte_sql_paired records",
+        "temporary_memory_bytes": "NOT VERIFIED: SQLite exposes temp_store and plans here, but not per-statement temp B-tree bytes",
+        "timing_scope": "pool checkout, read transaction setup, full search, source-health rows, source_revision facts/hash, index status and transaction commit"
+    });
+    emit_record(&record);
+    record
+}
+
+fn profile_key_only_pagination(context: &JsonValue, db: &Database, conn: &Connection) {
+    let page_cases = [
+        ("first_page_80", 80_u32, 0_u32),
+        ("limit_200", 200, 0),
+        ("limit_clamp_500_to_200", 500, 0),
+        ("last_80_before_candidate_cap", 80, 4_016),
+        ("last_200_before_candidate_cap", 200, 3_896),
+        ("candidate_cap_offset_4096", 80, 4_096),
+    ];
+    for (class, query, tier) in [
+        ("name_prefix", "quarterly", "name_prefix"),
+        ("fts_substring_report", "report", "fts"),
+    ] {
+        let production_window = diagnostic_search_tier(conn, tier, query, 4_096)
+            .unwrap_or_else(|error| panic!("collect Original 4096 window for {query}: {error}"));
+        let candidate_sql = diagnostic_key_only_cte_sql(tier);
+        let values = key_only_values(tier, query, 4_096);
+        let cte_window = run_result_sql(conn, &candidate_sql, &values);
+        assert_eq!(cte_window, production_window);
+        assert_eq!(
+            with_key_only_cte_search_candidate(|| {
+                diagnostic_search_tier(conn, tier, query, 4_096)
+            })
+            .expect("collect key-only CTE helper 4096 window"),
+            production_window
+        );
+
+        for (page_class, limit, offset) in page_cases {
+            let original = db
+                .search_global_entries(query, limit, offset)
+                .unwrap_or_else(|error| panic!("Original page {page_class}: {error}"));
+            let candidate = with_key_only_cte_search_candidate(|| {
+                db.search_global_entries(query, limit, offset)
+            })
+            .unwrap_or_else(|error| panic!("key-only CTE page {page_class}: {error}"));
+            assert_eq!(candidate, original);
+            assert!(original.len() <= limit.min(200) as usize);
+            if offset >= SEARCH_CANDIDATE_LIMIT as u32 {
+                assert!(original.is_empty());
+            }
+            emit_record(&json!({
+                "schema_version": 1,
+                "record_type": "key_only_cte_pagination_equivalence",
+                "context": context,
+                "query_class": class,
+                "tier": tier,
+                "query": query,
+                "page_class": page_class,
+                "requested_limit": limit,
+                "effective_limit": limit.clamp(1, 200),
+                "offset": offset,
+                "candidate_window": SEARCH_CANDIDATE_LIMIT,
+                "result_count": original.len(),
+                "entire_ordered_result_objects_equal": true,
+                "rank_and_tie_break_equality": true,
+                "offset_at_or_beyond_candidate_cap_is_empty": offset >= SEARCH_CANDIDATE_LIMIT as u32 && original.is_empty()
+            }));
+        }
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "key_only_cte_candidate_window_equivalence",
+            "context": context,
+            "query_class": class,
+            "tier": tier,
+            "query": query,
+            "candidate_window": SEARCH_CANDIDATE_LIMIT,
+            "result_count": production_window.len(),
+            "all_result_fields_equal_through_4096": true,
+            "fts_rank_and_stable_order_equal": tier != "fts" || production_window == cte_window
+        }));
+    }
+}
+
+fn profile_key_only_hit_count_scale(context: &JsonValue, conn: &Connection, base_entries: u64) {
+    let transaction = conn
+        .unchecked_transaction()
+        .expect("begin rollback-only key-only hit-count overlay");
+    let mut insert = transaction
+        .prepare(INSERT_SYNTHETIC_ENTRY)
+        .expect("prepare key-only hit-count overlay insert");
+    let scales = [
+        ("scale1", 1_usize),
+        ("scale5", 5),
+        ("scale100", 100),
+        ("scale1000", 1_000),
+        ("scale4096", 4_096),
+        ("scale10000", 10_000),
+        ("scale25000", 25_000),
+    ];
+    for (label, count) in scales {
+        for index in 0..count {
+            let id = format!("issue360-{label}-{index:05}");
+            let name = format!("{label} candidate {index:05}.txt");
+            let path = format!(r"C:\Issue360Scale\{label}\{name}");
+            insert
+                .execute(params![
+                    id,
+                    "gv_test",
+                    id,
+                    "issue360-scale-parent",
+                    name,
+                    name.to_lowercase(),
+                    path,
+                    path.to_lowercase(),
+                    "txt",
+                    0_i64,
+                    1_i64,
+                    1_700_700_000_i64,
+                    1_900_000_000_i64 + index as i64,
+                    0_i64,
+                    0_i64,
+                    0_i64,
+                    0_i64,
+                    "issue360_key_only_scale",
+                    1_700_700_000_i64 + index as i64,
+                ])
+                .unwrap_or_else(|error| panic!("insert key-only hit-count row: {error}"));
+        }
+    }
+    drop(insert);
+
+    let mut scale_records = Vec::new();
+    let no_hit_query = "issue360-no-hit";
+    let no_hit_count: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM global_entries ge JOIN global_volumes gv ON gv.id = ge.volume_id WHERE gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+            [format!("{}*", benchmark_escape_glob(no_hit_query))],
+            |row| row.get(0),
+        )
+        .expect("count zero-hit key-only prefix");
+    assert_eq!(no_hit_count, 0);
+    let no_hit = profile_key_only_sql_pair(
+        context,
+        &transaction,
+        KeyOnlySqlPair {
+            query_class: "hit_scale_0",
+            tier: "name_prefix",
+            query: no_hit_query,
+            hit_count: 0,
+            limit: QUERY_LIMIT,
+            samples: PAIRED_SAMPLES,
+        },
+    );
+    scale_records.push(json!({"query": no_hit_query, "hit_count": 0, "record": no_hit}));
+
+    for (label, expected_count) in scales {
+        let query = format!("{label} ");
+        let expected_pattern = format!("{}*", benchmark_escape_glob(&query));
+        let actual_count: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM global_entries ge JOIN global_volumes gv ON gv.id = ge.volume_id WHERE gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+                [expected_pattern],
+                |row| row.get(0),
+            )
+            .expect("count key-only prefix scale matches");
+        assert_eq!(actual_count as usize, expected_count);
+        let record = profile_key_only_sql_pair(
+            context,
+            &transaction,
+            KeyOnlySqlPair {
+                query_class: &format!("hit_scale_{expected_count}"),
+                tier: "name_prefix",
+                query: &query,
+                hit_count: expected_count,
+                limit: QUERY_LIMIT,
+                samples: PAIRED_SAMPLES,
+            },
+        );
+        scale_records.push(json!({
+            "query": query,
+            "hit_count": expected_count,
+            "returned_page_count": expected_count.min(QUERY_LIMIT as usize),
+            "record": record
+        }));
+
+        if expected_count >= SEARCH_CANDIDATE_LIMIT {
+            let values = prefix_variant_values(&query, SEARCH_CANDIDATE_LIMIT as u32);
+            let production_window = run_result_sql(
+                &transaction,
+                &diagnostic_search_tier_sql("name_prefix"),
+                &values,
+            );
+            let cte_window = run_result_sql(
+                &transaction,
+                &diagnostic_key_only_cte_sql("name_prefix"),
+                &values,
+            );
+            assert_eq!(cte_window, production_window);
+            emit_record(&json!({
+                "schema_version": 1,
+                "record_type": "key_only_cte_scale_window_equivalence",
+                "context": context,
+                "query": query,
+                "eligible_hit_count": expected_count,
+                "candidate_window": SEARCH_CANDIDATE_LIMIT,
+                "result_count": cte_window.len(),
+                "all_fields_equal": true
+            }));
+        }
+    }
+
+    let overlay_count: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM global_entries WHERE id LIKE 'issue360-scale%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count temporary key-only scale overlay");
+    assert_eq!(overlay_count, 40_202);
+    transaction
+        .rollback()
+        .expect("rollback key-only hit-count overlay");
+    let remaining_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get(0))
+        .expect("count base fixture rows after hit-count rollback");
+    assert_eq!(remaining_rows, base_entries as i64);
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_hit_count_scale_summary",
+        "context": context,
+        "base_fixture_rows": base_entries,
+        "overlay_rows": overlay_count,
+        "eligible_match_counts": scale_records.iter().map(|record| json!({"query":record["query"],"hit_count":record["hit_count"]})).collect::<Vec<_>>(),
+        "per_count_paired_sql_records": scale_records,
+        "candidate_window": SEARCH_CANDIDATE_LIMIT,
+        "overlay_rolled_back_before_next_test": true,
+        "persistent_schema_or_index_changed": false
+    }));
+}
+
+#[test]
+#[ignore = "controlled 100k/500k Issue #360 key-only CTE qualification on one synthetic fixture"]
+fn global_search_key_only_cte_qualification() {
+    let entries = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .expect("qualification fixture size must be set");
+    assert!(
+        matches!(entries, 100_000 | 500_000),
+        "qualification is bounded to the paired 100k and 500k fixtures; never run 1m"
+    );
+    let output_path = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT").ok();
+    if let Some(path) = &output_path {
+        let path = PathBuf::from(path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create key-only evidence directory");
+        }
+        fs::write(path, "").expect("truncate key-only JSONL evidence");
+    }
+
+    let context = benchmark_context(entries);
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).expect("open key-only qualification database");
+    db.upsert_global_volume(&super::super::test_volume())
+        .expect("insert key-only base enabled volume");
+    let population_started = Instant::now();
+    let (expectations, generation_ms, population_ms, transaction_samples) =
+        populate_synthetic_database(&db, entries);
+    let fixture_elapsed_ms = population_started.elapsed().as_secs_f64() * 1_000.0;
+    let conn = configured_connection(&path).expect("open key-only qualification reader");
+    let schema_signature_before = schema_index_signature(&conn);
+    let sqlite_version: String = conn
+        .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+        .expect("read qualification SQLite version");
+    let actual_total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get(0))
+        .expect("count qualification base rows");
+    assert_eq!(actual_total, entries as i64);
+    let pragmas = json!({
+        "journal_mode": conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0)).expect("journal mode"),
+        "synchronous": conn.query_row("PRAGMA synchronous", [], |row| row.get::<_, i64>(0)).expect("synchronous"),
+        "foreign_keys": conn.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0)).expect("foreign keys"),
+        "temp_store": conn.query_row("PRAGMA temp_store", [], |row| row.get::<_, i64>(0)).expect("temp store"),
+        "mmap_size": conn.query_row("PRAGMA mmap_size", [], |row| row.get::<_, i64>(0)).expect("mmap size"),
+        "page_size": conn.query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0)).expect("page size")
+    });
+    let trigger_names = assert_entry_triggers_enabled(&conn);
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_environment_and_dataset",
+        "context": context,
+        "runner": {
+            "os": env::consts::OS,
+            "arch": env::consts::ARCH,
+            "image_os": env::var("ImageOS").ok(),
+            "image_version": env::var("ImageVersion").ok(),
+            "github_job": env::var("GITHUB_JOB").ok(),
+            "github_run_id": env::var("GITHUB_RUN_ID").ok(),
+            "github_run_attempt": env::var("GITHUB_RUN_ATTEMPT").ok()
+        },
+        "base_entries": actual_total,
+        "fixture_type": "existing deterministic synthetic Global Search fixture with production schema, indexes, FTS triggers and 512-row insert transactions; no filesystem scan",
+        "sqlite_version": sqlite_version,
+        "sqlite_pragmas": pragmas,
+        "generation_ms": generation_ms,
+        "population_ms": population_ms,
+        "total_fixture_build_wall_ms": fixture_elapsed_ms,
+        "population_transaction_ms": summarize_samples(&transaction_samples),
+        "database": database_metrics(&conn, &path),
+        "production_trigger_names": trigger_names,
+        "process_cpu_rss": "sampled around measured SQL and request calls on Windows; Linux returns NOT_VERIFIED_ON_THIS_RUNNER",
+        "filesystem_or_OS_file_discovery_measured": false,
+        "source_health_variant": "#359 Candidate B current production SQL, left unchanged"
+    }));
+
+    // Count-oracle and full result-object equality cover the complete historical
+    // 12-query matrix before any performance assertions are emitted.
+    let mut correctness_records = Vec::with_capacity(QUERY_MATRIX.len());
+    for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
+        let actual_count = actual_match_count(&conn, query_case);
+        assert_eq!(
+            actual_count as u64, expectation.total_matches,
+            "qualification count oracle for {}",
+            query_case.class
+        );
+        let original = assert_search_results(
+            &conn,
+            query_case,
+            expectation,
+            SEARCH_RESULT_LIMIT,
+            0,
+            entries,
+        );
+        let key_only = with_key_only_cte_search_candidate(|| {
+            db.search_global_entries(query_case.query, SEARCH_RESULT_LIMIT, 0)
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "key-only full-search candidate failed for {}: {error}",
+                query_case.class
+            )
+        });
+        assert_eq!(
+            key_only, original,
+            "full result object for {}",
+            query_case.class
+        );
+        let original_snapshot = db
+            .search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
+            .unwrap_or_else(|error| panic!("Original snapshot for {}: {error}", query_case.class));
+        let key_only_snapshot = with_key_only_cte_search_candidate(|| {
+            db.search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
+        })
+        .unwrap_or_else(|error| panic!("key-only snapshot for {}: {error}", query_case.class));
+        assert_snapshot_results_equal(&original_snapshot, &key_only_snapshot);
+        correctness_records.push(json!({
+            "query_class": query_case.class,
+            "query": query_case.query,
+            "eligible_match_count": actual_count,
+            "result_count": original.len(),
+            "full_search_entire_result_objects_equal": true,
+            "repository_snapshot_search_source_health_revision_and_index_status_equal": true
+        }));
+    }
+    assert_eq!(correctness_records.len(), 12);
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_12_query_correctness",
+        "context": context,
+        "query_classes_checked": correctness_records.len(),
+        "query_classes_passed": correctness_records.len(),
+        "count_oracle_correct": true,
+        "all_result_fields_including_bm25_rank_equal": true,
+        "snapshot_search_source_health_revision_index_status_equal": true,
+        "query_results": correctness_records
+    }));
+
+    // SQL tier A/B covers every prefix specialization and the low/high/no-hit
+    // FTS range. The paired request measurements below then check whether any
+    // SQL-only gain survives the pooled and full repository paths.
+    for spec in PREFIX_QUERIES {
+        let tier = if spec.extension {
+            "extension_prefix"
+        } else if spec.class == "punctuation_prefix" {
+            "punctuation_prefix"
+        } else {
+            "name_prefix"
+        };
+        let hit_count = QUERY_MATRIX
+            .iter()
+            .position(|query| query.class == spec.class)
+            .map(|index| expectations[index].total_matches as usize)
+            .expect("prefix query maps to the official matrix");
+        profile_key_only_sql_pair(
+            &context,
+            &conn,
+            KeyOnlySqlPair {
+                query_class: spec.class,
+                tier,
+                query: spec.query,
+                hit_count,
+                limit: QUERY_LIMIT,
+                samples: PAIRED_SAMPLES,
+            },
+        );
+    }
+    for (class, query) in FTS_QUERIES {
+        let hit_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM global_entries_fts WHERE global_entries_fts MATCH ?1",
+                [fts_phrase(query)],
+                |row| row.get(0),
+            )
+            .expect("count key-only FTS hits");
+        profile_key_only_sql_pair(
+            &context,
+            &conn,
+            KeyOnlySqlPair {
+                query_class: class,
+                tier: "fts",
+                query,
+                hit_count: hit_count as usize,
+                limit: QUERY_LIMIT,
+                samples: PAIRED_SAMPLES,
+            },
+        );
+    }
+
+    let mut pooled_records = Vec::with_capacity(QUERY_MATRIX.len());
+    let mut snapshot_records = Vec::with_capacity(QUERY_MATRIX.len());
+    for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
+        let hit_count = expectation.total_matches as usize;
+        pooled_records.push(profile_pooled_search_pair(
+            &context, &db, query_case, hit_count,
+        ));
+        snapshot_records.push(profile_repository_snapshot_pair(
+            &context, &db, query_case, hit_count,
+        ));
+    }
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_full_path_matrix_summary",
+        "context": context,
+        "query_classes": QUERY_MATRIX.len(),
+        "pooled_search_records": pooled_records,
+        "repository_snapshot_records": snapshot_records,
+        "historical_100ms_gate": 100.0,
+        "query_only_improvement_is_not_substituted_for_full_path_measurement": true,
+        "source_health_candidate_comparison_mixed_in": false
+    }));
+
+    profile_key_only_pagination(&context, &db, &conn);
+    profile_key_only_hit_count_scale(&context, &conn, entries);
+
+    // Reuse the same fixture for disabled-volume, stale-row, cross-volume tie,
+    // managed/unmanaged, exact field, cross-tier duplicate and filter-before-
+    // limit adversarial assertions. The intentionally unsafe variants must
+    // underfill, while production and CTE candidates stay equivalent.
+    let mut conn = conn;
+    add_adversarial_rows(&db, &mut conn, &context);
+    let schema_signature_after = schema_index_signature(&conn);
+    assert_eq!(schema_signature_before, schema_signature_after);
+    let remaining_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get(0))
+        .expect("count remaining qualification base rows");
+    assert_eq!(remaining_rows, entries as i64);
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "key_only_cte_qualification_complete",
+        "context": context,
+        "base_rows_after_rollback": remaining_rows,
+        "schema_index_signature_unchanged": true,
+        "source_health_production_sql_modified": false,
+        "production_search_sql_modified": false,
+        "schema_or_persistent_index_changed": false,
+        "100ms_gate_changed": false,
+        "official_full_12_class_correctness": "PASS",
+        "one_fixture_per_size": true,
+        "one_million_row_benchmark_run": false,
+        "macos_native_measurement": "NOT VERIFIED: qualification executes on Windows Hosted; macOS quality remains a separate CI lane",
+        "temporary_btree_byte_measurement": "NOT VERIFIED"
     }));
 }
