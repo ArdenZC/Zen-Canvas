@@ -1,14 +1,21 @@
-//! Bounded Issue #352 investigation. This is deliberately test-only: the
-//! production SQL, schema, candidate cap, and result semantics are untouched.
+//! Bounded Issue #352/#359 investigation. Candidate instrumentation is
+//! test-only; the production source-health SQL is evaluated through the real
+//! repository snapshot path, while schema, search tiers, candidate cap, and
+//! result semantics remain unchanged.
 
 use super::{
-    actual_match_count, benchmark_context, benchmark_escape_glob, candidate_plan_sql,
-    configured_connection, database_metrics, emit_record, populate_synthetic_database,
-    sidecar_bytes, summarize_samples, test_db_path, BenchmarkCleanup, INSERT_SYNTHETIC_ENTRY,
-    QUERY_MATRIX, SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
+    actual_match_count, assert_search_results, benchmark_context, benchmark_escape_glob,
+    candidate_plan_sql, configured_connection, database_metrics, emit_record,
+    populate_synthetic_database, round_ms, sidecar_bytes, summarize_samples, test_db_path,
+    test_volume, BenchmarkCleanup, INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX, SEARCH_CANDIDATE_LIMIT,
+    SEARCH_RESULT_LIMIT,
 };
 use crate::db::Database;
 use crate::global_index::models::GlobalSearchResult;
+use crate::global_index::repository::{
+    load_global_search_source_health_candidate, DiagnosticSourceHealth, GlobalSearchSnapshot,
+    GlobalSearchSourceHealthQueryCandidate as SourceHealthCandidate,
+};
 use crate::global_index::search::{
     diagnostic_search_fts, diagnostic_search_fts_sql, diagnostic_search_tier,
     search_global_entries_on_connection,
@@ -19,6 +26,13 @@ use serde_json::{json, Value as JsonValue};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
+#[cfg(target_os = "windows")]
+use std::thread;
+use std::thread::JoinHandle;
+#[cfg(target_os = "windows")]
+use std::time::Duration;
 use std::time::Instant;
 
 const DIAGNOSTIC_ENTRIES: u64 = 500_000;
@@ -28,6 +42,59 @@ const PAIRED_WARMUPS: usize = 5;
 const PAIRED_SAMPLES: usize = 30;
 const QUERY_LIMIT: u32 = 80;
 const TEST_INDEX_NAME: &str = "idx_issue352_diag_name_mtime";
+const SOURCE_HEALTH_TOPOLOGY_NAMES: [&str; 4] = [
+    "one_volume_zero_stale",
+    "one_volume_ninety_percent_stale",
+    "ten_volumes_zero_stale",
+    "ten_volumes_ninety_percent_stale",
+];
+const SOURCE_HEALTH_CANDIDATES: [SourceHealthCandidate; 3] = [
+    SourceHealthCandidate::Original,
+    SourceHealthCandidate::NarrowAggregate,
+    SourceHealthCandidate::GroupByVolumeId,
+];
+
+#[derive(Debug, Clone, Copy)]
+struct SourceHealthTopology {
+    name: &'static str,
+    volume_count: usize,
+    stale_percent: usize,
+}
+
+const SOURCE_HEALTH_TOPOLOGIES: [SourceHealthTopology; 4] = [
+    SourceHealthTopology {
+        name: SOURCE_HEALTH_TOPOLOGY_NAMES[0],
+        volume_count: 1,
+        stale_percent: 0,
+    },
+    SourceHealthTopology {
+        name: SOURCE_HEALTH_TOPOLOGY_NAMES[1],
+        volume_count: 1,
+        stale_percent: 90,
+    },
+    SourceHealthTopology {
+        name: SOURCE_HEALTH_TOPOLOGY_NAMES[2],
+        volume_count: 10,
+        stale_percent: 0,
+    },
+    SourceHealthTopology {
+        name: SOURCE_HEALTH_TOPOLOGY_NAMES[3],
+        volume_count: 10,
+        stale_percent: 90,
+    },
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceHealthSqlRow {
+    source_id: String,
+    enabled: bool,
+    provider: String,
+    status: String,
+    last_error: Option<String>,
+    updated_at: i64,
+    active_entry_count: i64,
+    max_last_seen_at: Option<i64>,
+}
 
 const SAFE_PREFIX_CTE_SQL: &str = r#"
     WITH candidates AS MATERIALIZED (
@@ -603,6 +670,989 @@ fn record_production_results(
         "sample_policy": format!("{} warm samples after {} warmups", samples.len(), PAIRED_WARMUPS),
         "timing_scope": timing_scope
     }));
+}
+
+fn source_health_candidate_name(candidate: SourceHealthCandidate) -> &'static str {
+    match candidate {
+        SourceHealthCandidate::Original => "original",
+        SourceHealthCandidate::CorrelatedAggregates => "correlated_aggregates",
+        SourceHealthCandidate::NarrowAggregate => "narrow_aggregate",
+        SourceHealthCandidate::GroupByVolumeId => "candidate_c_group_by_volume_id",
+    }
+}
+
+fn source_health_topology_candidate_label(candidate: SourceHealthCandidate) -> &'static str {
+    match candidate {
+        SourceHealthCandidate::Original => "Original",
+        SourceHealthCandidate::NarrowAggregate => "Candidate B (current production SQL)",
+        SourceHealthCandidate::GroupByVolumeId => "Candidate C (test-only)",
+        SourceHealthCandidate::CorrelatedAggregates => unreachable!(
+            "the topology diagnostic compares Original, production Candidate B, and Candidate C"
+        ),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SourceHealthResourceStats {
+    calls: u64,
+    cpu_time_ms: f64,
+    wall_time_ms: f64,
+    peak_query_cpu_percent: f64,
+    peak_working_set_bytes: u64,
+    peak_private_bytes: u64,
+    memory_samples: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NativeProcessSample {
+    cpu_time_100ns: u64,
+    working_set_bytes: u64,
+    private_bytes: u64,
+}
+
+#[cfg(target_os = "windows")]
+fn native_process_sample() -> Option<NativeProcessSample> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+
+    let process = unsafe { GetCurrentProcess() };
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+        ..Default::default()
+    };
+    let memory_ok = unsafe {
+        GetProcessMemoryInfo(
+            process,
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast::<PROCESS_MEMORY_COUNTERS>(),
+            counters.cb,
+        )
+    };
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    let cpu_ok =
+        unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) };
+    if memory_ok == 0 || cpu_ok == 0 {
+        return None;
+    }
+    let filetime =
+        |value: FILETIME| (u64::from(value.dwHighDateTime) << 32) | u64::from(value.dwLowDateTime);
+    Some(NativeProcessSample {
+        cpu_time_100ns: filetime(kernel).saturating_add(filetime(user)),
+        working_set_bytes: counters.WorkingSetSize as u64,
+        private_bytes: counters.PrivateUsage as u64,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn native_process_sample() -> Option<NativeProcessSample> {
+    None
+}
+
+struct SourceHealthResourceSampler {
+    active_tag: Arc<AtomicU8>,
+    stats: Arc<Mutex<[SourceHealthResourceStats; 7]>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+    baseline: Option<NativeProcessSample>,
+}
+
+impl SourceHealthResourceSampler {
+    fn new() -> Self {
+        let active_tag = Arc::new(AtomicU8::new(0));
+        let stats = Arc::new(Mutex::new([SourceHealthResourceStats::default(); 7]));
+        let stop = Arc::new(AtomicBool::new(false));
+        let baseline = native_process_sample();
+
+        #[cfg(target_os = "windows")]
+        let worker = {
+            let active_tag = Arc::clone(&active_tag);
+            let stats = Arc::clone(&stats);
+            let stop = Arc::clone(&stop);
+            Some(thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    if let (Some(sample), tag) = (
+                        native_process_sample(),
+                        active_tag.load(Ordering::Relaxed) as usize,
+                    ) {
+                        if tag > 0 {
+                            if let Ok(mut stats) = stats.lock() {
+                                if let Some(candidate) = stats.get_mut(tag) {
+                                    candidate.peak_working_set_bytes = candidate
+                                        .peak_working_set_bytes
+                                        .max(sample.working_set_bytes);
+                                    candidate.peak_private_bytes =
+                                        candidate.peak_private_bytes.max(sample.private_bytes);
+                                    candidate.memory_samples += 1;
+                                }
+                            }
+                        }
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
+            }))
+        };
+
+        #[cfg(not(target_os = "windows"))]
+        let worker = None;
+
+        Self {
+            active_tag,
+            stats,
+            stop,
+            worker,
+            baseline,
+        }
+    }
+
+    fn tag(candidate: SourceHealthCandidate, snapshot: bool) -> u8 {
+        let candidate_offset = match candidate {
+            SourceHealthCandidate::Original => 0,
+            SourceHealthCandidate::NarrowAggregate => 1,
+            SourceHealthCandidate::GroupByVolumeId => 2,
+            SourceHealthCandidate::CorrelatedAggregates => {
+                unreachable!("the topology diagnostic does not profile candidate A")
+            }
+        };
+        1 + candidate_offset * 2 + u8::from(snapshot)
+    }
+
+    fn measure<T>(
+        &self,
+        candidate: SourceHealthCandidate,
+        snapshot: bool,
+        operation: impl FnOnce() -> T,
+    ) -> (T, f64) {
+        let tag = Self::tag(candidate, snapshot) as usize;
+        self.active_tag.store(tag as u8, Ordering::Relaxed);
+        let before = native_process_sample();
+        let started = Instant::now();
+        let result = operation();
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        let after = native_process_sample();
+        self.active_tag.store(0, Ordering::Relaxed);
+
+        if let Ok(mut stats) = self.stats.lock() {
+            if let Some(candidate_stats) = stats.get_mut(tag) {
+                candidate_stats.calls += 1;
+                candidate_stats.wall_time_ms += elapsed_ms;
+                if let (Some(before), Some(after)) = (before, after) {
+                    let cpu_time_ms = after.cpu_time_100ns.saturating_sub(before.cpu_time_100ns)
+                        as f64
+                        / 10_000.0;
+                    candidate_stats.cpu_time_ms += cpu_time_ms;
+                    if elapsed_ms > 0.0 {
+                        candidate_stats.peak_query_cpu_percent = candidate_stats
+                            .peak_query_cpu_percent
+                            .max(cpu_time_ms / elapsed_ms * 100.0);
+                    }
+                    candidate_stats.peak_working_set_bytes = candidate_stats
+                        .peak_working_set_bytes
+                        .max(before.working_set_bytes)
+                        .max(after.working_set_bytes);
+                    candidate_stats.peak_private_bytes = candidate_stats
+                        .peak_private_bytes
+                        .max(before.private_bytes)
+                        .max(after.private_bytes);
+                }
+            }
+        }
+        (result, elapsed_ms)
+    }
+
+    fn metrics(&self, candidate: SourceHealthCandidate, snapshot: bool) -> JsonValue {
+        let tag = Self::tag(candidate, snapshot) as usize;
+        let stats = self
+            .stats
+            .lock()
+            .map(|stats| stats[tag])
+            .unwrap_or_default();
+        let baseline_working_set = self.baseline.map(|sample| sample.working_set_bytes);
+        let baseline_private = self.baseline.map(|sample| sample.private_bytes);
+        let supported = self.baseline.is_some();
+        json!({
+            "status": if supported { "SAMPLED_WINDOWS_PROCESS_METRICS" } else { "NOT_VERIFIED_OUTSIDE_WINDOWS_HOSTED" },
+            "measurement_window": "warmups and paired diagnostic calls tagged for this candidate/workload; 50ms background working-set/private-bytes sampling plus process CPU time deltas around each call",
+            "calls_including_warmups": stats.calls,
+            "process_cpu_time_ms": supported.then_some(round_ms(stats.cpu_time_ms)),
+            "average_process_cpu_percent_of_one_core": (supported && stats.wall_time_ms > 0.0).then_some(round_ms(stats.cpu_time_ms / stats.wall_time_ms * 100.0)),
+            "peak_observed_query_cpu_percent_of_one_core": supported.then_some(round_ms(stats.peak_query_cpu_percent)),
+            "peak_sampled_working_set_bytes": supported.then_some(stats.peak_working_set_bytes),
+            "peak_sampled_working_set_delta_from_topology_start_bytes": baseline_working_set.map(|baseline| stats.peak_working_set_bytes.saturating_sub(baseline)),
+            "peak_sampled_private_commit_bytes": supported.then_some(stats.peak_private_bytes),
+            "peak_sampled_private_commit_delta_from_topology_start_bytes": baseline_private.map(|baseline| stats.peak_private_bytes.saturating_sub(baseline)),
+            "background_memory_sample_count": stats.memory_samples,
+            "sqlite_temp_store": "MEMORY",
+            "sqlite_temp_memory_bytes": "NOT_VERIFIED: temporary SQLite allocations are not isolated from SQLite connection/cache memory by this probe"
+        })
+    }
+}
+
+impl Drop for SourceHealthResourceSampler {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn measure_source_health_sql_once(
+    conn: &Connection,
+    candidate: SourceHealthCandidate,
+) -> (usize, f64, JsonValue) {
+    execute_count_once(conn, candidate.sql(), &[])
+}
+
+fn profile_source_health_sql_candidates(context: &JsonValue, conn: &Connection, path: &Path) {
+    let original = SourceHealthCandidate::Original;
+    for candidate in [
+        SourceHealthCandidate::CorrelatedAggregates,
+        SourceHealthCandidate::NarrowAggregate,
+    ] {
+        let mut original_rows = 0;
+        let mut candidate_rows = 0;
+        for _ in 0..PAIRED_WARMUPS {
+            let (base_count, _, _) = measure_source_health_sql_once(conn, original);
+            let (candidate_count, _, _) = measure_source_health_sql_once(conn, candidate);
+            original_rows = base_count;
+            candidate_rows = candidate_count;
+            assert_eq!(base_count, candidate_count);
+        }
+
+        let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut original_counters = JsonValue::Null;
+        let mut candidate_counters = JsonValue::Null;
+        for sample in 0..PAIRED_SAMPLES {
+            if sample % 2 == 0 {
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, original);
+                original_rows = count;
+                original_samples.push(elapsed);
+                original_counters = counters;
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, candidate);
+                candidate_rows = count;
+                candidate_samples.push(elapsed);
+                candidate_counters = counters;
+            } else {
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, candidate);
+                candidate_rows = count;
+                candidate_samples.push(elapsed);
+                candidate_counters = counters;
+                let (count, elapsed, counters) = measure_source_health_sql_once(conn, original);
+                original_rows = count;
+                original_samples.push(elapsed);
+                original_counters = counters;
+            }
+            assert_eq!(original_rows, candidate_rows);
+        }
+        let original_plan = explain_details(conn, original.sql(), &[]);
+        let candidate_plan = explain_details(conn, candidate.sql(), &[]);
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_sql_paired",
+            "context": context,
+            "candidate": source_health_candidate_name(candidate),
+            "pairing": "alternating execution order on same Windows runner, same SQLite connection and same 500k fixture",
+            "warmups_per_variant": PAIRED_WARMUPS,
+            "samples_per_variant": PAIRED_SAMPLES,
+            "original": {
+                "sql": original.sql(),
+                "parameters": [],
+                "row_count": original_rows,
+                "latency_ms": summarize_samples(&original_samples),
+                "explain_query_plan": original_plan,
+                "sqlite_statement_counters": original_counters
+            },
+            "candidate_result": {
+                "sql": candidate.sql(),
+                "parameters": [],
+                "row_count": candidate_rows,
+                "latency_ms": summarize_samples(&candidate_samples),
+                "explain_query_plan": candidate_plan,
+                "sqlite_statement_counters": candidate_counters
+            },
+            "database": database_metrics(conn, path),
+            "schema_or_index_changes": false
+        }));
+    }
+}
+
+fn measure_source_health_function_once(
+    conn: &mut Connection,
+    candidate: SourceHealthCandidate,
+) -> (DiagnosticSourceHealth, f64) {
+    let transaction = conn
+        .transaction()
+        .expect("begin source-health function sample");
+    let started = Instant::now();
+    let result = load_global_search_source_health_candidate(&transaction, candidate)
+        .expect("run complete source-health function candidate");
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    transaction
+        .commit()
+        .expect("commit source-health function sample");
+    (result, elapsed_ms)
+}
+
+fn profile_source_health_functions(db: &Database, path: &Path, context: &JsonValue) {
+    let mut conn = db.conn().expect("borrow source-health function connection");
+    let original = SourceHealthCandidate::Original;
+    for candidate in [
+        SourceHealthCandidate::CorrelatedAggregates,
+        SourceHealthCandidate::NarrowAggregate,
+    ] {
+        for _ in 0..PAIRED_WARMUPS {
+            let (baseline, _) = measure_source_health_function_once(&mut conn, original);
+            let (optimized, _) = measure_source_health_function_once(&mut conn, candidate);
+            assert_eq!(baseline, optimized);
+        }
+
+        let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut facts_match = true;
+        for sample in 0..PAIRED_SAMPLES {
+            let (baseline, baseline_ms, optimized, candidate_ms) = if sample % 2 == 0 {
+                let (baseline, baseline_ms) =
+                    measure_source_health_function_once(&mut conn, original);
+                let (optimized, candidate_ms) =
+                    measure_source_health_function_once(&mut conn, candidate);
+                (baseline, baseline_ms, optimized, candidate_ms)
+            } else {
+                let (optimized, candidate_ms) =
+                    measure_source_health_function_once(&mut conn, candidate);
+                let (baseline, baseline_ms) =
+                    measure_source_health_function_once(&mut conn, original);
+                (baseline, baseline_ms, optimized, candidate_ms)
+            };
+            facts_match &= baseline == optimized;
+            assert_eq!(baseline, optimized);
+            original_samples.push(baseline_ms);
+            candidate_samples.push(candidate_ms);
+        }
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_function_paired",
+            "context": context,
+            "candidate": source_health_candidate_name(candidate),
+            "pairing": "alternating execution order, same pooled SQLite connection, each call in a fresh read transaction",
+            "warmups_per_variant": PAIRED_WARMUPS,
+            "samples_per_variant": PAIRED_SAMPLES,
+            "original": summarize_samples(&original_samples),
+            "candidate_result": summarize_samples(&candidate_samples),
+            "complete_source_health_equal": facts_match,
+            "revision_facts_bytes_and_blake3_equal": facts_match,
+            "database": database_metrics(&conn, path),
+            "timing_scope": "query execution, row mapping, revision-facts JSON serialization and BLAKE3; excludes pool checkout and transaction setup"
+        }));
+    }
+}
+
+fn run_snapshot_variant(
+    db: &Database,
+    query: &str,
+    candidate: SourceHealthCandidate,
+) -> GlobalSearchSnapshot {
+    if candidate == SourceHealthCandidate::NarrowAggregate {
+        db.search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+            .expect("run the unoverridden production repository snapshot")
+    } else {
+        db.search_global_entries_snapshot_with_source_health_candidate(
+            query,
+            QUERY_LIMIT,
+            0,
+            candidate,
+        )
+        .expect("run test-only source-health SQL repository snapshot variant")
+    }
+}
+
+fn assert_snapshot_results_equal(
+    original: &GlobalSearchSnapshot,
+    candidate: &GlobalSearchSnapshot,
+) {
+    assert_eq!(original.results, candidate.results);
+    assert_eq!(original.source_health, candidate.source_health);
+    assert_eq!(
+        original.source_revision.as_bytes(),
+        candidate.source_revision.as_bytes()
+    );
+    assert_eq!(original.index_status, candidate.index_status);
+}
+
+fn topology_candidate_order(round: usize) -> [SourceHealthCandidate; 3] {
+    let mut candidates = SOURCE_HEALTH_CANDIDATES;
+    let candidate_count = candidates.len();
+    candidates.rotate_left(round % candidate_count);
+    candidates
+}
+
+fn topology_volume_id(volume_number: usize) -> String {
+    if volume_number == 1 {
+        "gv_test".to_string()
+    } else {
+        format!("gv_topology_{volume_number:02}")
+    }
+}
+
+fn insert_topology_volume(transaction: &rusqlite::Transaction<'_>, volume_number: usize) {
+    let mut volume = test_volume();
+    volume.id = topology_volume_id(volume_number);
+    volume.stable_volume_id = format!("issue359-topology-volume-{volume_number:02}");
+    volume.display_name = format!("Issue 359 topology volume {volume_number:02}");
+    volume.mount_path = format!("D:\\Issue359Topology\\volume-{volume_number:02}\\");
+    transaction
+        .execute(
+            r#"
+            INSERT INTO global_volumes (
+                id, platform, stable_volume_id, display_name, mount_path,
+                filesystem_type, drive_kind, enabled, provider, index_status,
+                last_error, journal_id, journal_cursor, last_full_index_at,
+                last_incremental_sync_at, entry_count, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            "#,
+            params![
+                volume.id,
+                volume.platform,
+                volume.stable_volume_id,
+                volume.display_name,
+                volume.mount_path,
+                volume.filesystem_type,
+                volume.drive_kind,
+                i64::from(volume.enabled),
+                volume.provider,
+                volume.index_status,
+                volume.last_error,
+                volume.journal_id,
+                volume.journal_cursor,
+                volume.last_full_index_at,
+                volume.last_incremental_sync_at,
+                volume.entry_count,
+                volume.created_at,
+                volume.updated_at,
+            ],
+        )
+        .expect("insert disposable topology volume");
+}
+
+fn apply_source_health_topology(conn: &mut Connection, topology: SourceHealthTopology) -> f64 {
+    let started = Instant::now();
+    let transaction = conn
+        .transaction()
+        .expect("begin rollbackable source-health topology transition");
+    if topology.volume_count == 10 {
+        for volume_number in 2..=10 {
+            insert_topology_volume(&transaction, volume_number);
+        }
+        let volume_cases = (0..10)
+            .map(|bucket| {
+                let volume_number = bucket + 1;
+                format!("WHEN {bucket} THEN '{}'", topology_volume_id(volume_number))
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let stale_expression = if topology.stale_percent == 90 {
+            "CASE WHEN ((rowid - 1) % 100) < 10 THEN 0 ELSE 1 END"
+        } else {
+            "0"
+        };
+        let update_sql = format!(
+            "UPDATE global_entries SET volume_id = CASE ((rowid - 1) / 50000) {volume_cases} ELSE 'gv_test' END, is_stale = {stale_expression}"
+        );
+        transaction
+            .execute(&update_sql, [])
+            .expect("partition the same 500k rows across ten volumes");
+    } else if topology.stale_percent == 90 {
+        transaction
+            .execute(
+                "UPDATE global_entries SET is_stale = CASE WHEN ((rowid - 1) % 100) < 10 THEN 0 ELSE 1 END",
+                [],
+            )
+            .expect("mark exactly ninety percent of the one-volume fixture stale");
+    }
+    transaction
+        .commit()
+        .expect("commit the disposable topology state for pooled snapshot reads");
+    started.elapsed().as_secs_f64() * 1_000.0
+}
+
+fn restore_source_health_topology_base(
+    conn: &mut Connection,
+    base_volume_entry_count: i64,
+    base_volume_updated_at: i64,
+) -> f64 {
+    let started = Instant::now();
+    let transaction = conn
+        .transaction()
+        .expect("begin source-health topology rollback");
+    transaction
+        .execute(
+            "UPDATE global_entries SET volume_id = 'gv_test', is_stale = 0 WHERE volume_id <> 'gv_test' OR is_stale <> 0",
+            [],
+        )
+        .expect("restore all synthetic entries to the single-volume active base");
+    transaction
+        .execute(
+            "UPDATE global_volumes SET entry_count = ?1, updated_at = ?2 WHERE id = 'gv_test'",
+            params![base_volume_entry_count, base_volume_updated_at],
+        )
+        .expect("restore base volume cache and timestamp changed by fixture triggers");
+    transaction
+        .execute(
+            "DELETE FROM global_volumes WHERE substr(id, 1, 12) = 'gv_topology_'",
+            [],
+        )
+        .expect("remove the disposable topology volumes");
+    transaction
+        .commit()
+        .expect("commit topology rollback to the fixture base");
+    started.elapsed().as_secs_f64() * 1_000.0
+}
+
+fn source_health_topology_facts(conn: &Connection, topology: SourceHealthTopology) -> JsonValue {
+    let entry_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get(0))
+        .expect("count the fixed source-health fixture entries");
+    let volume_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM global_volumes", [], |row| row.get(0))
+        .expect("count source-health fixture volumes");
+    let enabled_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM global_volumes WHERE enabled = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count enabled source-health volumes");
+    let disabled_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM global_volumes WHERE enabled = 0",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count disabled source-health volumes");
+    assert_eq!(entry_count, DIAGNOSTIC_ENTRIES as i64);
+    assert_eq!(volume_count, topology.volume_count as i64);
+    assert_eq!(enabled_count, topology.volume_count as i64);
+    assert_eq!(disabled_count, 0);
+
+    let mut statement = conn
+        .prepare(
+            r#"
+            SELECT volume.id, volume.enabled, volume.entry_count, volume.updated_at,
+                   COUNT(entry.id),
+                   COALESCE(SUM(CASE WHEN entry.is_stale = 0 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN entry.is_stale = 1 THEN 1 ELSE 0 END), 0)
+            FROM global_volumes volume
+            LEFT JOIN global_entries entry ON entry.volume_id = volume.id
+            GROUP BY volume.id, volume.enabled
+            ORDER BY volume.id ASC
+            "#,
+        )
+        .expect("prepare per-volume stale topology counts");
+    let volumes = statement
+        .query_map([], |row| {
+            Ok(json!({
+                "volume_id": row.get::<_, String>(0)?,
+                "enabled": row.get::<_, i64>(1)? != 0,
+                "global_volume_entry_count": row.get::<_, i64>(2)?,
+                "global_volume_updated_at": row.get::<_, i64>(3)?,
+                "entry_count": row.get::<_, i64>(4)?,
+                "active_entry_count": row.get::<_, i64>(5)?,
+                "stale_entry_count": row.get::<_, i64>(6)?
+            }))
+        })
+        .expect("read per-volume stale topology counts")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect per-volume stale topology counts");
+    assert_eq!(volumes.len(), topology.volume_count);
+    let rows_per_volume = DIAGNOSTIC_ENTRIES as i64 / topology.volume_count as i64;
+    let stale_per_volume = rows_per_volume * topology.stale_percent as i64 / 100;
+    for volume in &volumes {
+        assert_eq!(volume["enabled"], true);
+        assert_eq!(volume["entry_count"], rows_per_volume);
+        assert_eq!(
+            volume["global_volume_entry_count"],
+            rows_per_volume - stale_per_volume
+        );
+        assert_eq!(
+            volume["active_entry_count"],
+            rows_per_volume - stale_per_volume
+        );
+        assert_eq!(volume["stale_entry_count"], stale_per_volume);
+    }
+    let total_stale = stale_per_volume * topology.volume_count as i64;
+    let actual_stale_percent = total_stale as f64 / entry_count as f64 * 100.0;
+    assert_eq!(actual_stale_percent, topology.stale_percent as f64);
+
+    json!({
+        "topology": topology.name,
+        "entry_count": entry_count,
+        "volume_count": volume_count,
+        "enabled_volume_count": enabled_count,
+        "disabled_volume_count": disabled_count,
+        "target_stale_percent": topology.stale_percent,
+        "active_entry_count": entry_count - total_stale,
+        "stale_entry_count": total_stale,
+        "actual_stale_percent": actual_stale_percent,
+        "volume_rows": volumes,
+        "all_volume_rows_enabled": true
+    })
+}
+
+fn schema_index_signature(conn: &Connection) -> String {
+    let mut statement = conn
+        .prepare(
+            "SELECT type, name, COALESCE(sql, '') FROM sqlite_master WHERE type IN ('table', 'index', 'trigger') ORDER BY type, name",
+        )
+        .expect("prepare disposable fixture schema signature");
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .expect("read disposable fixture schema signature")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect disposable fixture schema signature");
+    blake3::hash(&serde_json::to_vec(&rows).expect("serialize fixture schema signature"))
+        .to_hex()
+        .to_string()
+}
+
+fn sqlite_runtime_settings(conn: &Connection) -> JsonValue {
+    let sqlite_version: String = conn
+        .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+        .expect("read SQLite runtime version");
+    json!({
+        "sqlite_version": sqlite_version,
+        "journal_mode": conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0)).expect("read journal mode"),
+        "synchronous": conn.query_row("PRAGMA synchronous", [], |row| row.get::<_, i64>(0)).expect("read synchronous"),
+        "foreign_keys": conn.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0)).expect("read foreign keys"),
+        "temp_store": conn.query_row("PRAGMA temp_store", [], |row| row.get::<_, i64>(0)).expect("read temp store"),
+        "mmap_size": conn.query_row("PRAGMA mmap_size", [], |row| row.get::<_, i64>(0)).expect("read mmap size"),
+        "page_size": conn.query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0)).expect("read page size")
+    })
+}
+
+fn measure_source_health_sql_rows(
+    conn: &Connection,
+    candidate: SourceHealthCandidate,
+) -> (Vec<SourceHealthSqlRow>, JsonValue) {
+    let mut statement = conn
+        .prepare(candidate.sql())
+        .expect("prepare topology source-health SQL candidate");
+    for status in [
+        StatementStatus::Sort,
+        StatementStatus::FullscanStep,
+        StatementStatus::VmStep,
+    ] {
+        statement.reset_status(status);
+    }
+    let rows = statement
+        .query_map([], |row| {
+            Ok(SourceHealthSqlRow {
+                source_id: row.get(0)?,
+                enabled: row.get::<_, i64>(1)? != 0,
+                provider: row.get(2)?,
+                status: row.get(3)?,
+                last_error: row.get(4)?,
+                updated_at: row.get(5)?,
+                active_entry_count: row.get(6)?,
+                max_last_seen_at: row.get(7)?,
+            })
+        })
+        .expect("execute topology source-health SQL candidate")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect topology source-health SQL candidate");
+    let counters = json!({
+        "sort_operations": statement.get_status(StatementStatus::Sort),
+        "fullscan_steps": statement.get_status(StatementStatus::FullscanStep),
+        "vm_steps": statement.get_status(StatementStatus::VmStep),
+        "scope": "last complete SQL execution; VM steps and fullscan counters are work indicators, not CPU time or isolated temporary bytes"
+    });
+    (rows, counters)
+}
+
+fn profile_topology_source_health_sql(
+    conn: &Connection,
+    topology_facts: &JsonValue,
+    context: &JsonValue,
+    resources: &SourceHealthResourceSampler,
+) {
+    let expected = measure_source_health_sql_rows(conn, SourceHealthCandidate::Original).0;
+    assert_eq!(
+        expected.len(),
+        topology_facts["volume_count"].as_u64().unwrap() as usize
+    );
+    let mut samples = std::array::from_fn::<_, 3, _>(|_| Vec::with_capacity(PAIRED_SAMPLES));
+    let mut counters = vec![JsonValue::Null; SOURCE_HEALTH_CANDIDATES.len()];
+
+    for warmup in 0..PAIRED_WARMUPS {
+        for candidate in topology_candidate_order(warmup) {
+            let (observed, _) = resources.measure(candidate, false, || {
+                measure_source_health_sql_rows(conn, candidate)
+            });
+            assert_eq!(observed.0, expected);
+        }
+    }
+    for sample in 0..PAIRED_SAMPLES {
+        for candidate in topology_candidate_order(sample) {
+            let candidate_index = SOURCE_HEALTH_CANDIDATES
+                .iter()
+                .position(|current| *current == candidate)
+                .expect("candidate belongs to topology diagnostic");
+            let ((observed, statement_counters), elapsed_ms) =
+                resources.measure(candidate, false, || {
+                    measure_source_health_sql_rows(conn, candidate)
+                });
+            assert_eq!(observed, expected);
+            samples[candidate_index].push(elapsed_ms);
+            counters[candidate_index] = statement_counters;
+        }
+    }
+
+    let original_facts =
+        load_global_search_source_health_candidate(conn, SourceHealthCandidate::Original)
+            .expect("load ordered Original source facts");
+    for (index, candidate) in SOURCE_HEALTH_CANDIDATES.iter().copied().enumerate() {
+        let facts = load_global_search_source_health_candidate(conn, candidate)
+            .expect("load ordered candidate source facts");
+        assert_eq!(facts.source_health, original_facts.source_health);
+        assert_eq!(
+            facts.revision_facts_json,
+            original_facts.revision_facts_json
+        );
+        assert_eq!(
+            facts.source_revision.as_bytes(),
+            original_facts.source_revision.as_bytes()
+        );
+        let explain = explain_details(conn, candidate.sql(), &[]);
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_topology_sql_paired",
+            "context": context,
+            "topology": topology_facts,
+            "candidate_label": source_health_topology_candidate_label(candidate),
+            "candidate": source_health_candidate_name(candidate),
+            "paired_group": "Original, production Candidate B, and test-only Candidate C rotate first/second/third across samples on the same runner, database, and connection",
+            "warmups_per_candidate": PAIRED_WARMUPS,
+            "samples_per_candidate": PAIRED_SAMPLES,
+            "latency_ms": summarize_samples(&samples[index]),
+            "source_health_row_count": expected.len(),
+            "raw_ordered_sql_rows_equal_to_original": true,
+            "ordered_source_facts_equal_to_original": true,
+            "revision_facts_json_byte_equal_to_original": true,
+            "source_revision_blake3_equal_to_original": true,
+            "source_revision_blake3": facts.source_revision,
+            "revision_facts_json": String::from_utf8(facts.revision_facts_json).expect("revision facts are UTF-8 JSON"),
+            "sql": candidate.sql(),
+            "explain_query_plan": explain,
+            "sqlite_statement_counters": counters[index],
+            "resources": resources.metrics(candidate, false),
+            "timing_scope": "statement prepare, full ordered row drain and row mapping; excludes EXPLAIN"
+        }));
+    }
+}
+
+fn profile_topology_repository_snapshots(
+    db: &Database,
+    topology_facts: &JsonValue,
+    context: &JsonValue,
+    resources: &SourceHealthResourceSampler,
+) {
+    for (query_class, query) in [
+        ("no_result", "zzznomatchtoken"),
+        ("high_hit_fts_report", "report"),
+    ] {
+        let original = run_snapshot_variant(db, query, SourceHealthCandidate::Original);
+        let b = run_snapshot_variant(db, query, SourceHealthCandidate::NarrowAggregate);
+        let c = run_snapshot_variant(db, query, SourceHealthCandidate::GroupByVolumeId);
+        assert_snapshot_results_equal(&original, &b);
+        assert_snapshot_results_equal(&original, &c);
+        if query_class == "high_hit_fts_report" {
+            assert_eq!(original.results.len(), QUERY_LIMIT as usize);
+        } else {
+            assert!(original.results.is_empty());
+        }
+
+        for warmup in 0..PAIRED_WARMUPS {
+            for candidate in topology_candidate_order(warmup) {
+                let (snapshot, _) = resources.measure(candidate, true, || {
+                    run_snapshot_variant(db, query, candidate)
+                });
+                assert_snapshot_results_equal(&original, &snapshot);
+            }
+        }
+        let mut samples = std::array::from_fn::<_, 3, _>(|_| Vec::with_capacity(PAIRED_SAMPLES));
+        for sample in 0..PAIRED_SAMPLES {
+            for candidate in topology_candidate_order(sample) {
+                let candidate_index = SOURCE_HEALTH_CANDIDATES
+                    .iter()
+                    .position(|current| *current == candidate)
+                    .expect("candidate belongs to topology diagnostic");
+                let (snapshot, elapsed_ms) = resources.measure(candidate, true, || {
+                    run_snapshot_variant(db, query, candidate)
+                });
+                assert_snapshot_results_equal(&original, &snapshot);
+                samples[candidate_index].push(elapsed_ms);
+            }
+        }
+        for (index, candidate) in SOURCE_HEALTH_CANDIDATES.iter().copied().enumerate() {
+            let final_snapshot = run_snapshot_variant(db, query, candidate);
+            assert_snapshot_results_equal(&original, &final_snapshot);
+            emit_record(&json!({
+                "schema_version": 1,
+                "record_type": "source_health_topology_repository_snapshot_paired",
+                "context": context,
+                "topology": topology_facts,
+                "query_class": query_class,
+                "query": query,
+                "candidate_label": source_health_topology_candidate_label(candidate),
+                "candidate": source_health_candidate_name(candidate),
+                "paired_group": "the exact Database::search_global_entries_snapshot method executes each candidate inside its normal single read transaction; Candidate B is the unoverridden production path, Original and C use the existing test-only SQL override",
+                "warmups_per_candidate": PAIRED_WARMUPS,
+                "samples_per_candidate": PAIRED_SAMPLES,
+                "latency_ms": summarize_samples(&samples[index]),
+                "result_count": final_snapshot.results.len(),
+                "result_ids_prefix": final_snapshot.results.iter().take(8).map(|row| row.id.clone()).collect::<Vec<_>>(),
+                "source_health_equal_to_original": true,
+                "source_revision_byte_equal_to_original": true,
+                "index_status_equal_to_original": true,
+                "search_results_equal_to_original": true,
+                "resources": resources.metrics(candidate, true),
+                "timing_scope": "pool checkout, transaction setup, exact search tier, source-health row mapping, revision JSON/BLAKE3, index status and transaction commit"
+            }));
+        }
+    }
+}
+
+fn profile_repository_snapshot_candidates(db: &Database, path: &Path, context: &JsonValue) {
+    for (class, query) in [
+        ("no_result", "zzznomatchtoken"),
+        ("name_prefix", "quarterly"),
+        ("fts_high_fanout_report", "report"),
+    ] {
+        let original_kind = SourceHealthCandidate::Original;
+        for candidate in [
+            SourceHealthCandidate::CorrelatedAggregates,
+            SourceHealthCandidate::NarrowAggregate,
+        ] {
+            for _ in 0..PAIRED_WARMUPS {
+                let original = run_snapshot_variant(db, query, original_kind);
+                let optimized = run_snapshot_variant(db, query, candidate);
+                assert_snapshot_results_equal(&original, &optimized);
+            }
+            let mut original_samples = Vec::with_capacity(PAIRED_SAMPLES);
+            let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+            for sample in 0..PAIRED_SAMPLES {
+                let (original, original_ms, optimized, candidate_ms) = if sample % 2 == 0 {
+                    let started = Instant::now();
+                    let original = run_snapshot_variant(db, query, original_kind);
+                    let original_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    let started = Instant::now();
+                    let optimized = run_snapshot_variant(db, query, candidate);
+                    let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    (original, original_ms, optimized, candidate_ms)
+                } else {
+                    let started = Instant::now();
+                    let optimized = run_snapshot_variant(db, query, candidate);
+                    let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    let started = Instant::now();
+                    let original = run_snapshot_variant(db, query, original_kind);
+                    let original_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                    (original, original_ms, optimized, candidate_ms)
+                };
+                assert_snapshot_results_equal(&original, &optimized);
+                original_samples.push(original_ms);
+                candidate_samples.push(candidate_ms);
+            }
+            let final_snapshot = run_snapshot_variant(db, query, candidate);
+            emit_record(&json!({
+                "schema_version": 1,
+                "record_type": "repository_snapshot_paired",
+                "context": context,
+                "query_class": class,
+                "query": query,
+                "candidate": source_health_candidate_name(candidate),
+                "pairing": "alternating complete snapshot calls, same 500k database and connection pool; each call performs search, source-health/revision and index status in one read transaction",
+                "warmups_per_variant": PAIRED_WARMUPS,
+                "samples_per_variant": PAIRED_SAMPLES,
+                "original": summarize_samples(&original_samples),
+                "candidate_result": summarize_samples(&candidate_samples),
+                "source_health_equal": true,
+                "source_revision_byte_equal": true,
+                "index_status_equal": true,
+                "search_results_equal": true,
+                "result_count": final_snapshot.results.len(),
+                "database": database_metrics(
+                    &db.conn().expect("borrow database metrics connection"),
+                    path,
+                )
+            }));
+        }
+
+        // The candidate selected for production is also exercised through the
+        // public repository entry point on this same large fixture.
+        let candidate = SourceHealthCandidate::NarrowAggregate;
+        for _ in 0..PAIRED_WARMUPS {
+            let actual = db
+                .search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+                .expect("warm production repository snapshot");
+            let candidate_snapshot = run_snapshot_variant(db, query, candidate);
+            assert_snapshot_results_equal(&actual, &candidate_snapshot);
+        }
+        let mut production_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        let mut candidate_samples = Vec::with_capacity(PAIRED_SAMPLES);
+        for sample in 0..PAIRED_SAMPLES {
+            let (production, production_ms, candidate_snapshot, candidate_ms) = if sample % 2 == 0 {
+                let started = Instant::now();
+                let production = db
+                    .search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+                    .expect("measure actual production repository snapshot");
+                let production_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                let started = Instant::now();
+                let candidate_snapshot = run_snapshot_variant(db, query, candidate);
+                let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                (production, production_ms, candidate_snapshot, candidate_ms)
+            } else {
+                let started = Instant::now();
+                let candidate_snapshot = run_snapshot_variant(db, query, candidate);
+                let candidate_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                let started = Instant::now();
+                let production = db
+                    .search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+                    .expect("measure actual production repository snapshot");
+                let production_ms = started.elapsed().as_secs_f64() * 1_000.0;
+                (production, production_ms, candidate_snapshot, candidate_ms)
+            };
+            assert_snapshot_results_equal(&production, &candidate_snapshot);
+            production_samples.push(production_ms);
+            candidate_samples.push(candidate_ms);
+        }
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "production_repository_snapshot_validation",
+            "context": context,
+            "query_class": class,
+            "query": query,
+            "candidate": source_health_candidate_name(candidate),
+            "pairing": "actual Database::search_global_entries_snapshot and test-only candidate snapshot alternate on the same 500k fixture; both use a read transaction for search, source facts and index status",
+            "warmups_per_variant": PAIRED_WARMUPS,
+            "samples_per_variant": PAIRED_SAMPLES,
+            "production_entrypoint": summarize_samples(&production_samples),
+            "candidate_snapshot_helper": summarize_samples(&candidate_samples),
+            "source_health_equal": true,
+            "source_revision_byte_equal": true,
+            "index_status_equal": true,
+            "search_results_equal": true
+        }));
+    }
 }
 
 fn measure_production_tier(
@@ -1297,6 +2347,220 @@ fn run_count_sql(conn: &Connection, sql: &str, values: &[SqlValue]) -> usize {
 }
 
 #[test]
+#[ignore = "Owner-qualified Issue #359 topology diagnostic; one fixed 500k fixture, four rollbackable states"]
+fn global_search_source_health_topology_diagnostic() {
+    assert_eq!(
+        env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
+            .ok()
+            .as_deref(),
+        Some("500000"),
+        "Issue #359 topology validation is fixed at 500,000 rows and must not become a 1m run"
+    );
+    assert_eq!(DIAGNOSTIC_ENTRIES, 500_000);
+    let output_path = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT").ok();
+    if let Some(path) = &output_path {
+        let path = PathBuf::from(path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create topology diagnostic evidence directory");
+        }
+        fs::write(path, "").expect("truncate topology diagnostic JSONL evidence");
+    }
+
+    let context = benchmark_context(DIAGNOSTIC_ENTRIES);
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).expect("open the single 500k topology diagnostic fixture");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert the one enabled base synthetic volume");
+
+    let fixture_started = Instant::now();
+    let (_expectations, generation_ms, population_ms, population_transactions) =
+        populate_synthetic_database(&db, DIAGNOSTIC_ENTRIES);
+    let fixture_build_wall_ms = fixture_started.elapsed().as_secs_f64() * 1_000.0;
+    let mut conn = configured_connection(&path).expect("open configured topology SQL connection");
+    let base_topology = SOURCE_HEALTH_TOPOLOGIES[0];
+    let base_facts = source_health_topology_facts(&conn, base_topology);
+    assert_eq!(base_facts["entry_count"], DIAGNOSTIC_ENTRIES);
+    let base_volume_entry_count = base_facts["volume_rows"][0]["global_volume_entry_count"]
+        .as_i64()
+        .expect("read original base volume's cached active count");
+    let base_volume_updated_at = base_facts["volume_rows"][0]["global_volume_updated_at"]
+        .as_i64()
+        .expect("read original base volume update timestamp");
+    let schema_signature_before = schema_index_signature(&conn);
+    let benchmark_connection_settings = sqlite_runtime_settings(&conn);
+    let pooled_snapshot_connection_settings = {
+        let pooled = db
+            .conn()
+            .expect("borrow repository pool connection for PRAGMAs");
+        sqlite_runtime_settings(&pooled)
+    };
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "source_health_topology_environment",
+        "context": context,
+        "runner": {
+            "os": env::consts::OS,
+            "arch": env::consts::ARCH,
+            "image_os": env::var("ImageOS").ok(),
+            "image_version": env::var("ImageVersion").ok(),
+            "github_job": env::var("GITHUB_JOB").ok(),
+            "github_run_attempt": env::var("GITHUB_RUN_ATTEMPT").ok()
+        },
+        "fixture_type": "one deterministic production-schema synthetic SQLite database, populated once, then topology rows updated transactionally and reverted on the same disposable file",
+        "fixture_builds": 1,
+        "entries_after_build": DIAGNOSTIC_ENTRIES,
+        "base_topology": base_facts,
+        "fixture_generation_ms": generation_ms,
+        "fixture_population_ms": population_ms,
+        "fixture_build_wall_ms": fixture_build_wall_ms,
+        "fixture_population_transaction_ms": summarize_samples(&population_transactions),
+        "benchmark_connection_sqlite_settings": benchmark_connection_settings,
+        "repository_pool_sqlite_settings": pooled_snapshot_connection_settings,
+        "database": database_metrics(&conn, &path),
+        "schema_index_signature_before": schema_signature_before,
+        "filesystem_file_discovery_measured": false,
+        "full_500k_search_matrix_repeated": false,
+        "one_million_row_benchmark_run": false
+    }));
+
+    let mut topologies_completed = 0;
+    let mut topology_transition_ms = Vec::with_capacity(SOURCE_HEALTH_TOPOLOGIES.len());
+    let mut topology_rollback_ms = Vec::with_capacity(SOURCE_HEALTH_TOPOLOGIES.len());
+    for topology in SOURCE_HEALTH_TOPOLOGIES {
+        let transition_ms = apply_source_health_topology(&mut conn, topology);
+        topology_transition_ms.push(transition_ms);
+        let topology_facts = source_health_topology_facts(&conn, topology);
+        let resources = SourceHealthResourceSampler::new();
+        let topology_pool_settings = {
+            let pooled = db
+                .conn()
+                .expect("borrow repository pool connection for topology PRAGMAs");
+            sqlite_runtime_settings(&pooled)
+        };
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_topology_state",
+            "context": context,
+            "topology": topology_facts,
+            "state_transition_ms": round_ms(transition_ms),
+            "state_transition_committed_only_inside_disposable_fixture": true,
+            "state_is_reverted_to_single_volume_active_base_before_next_variant": true,
+            "single_fixture_path": path.file_name().and_then(|name| name.to_str()),
+            "benchmark_connection_sqlite_settings": sqlite_runtime_settings(&conn),
+            "repository_pool_sqlite_settings": topology_pool_settings,
+            "database": database_metrics(&conn, &path)
+        }));
+
+        let mut fact_conn = db
+            .conn()
+            .expect("borrow source-health semantic comparison connection");
+        let transaction = fact_conn
+            .transaction()
+            .expect("begin one-read-transaction source-facts equality check");
+        let original_facts = load_global_search_source_health_candidate(
+            &transaction,
+            SourceHealthCandidate::Original,
+        )
+        .expect("load Original ordered source facts");
+        for candidate in [
+            SourceHealthCandidate::NarrowAggregate,
+            SourceHealthCandidate::GroupByVolumeId,
+        ] {
+            let candidate_facts =
+                load_global_search_source_health_candidate(&transaction, candidate)
+                    .expect("load B/C ordered source facts in the same read transaction");
+            assert_eq!(candidate_facts.source_health, original_facts.source_health);
+            assert_eq!(
+                candidate_facts.revision_facts_json,
+                original_facts.revision_facts_json
+            );
+            assert_eq!(
+                candidate_facts.source_revision.as_bytes(),
+                original_facts.source_revision.as_bytes()
+            );
+        }
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_topology_revision_fact_equality",
+            "context": context,
+            "topology": topology_facts,
+            "single_read_transaction": true,
+            "ordered_source_facts": original_facts.source_health.iter().map(|fact| json!({
+                "source_id": fact.source_id,
+                "enabled": fact.enabled,
+                "provider": fact.provider,
+                "status": fact.status,
+                "last_error": fact.last_error,
+                "updated_at": fact.updated_at
+            })).collect::<Vec<_>>(),
+            "revision_facts_json": String::from_utf8(original_facts.revision_facts_json.clone()).expect("revision facts are UTF-8 JSON"),
+            "source_revision_blake3": original_facts.source_revision,
+            "Original_B_C_ordered_source_facts_equal": true,
+            "Original_B_C_revision_facts_json_byte_equal": true,
+            "Original_B_C_source_revision_blake3_byte_equal": true
+        }));
+        transaction
+            .commit()
+            .expect("commit read-only source-facts comparison snapshot");
+        drop(fact_conn);
+
+        profile_topology_source_health_sql(&conn, &topology_facts, &context, &resources);
+        profile_topology_repository_snapshots(&db, &topology_facts, &context, &resources);
+        drop(resources);
+
+        let rollback_ms = restore_source_health_topology_base(
+            &mut conn,
+            base_volume_entry_count,
+            base_volume_updated_at,
+        );
+        topology_rollback_ms.push(rollback_ms);
+        let restored_facts = source_health_topology_facts(&conn, base_topology);
+        assert_eq!(restored_facts, base_facts);
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "source_health_topology_rollback",
+            "context": context,
+            "topology_reverted": topology.name,
+            "rollback_ms": round_ms(rollback_ms),
+            "restored_base_state": restored_facts,
+            "entry_count_restored": true,
+            "volume_count_restored": true,
+            "active_stale_distribution_restored": true,
+            "rollback_verified_before_next_topology": true
+        }));
+        topologies_completed += 1;
+    }
+
+    assert_eq!(topologies_completed, SOURCE_HEALTH_TOPOLOGIES.len());
+    assert_eq!(
+        source_health_topology_facts(&conn, base_topology),
+        base_facts
+    );
+    let schema_signature_after = schema_index_signature(&conn);
+    assert_eq!(schema_signature_before, schema_signature_after);
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "source_health_topology_diagnostic_complete",
+        "context": context,
+        "entries_after_all_variants": conn.query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get::<_, i64>(0)).expect("count restored entries"),
+        "topologies_completed": topologies_completed,
+        "topology_state_transition_ms": summarize_samples(&topology_transition_ms),
+        "topology_rollback_ms": summarize_samples(&topology_rollback_ms),
+        "one_fixture_build": true,
+        "all_variants_transactionally_restored_before_next": true,
+        "schema_and_index_signature_unchanged": true,
+        "schema_index_signature_before": schema_signature_before,
+        "schema_index_signature_after": schema_signature_after,
+        "production_sql_changed": false,
+        "persistent_schema_or_index_changed": false,
+        "full_500k_search_matrix_repeated": false,
+        "one_million_row_benchmark_run": false,
+        "performance_gate_changed": false
+    }));
+}
+
+#[test]
 #[ignore = "single 500k-row Issue #352 query-stage diagnostic; one reusable Windows Hosted fixture"]
 fn global_search_query_cost_diagnostic() {
     assert_eq!(
@@ -1390,6 +2654,42 @@ fn global_search_query_cost_diagnostic() {
             Vec::new(),
         );
     }
+
+    // Reuse this exact fixture for Issue #359: compare both exact source-health
+    // candidates, their facts/hash work, and complete repository snapshots.
+    profile_source_health_sql_candidates(&context, &conn, &path);
+    profile_source_health_functions(&db, &path, &context);
+    profile_repository_snapshot_candidates(&db, &path, &context);
+
+    let mut correctness_classes = 0;
+    for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
+        let actual_count = actual_match_count(&conn, query_case);
+        assert_eq!(
+            actual_count as u64, expectation.total_matches,
+            "500k count oracle for {}",
+            query_case.class
+        );
+        assert_search_results(
+            &conn,
+            query_case,
+            expectation,
+            SEARCH_RESULT_LIMIT,
+            0,
+            DIAGNOSTIC_ENTRIES,
+        );
+        correctness_classes += 1;
+    }
+    assert_eq!(correctness_classes, QUERY_MATRIX.len());
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "source_health_diagnostic_500k_correctness",
+        "context": context,
+        "official_query_classes_checked": correctness_classes,
+        "official_query_classes_passed": correctness_classes,
+        "query_correctness": true,
+        "performance_matrix_repeated": false,
+        "performance_gate_changed": false
+    }));
 
     for spec in PREFIX_QUERIES.iter().copied() {
         let expectation_index = QUERY_MATRIX
@@ -1802,7 +3102,12 @@ fn global_search_query_cost_diagnostic() {
         "context": context,
         "base_rows_after_rollback": final_rows,
         "100ms_historical_gate_changed": false,
-        "production_search_source_changed": false,
+        "source_health_candidate_exercised": true,
+        "search_tier_sql_changed": false,
+        "schema_or_index_changed": false,
+        "source_health_candidates_and_full_snapshots_measured": true,
+        "official_500k_query_correctness_classes_checked": QUERY_MATRIX.len(),
+        "official_500k_query_correctness_passed": true,
         "one_fixture_build": true,
         "one_million_row_benchmark_run": false,
         "official_full_benchmark_matrix_repeated": false,
