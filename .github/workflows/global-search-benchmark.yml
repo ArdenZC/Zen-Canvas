@@ -3,6 +3,7 @@ name: Global Search synthetic benchmark
 on:
   pull_request:
     paths:
+      - "src-tauri/src/global_index/repository.rs"
       - "src-tauri/src/global_index/tests.rs"
       - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
       - "src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs"

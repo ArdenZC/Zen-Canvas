@@ -1,5 +1,7 @@
-//! Bounded Issue #352 investigation. This is deliberately test-only: the
-//! production SQL, schema, candidate cap, and result semantics are untouched.
+//! Bounded Issue #352/#359 investigation. Candidate instrumentation is
+//! test-only; the production source-health SQL is evaluated through the real
+//! repository snapshot path, while schema, search tiers, candidate cap, and
+//! result semantics remain unchanged.
 
 use super::{
     actual_match_count, assert_search_results, benchmark_context, benchmark_escape_glob,
@@ -2146,7 +2148,9 @@ fn global_search_query_cost_diagnostic() {
         "context": context,
         "base_rows_after_rollback": final_rows,
         "100ms_historical_gate_changed": false,
-        "production_search_source_changed": false,
+        "source_health_candidate_exercised": true,
+        "search_tier_sql_changed": false,
+        "schema_or_index_changed": false,
         "source_health_candidates_and_full_snapshots_measured": true,
         "official_500k_query_correctness_classes_checked": QUERY_MATRIX.len(),
         "official_500k_query_correctness_passed": true,

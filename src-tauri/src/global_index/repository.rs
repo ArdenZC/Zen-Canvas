@@ -32,6 +32,23 @@ pub(crate) enum GlobalSearchSourceHealthQueryCandidate {
     NarrowAggregate,
 }
 
+const GLOBAL_SEARCH_SOURCE_HEALTH_SQL: &str = r#"
+    WITH active_volume_facts AS (
+        SELECT volume_id,
+               COUNT(id) AS active_entry_count,
+               MAX(last_seen_at) AS max_last_seen_at
+        FROM global_entries
+        WHERE is_stale = 0
+        GROUP BY volume_id
+    )
+    SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+           COALESCE(active_volume_facts.active_entry_count, 0),
+           active_volume_facts.max_last_seen_at
+    FROM global_volumes gv
+    LEFT JOIN active_volume_facts ON active_volume_facts.volume_id = gv.id
+    ORDER BY gv.id ASC
+    "#;
+
 #[cfg(test)]
 std::thread_local! {
     static GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE: std::cell::Cell<Option<GlobalSearchSourceHealthQueryCandidate>> = const { std::cell::Cell::new(None) };
@@ -65,24 +82,7 @@ impl GlobalSearchSourceHealthQueryCandidate {
                 ORDER BY gv.id ASC
                 "#
             }
-            Self::NarrowAggregate => {
-                r#"
-                WITH active_volume_facts AS (
-                    SELECT volume_id,
-                           COUNT(id) AS active_entry_count,
-                           MAX(last_seen_at) AS max_last_seen_at
-                    FROM global_entries
-                    WHERE is_stale = 0
-                    GROUP BY volume_id
-                )
-                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
-                       COALESCE(active_volume_facts.active_entry_count, 0),
-                       active_volume_facts.max_last_seen_at
-                FROM global_volumes gv
-                LEFT JOIN active_volume_facts ON active_volume_facts.volume_id = gv.id
-                ORDER BY gv.id ASC
-                "#
-            }
+            Self::NarrowAggregate => GLOBAL_SEARCH_SOURCE_HEALTH_SQL,
         }
     }
 }
@@ -636,17 +636,7 @@ fn global_index_status_from_connection(
 fn load_global_search_sources_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
-    let mut statement = conn.prepare(
-        r#"
-        SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
-               COUNT(ge.id), MAX(ge.last_seen_at)
-        FROM global_volumes gv
-        LEFT JOIN global_entries ge
-          ON ge.volume_id = gv.id AND ge.is_stale = 0
-        GROUP BY gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at
-        ORDER BY gv.id ASC
-        "#,
-    )?;
+    let mut statement = conn.prepare(GLOBAL_SEARCH_SOURCE_HEALTH_SQL)?;
     let mut facts = Vec::new();
     let mut source_health = Vec::new();
     let rows = statement.query_map([], |row| {
