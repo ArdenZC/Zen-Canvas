@@ -3,8 +3,11 @@ name: Global Search synthetic benchmark
 on:
   pull_request:
     paths:
+      - "src-tauri/src/global_index/repository.rs"
       - "src-tauri/src/global_index/tests.rs"
       - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
+      - "src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs"
+      - ".github/workflows/global-search-benchmark.yml"
   workflow_dispatch:
     inputs:
       entries:
@@ -19,30 +22,32 @@ on:
           - "2000000"
           - "5000000"
       mode:
-        description: Run the official benchmark or the focused FTS diagnostic
+        description: Run the official benchmark or a focused diagnostic
         required: true
         type: choice
         default: baseline
         options:
           - baseline
           - fts_diagnostic
+          - source_health_diagnostic
+          - source_health_topology_diagnostic
 
 permissions:
   contents: read
 
 concurrency:
-  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}-${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
+  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}-${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
   cancel-in-progress: false
 
 jobs:
   synthetic-global-search:
-    name: Global Search ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
+    name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
     env:
-      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
       ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-baseline.jsonl
-      ZC_GLOBAL_SEARCH_BENCHMARK_MODE: ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_MODE: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
@@ -50,8 +55,28 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: 2
           persist-credentials: false
+      - name: Detect changed source-health diagnostic inputs
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' }}
+        id: source-health-scope
+        shell: pwsh
+        run: |
+          $previous = git rev-parse HEAD^
+          $changed = git diff --name-only $previous HEAD
+          $watched = @(
+            'src-tauri/src/global_index/repository.rs',
+            'src-tauri/src/global_index/tests.rs',
+            'src-tauri/src/global_index/tests/global_search_source_health.rs',
+            'src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs',
+            '.github/workflows/global-search-benchmark.yml'
+          )
+          $runDiagnostic = $false
+          foreach ($file in $watched) {
+            if ($changed -contains $file) { $runDiagnostic = $true }
+          }
+          $value = if ($runDiagnostic) { 'true' } else { 'false' }
+          "run_source_health_topology_diagnostic=$value" >> $env:GITHUB_OUTPUT
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -75,6 +100,44 @@ jobs:
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::fts_diagnostic::global_search_fts_latency_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Run single-fixture 500k query-cost diagnostic
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'query_cost_diagnostic' }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_query_cost_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Require the fixed 500k source-health fixture
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_diagnostic' }}
+        shell: pwsh
+        run: |
+          if ($env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES -ne '500000') {
+            throw 'Source-health diagnostic is fixed at 500,000 rows.'
+          }
+      - name: Run source-health candidates on the reused 500k fixture
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_diagnostic' && (github.event_name != 'pull_request' || github.head_ref != 'fix/issue-359-global-search-source-health-snapshot' || steps.source-health-scope.outputs.run_source_health_diagnostic == 'true') }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_query_cost_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Require the fixed 500k Owner topology fixture
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_topology_diagnostic' }}
+        shell: pwsh
+        run: |
+          if ($env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES -ne '500000') {
+            throw 'Owner topology qualification is fixed at exactly 500,000 rows.'
+          }
+      - name: Run focused Owner 500k topology qualification
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_topology_diagnostic' && (github.event_name != 'pull_request' || github.head_ref != 'fix/issue-359-global-search-source-health-snapshot' || steps.source-health-scope.outputs.run_source_health_topology_diagnostic == 'true') }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_source_health_topology_diagnostic
           -- --ignored --exact --nocapture --test-threads=1
       - name: Upload benchmark evidence
         if: ${{ always() }}

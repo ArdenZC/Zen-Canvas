@@ -1064,3 +1064,6 @@ fn removing_the_last_managed_scope_clears_ai_state_but_keeps_global_entry() {
 
 #[path = "tests/global_search_benchmark.rs"]
 mod global_search_benchmark;
+
+#[path = "tests/global_search_source_health.rs"]
+mod global_search_source_health;
