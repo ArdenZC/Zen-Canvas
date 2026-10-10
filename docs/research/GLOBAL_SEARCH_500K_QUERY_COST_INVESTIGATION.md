@@ -241,8 +241,8 @@ name/extension range lookup 不是主因；行数命中选择性对 SQLite VM wo
 
 - 当前 PR source 的正常 Hosted CI run `38020014704`：SUCCESS；required source/scope/plan、Windows Global Index qualification、Windows/macOS quality、Performance/Search 与 Performance profile 均成功。Search lane 使用 `--profile=extended`，日志显示执行 FTS 100k 与 Global Search 100k；这不是 500k 正式 12-query gate，也未执行 1m。
 - 专用 500k diagnostic workflow run `38020014723` / attempt 1：SUCCESS；同一 job 跑一次 fixture 和 query-cost test。没有重跑 500k 完整正式矩阵。
-- 本地 Linux full Rust test binary 需要未安装的 GTK/GLib native development libraries，因此没有声称本地 Linux test binary 通过。已执行的 cross-target Windows Rust check/Clippy 使用 no-link resource shim，只证明 Rust type/lint 层，不代表 Windows linker/native runtime。Hosted Windows diagnostic 提供运行时证据。
-- 最终文档提交后再次运行 docs、governance、actionlint、cargo fmt 和 diff checks；结果将记录在 Draft PR 最新描述与最终交付中。
+- 本地 Linux full Rust test binary 需要 GTK 3 / WebKitGTK 4.1 development libraries。当前 Debian 13 executor 是非特权 agent、没有 sudo；尝试 apt-get update 时因 /var/lib/apt/lists/partial 权限失败，所以未安装依赖或运行本地 Linux Rust test binary。cross-target Windows Rust check/Clippy 使用 no-link resource shim，只证明 Rust type/lint 层，不代表 Windows linker/native runtime；Hosted Windows diagnostic 提供运行时证据。
+- 文档提交后的本地检查：`DOCS_DIFF_BASE=origin/master npm run test:docs`（1 changed Markdown file）通过；`npm run test:governance` 通过；`actionlint .github/workflows/global-search-benchmark.yml` 通过；`cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` 通过；`git diff --check origin/master...HEAD` 通过。
 - 本 PR 的允许文件仅：global-search benchmark workflow、现有 benchmark test module 的 test-only wiring、新 query-cost test-only diagnostic、研究报告。生产代码：**NO**。
 - PR `358` 保持 OPEN / Draft；Issue #352 保持 OPEN；不 merge、不启动生产改造、不触发 Codex Review。
 
