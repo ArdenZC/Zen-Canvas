@@ -235,12 +235,16 @@ describe("actual validation lane result collection", () => {
     result: string,
     jobId = "frontend-quality",
     runAttempt: string | number = "1",
-  ) => ({
-    job_id: jobId,
-    lane,
-    run_attempt: String(runAttempt),
-    result,
-  });
+  ) => {
+    const normalizedAttempt = String(runAttempt);
+    return {
+      job_id: jobId,
+      lane,
+      run_attempt: normalizedAttempt,
+      result,
+      artifact_name: `ci-lane-result-${normalizedAttempt}-${jobId}-${lane}`,
+    };
+  };
 
   const summarize = (
     results: ReturnType<typeof laneResult>[],
@@ -293,6 +297,169 @@ describe("actual validation lane result collection", () => {
     expect(results).toEqual({ merge_integration: "success" });
     expect(projected.headValidationResult).toBeNull();
     expect(evaluateValidationAggregate(aggregateInput(plan, projected)).pass).toBe(true);
+  });
+
+  it("reads the sole merge-integration artifact from the download root and verifies its identity", () => {
+    const plan = buildValidationPlan(pullRequestInput({
+      headTreeSha: HEAD_TREE,
+      integrationTreeSha: HEAD_TREE,
+    }));
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-single-root-"));
+    const record = laneResult("merge_integration", "success", "docs-only-lanes", "1");
+    writeFileSync(join(artifactRoot, "ci-lane-result.json"), JSON.stringify(record));
+
+    try {
+      const readResults = readValidationLaneJobResults(artifactRoot, "1");
+      expect(readResults).toEqual([record]);
+      const laneResults = summarizeValidationLaneResults(
+        readResults,
+        plan.validation_lanes,
+        { "docs-only-lanes": true },
+        "1",
+      );
+      expect(laneResults).toEqual({ merge_integration: "success" });
+      expect(evaluateValidationAggregate(aggregateInput(plan,
+        validationLaneResultsForPlan(plan.validation_lanes, laneResults),
+      )).pass).toBe(true);
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["two named lane artifacts pass only when both lanes succeed", "success", "success", true],
+    ["head success and merge failure fail", "success", "failure", false],
+    ["head failure and merge success fail", "failure", "success", false],
+  ])("reads non-equivalent lane artifacts: %s", (_case, headResult, integrationResult, expectedPass) => {
+    const plan = buildValidationPlan(pullRequestInput());
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-multiple-"));
+    const records = [
+      laneResult("head_validation", headResult, "frontend-quality", "1"),
+      laneResult("merge_integration", integrationResult, "frontend-quality", "1"),
+    ];
+    for (const record of records) {
+      const artifactDirectory = join(artifactRoot, record.artifact_name);
+      mkdirSync(artifactDirectory, { recursive: true });
+      writeFileSync(join(artifactDirectory, "ci-lane-result.json"), JSON.stringify(record));
+    }
+
+    try {
+      const readResults = readValidationLaneJobResults(artifactRoot, "1");
+      const laneResults = summarizeValidationLaneResults(readResults, plan.validation_lanes, expectations, "1");
+      expect(laneResults).toEqual({
+        head_validation: headResult,
+        merge_integration: integrationResult,
+      });
+      expect(evaluateValidationAggregate(aggregateInput(plan,
+        validationLaneResultsForPlan(plan.validation_lanes, laneResults),
+      )).pass).toBe(expectedPass);
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails a non-equivalent aggregate when the merge artifact is absent", () => {
+    const plan = buildValidationPlan(pullRequestInput());
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-missing-merge-"));
+    const record = laneResult("head_validation", "success", "frontend-quality", "1");
+    const artifactDirectory = join(artifactRoot, record.artifact_name);
+    mkdirSync(artifactDirectory, { recursive: true });
+    writeFileSync(join(artifactDirectory, "ci-lane-result.json"), JSON.stringify(record));
+
+    try {
+      const laneResults = summarizeValidationLaneResults(
+        readValidationLaneJobResults(artifactRoot, "1"),
+        plan.validation_lanes,
+        expectations,
+        "1",
+      );
+      expect(laneResults.merge_integration).toBe("missing");
+      expect(evaluateValidationAggregate(aggregateInput(plan,
+        validationLaneResultsForPlan(plan.validation_lanes, laneResults),
+      )).pass).toBe(false);
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails a docs-only aggregate when the sole merge-integration result is absent", () => {
+    const plan = buildValidationPlan(pullRequestInput({
+      headTreeSha: HEAD_TREE,
+      integrationTreeSha: HEAD_TREE,
+    }));
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-single-missing-"));
+
+    try {
+      const laneResults = summarizeValidationLaneResults(
+        readValidationLaneJobResults(artifactRoot, "1"),
+        plan.validation_lanes,
+        { "docs-only-lanes": true },
+        "1",
+      );
+      expect(laneResults).toEqual({ merge_integration: "missing" });
+      expect(evaluateValidationAggregate(aggregateInput(plan,
+        validationLaneResultsForPlan(plan.validation_lanes, laneResults),
+      )).pass).toBe(false);
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a sole root artifact whose embedded artifact name disagrees with its metadata", () => {
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-single-root-mismatch-"));
+    const record = {
+      ...laneResult("merge_integration", "success", "docs-only-lanes", "1"),
+      artifact_name: "ci-lane-result-1-other-job-merge_integration",
+    };
+    writeFileSync(join(artifactRoot, "ci-lane-result.json"), JSON.stringify(record));
+
+    try {
+      expect(() => readValidationLaneJobResults(artifactRoot, "1"))
+        .toThrow(/artifact name does not match/u);
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a sole root artifact that omits its artifact identity", () => {
+    const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-single-root-no-name-"));
+    const record = {
+      job_id: "docs-only-lanes",
+      lane: "merge_integration",
+      run_attempt: "1",
+      result: "success",
+    };
+    writeFileSync(join(artifactRoot, "ci-lane-result.json"), JSON.stringify(record));
+
+    try {
+      expect(() => readValidationLaneJobResults(artifactRoot, "1"))
+        .toThrow(/artifact name does not match/u);
+    } finally {
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed for malformed JSON and mixed single/multiple artifact layouts", () => {
+    const malformedRoot = mkdtempSync(join(tmpdir(), "ci-lane-malformed-root-"));
+    writeFileSync(join(malformedRoot, "ci-lane-result.json"), "{");
+    try {
+      expect(() => readValidationLaneJobResults(malformedRoot, "1")).toThrow();
+    } finally {
+      rmSync(malformedRoot, { recursive: true, force: true });
+    }
+
+    const mixedRoot = mkdtempSync(join(tmpdir(), "ci-lane-mixed-layout-"));
+    const record = laneResult("merge_integration", "success", "docs-only-lanes", "1");
+    writeFileSync(join(mixedRoot, "ci-lane-result.json"), JSON.stringify(record));
+    const artifactDirectory = join(mixedRoot, record.artifact_name);
+    mkdirSync(artifactDirectory, { recursive: true });
+    writeFileSync(join(artifactDirectory, "ci-lane-result.json"), JSON.stringify(record));
+    try {
+      expect(() => readValidationLaneJobResults(mixedRoot, "1"))
+        .toThrow(/layout is ambiguous/u);
+    } finally {
+      rmSync(mixedRoot, { recursive: true, force: true });
+    }
   });
 
   it.each([
@@ -498,6 +665,7 @@ describe("actual validation lane result collection", () => {
     ["job_id whitespace", { ...laneResult("head_validation", "success", "frontend-quality", "1"), job_id: " frontend-quality" }],
     ["lane", laneResult("merge_integration", "success", "frontend-quality", "1")],
     ["run_attempt", laneResult("head_validation", "success", "frontend-quality", "2")],
+    ["artifact_name", { ...laneResult("head_validation", "success", "frontend-quality", "1"), artifact_name: "ci-lane-result-1-other-job-head_validation" }],
   ])("rejects artifact filename and record %s mismatch", (_field, record) => {
     const artifactRoot = mkdtempSync(join(tmpdir(), "ci-lane-results-mismatch-"));
     const artifactDirectory = join(artifactRoot, "ci-lane-result-1-frontend-quality-head_validation");
@@ -732,11 +900,20 @@ describe("workflow lane and governance wiring", () => {
     expect(block).not.toContain("${{ github.token }}");
     expect(block).not.toMatch(/^\s+(?:CI_GITHUB_TOKEN|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_APP_TOKEN|GH_APP_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|AUTHORIZATION|BEARER_TOKEN):/mu);
     expect(block).not.toMatch(/Authorization:\s*Bearer/u);
+    expect(interactiveWorkflow.match(/artifact_name: process\.env\.VALIDATION_ARTIFACT_NAME/g))
+      .toHaveLength(19);
     for (const matrixJobId of expectedJobIds) {
       const matrixBlock = workflowJobBlock(interactiveWorkflow, matrixJobId);
       expect(matrixBlock).toContain("name: " + matrixJobDisplayNames[matrixJobId] + " (${{ matrix.validation_lane }})");
       expect(matrixBlock).toContain("name: Upload sanitized validation lane result");
       expect(matrixBlock).toContain("ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}");
+      expect(matrixBlock).toContain("VALIDATION_JOB_ID: ${{ github.job }}");
+      expect(matrixBlock).toContain("VALIDATION_LANE: ${{ matrix.validation_lane }}");
+      expect(matrixBlock).toContain("VALIDATION_RUN_ATTEMPT: ${{ github.run_attempt }}");
+      expect(matrixBlock).toContain("VALIDATION_ARTIFACT_NAME: ci-lane-result-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.validation_lane }}");
+      expect(matrixBlock).toContain("artifact_name: process.env.VALIDATION_ARTIFACT_NAME");
+      expect(matrixBlock.match(/ci-lane-result-\$\{\{ github\.run_attempt \}\}-\$\{\{ github\.job \}\}-\$\{\{ matrix\.validation_lane \}\}/gu))
+        .toHaveLength(2);
       expect(interactiveWorkflow).toContain(
         "    name: " + matrixJobDisplayNames[matrixJobId] + " (${{ matrix.validation_lane }})",
       );
