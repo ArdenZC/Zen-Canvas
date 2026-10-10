@@ -390,7 +390,16 @@ Candidate C 的完整 Snapshot p95 对 B：1 卷 90% stale no-result / FTS 分�
 
 ### 语义、资源与限制
 
-每个 topology revision-fact equality 记录均确认 Original/B/C 的有序 source facts 相等、revision facts JSON 字节相等、source-revision BLAKE3 原始字节相等；4/4 topology 成功。24/24 Snapshot records 均确认 search results、source-health、revision、index_status 全部相等。Snapshot 候选仍在同一个单读事务中运行。数据库 rows 及 schema/index signature 在结束后恢复；Candidate C 只在 `#[cfg(test)]` 测试路径中。
+每个 topology revision-fact equality 记录均确认 Original/B/C 的有序 source facts 相等、revision facts JSON 字节相等、source-revision BLAKE3 原始字节相等；4/4 topology 成功：
+
+| 拓扑 | revision facts JSON bytes | BLAKE3 `source_revision` | Ordered facts / JSON bytes / hash bytes equal |
+|---|---:|---|---|
+| 1 卷 / 0% stale | 191 | `cad19ef2c872c87fa3ff032a5afd191d234aa1dc6c81d735631447686404ee64` | true / true / true |
+| 1 卷 / 90% stale | 190 | `7d5f527b9e9397bc9202ccd04b2e494b9f42638462eb25d309e848356dd67292` | true / true / true |
+| 10 卷 / 0% stale | 1,954 | `8c1e10c77270fb69694bcdefb9db12e4355ddbe89fe36f7021814a1920a03bfb` | true / true / true |
+| 10 卷 / 90% stale | 1,944 | `dcec2a7f006cadea0132d66d2271b766d278f2dbb6e4464546ba7e146d818925` | true / true / true |
+
+24/24 Snapshot records 均确认 search results、source-health、revision、index_status 全部相等。Snapshot 候选仍在同一个单读事务中运行。数据库 rows 及 schema/index signature 在结束后恢复；Candidate C 只在 `#[cfg(test)]` 测试路径中。
 
 每个 topology/candidate 的下表 resource 值取同 topology 下该 candidate 的 SQL、no-result Snapshot 与 high-hit Snapshot resource records 的最大采样工作集/private commit；CPU 是这些 records 平均进程 CPU 的范围与最大 observed query 值。内存是整个 Windows 测试进程采样，不是 SQLite 单条语句的分配归因，也不是设备级常驻内存预算。
 
