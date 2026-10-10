@@ -284,7 +284,7 @@ describe("performance profile and manifest contract", () => {
     const invalid = spawnSync(
       process.execPath,
       [script, "--suite=workspace-foundation", "--profile=extended", "--benchmark-id=unknown"],
-      { cwd: process.cwd(), env: process.env, encoding: "utf8" },
+      { cwd: process.cwd(), env: { ...process.env, CI: "false", GITHUB_ACTIONS: "false" }, encoding: "utf8" },
     );
     expect(invalid.status).toBe(1);
     expect(invalid.stderr).toContain("Unknown or ambiguous performance benchmark");
@@ -292,7 +292,7 @@ describe("performance profile and manifest contract", () => {
     const selected = spawnSync(
       process.execPath,
       [script, "--suite=workspace-foundation", "--profile=extended", "--benchmark-id=workspace_foundation_resource_steady_state"],
-      { cwd: process.cwd(), env: process.env, encoding: "utf8" },
+      { cwd: process.cwd(), env: { ...process.env, CI: "false", GITHUB_ACTIONS: "false" }, encoding: "utf8" },
     );
     expect(selected.status).toBe(1);
     expect(selected.stderr).toContain("Prepared binaries are required");
