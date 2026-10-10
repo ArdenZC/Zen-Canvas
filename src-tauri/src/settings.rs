@@ -780,7 +780,7 @@ fn reconcile_versioned_settings_side_effect_failure_locked(
         },
         launch_at_login,
     )
-    .map_err(|error| {
+    .inspect_err(|error| {
         native_qa_settings_trace("rollback_settings_save_failed", || {
             format!(
                 "previous_revision={} failed_revision={} failure={}",
@@ -789,7 +789,6 @@ fn reconcile_versioned_settings_side_effect_failure_locked(
                 settings_error_diagnostic_code(&error)
             )
         });
-        error
     })?;
     native_qa_settings_trace("rollback_settings_persisted", || {
         format!(
