@@ -5759,3 +5759,197 @@ fn global_search_fts_key_only_cte_qualification() {
         "temporary_btree_byte_measurement": "NOT VERIFIED"
     }));
 }
+
+/// A bounded attribution run, not a performance gate or a rerun of #433.
+#[test]
+#[ignore = "opt-in 100k/500k Snapshot attribution; never builds a 1M fixture"]
+fn global_search_snapshot_stage_attribution() {
+    use crate::global_index::repository::snapshot_stage_probe::{
+        capture, linux_process_sample, with_exact_count,
+    };
+    let entries: u64 = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(matches!(entries, 100_000 | 500_000));
+    let context = benchmark_context(entries);
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).unwrap();
+    db.upsert_global_volume(&super::super::test_volume())
+        .unwrap();
+    let (expectations, generation_ms, population_ms, _) = populate_synthetic_database(&db, entries);
+    let conn = configured_connection(&path).unwrap();
+    let signature = schema_index_signature(&conn);
+    assert_entry_triggers_enabled(&conn);
+    emit_record(
+        &json!({"record_type":"snapshot_stage_environment", "context":context,
+        "generation_ms":generation_ms,"population_ms":population_ms,"database":database_metrics(&conn,&path),
+        "sqlite_version":conn.query_row("SELECT sqlite_version()",[],|r|r.get::<_,String>(0)).unwrap(),
+        "fixture":"existing deterministic production-schema generator, triggers and 512-row batches",
+        "candidate":"enabled canonical COUNT(id) plus same-transaction NULL-id correction; source SQL unchanged; Snapshot-only Status count substitution",
+        "timing":"actual Snapshot; trace disabled for latency samples; same-call disjoint stage spans; 5 warmups / 30 alternating pairs",
+        "source_sql_drain_scope":"source helper minus measured row mapping and JSON/hash; includes prepare, stepping, vector growth and statement cleanup",
+        "resource_scope":"process CPU boundaries (Linux getrusage / existing Windows sampler); Linux RSS is lifetime high-water after shared population, not per-variant allocation; SQLite temp bytes UNVERIFIED"}),
+    );
+    for class in [
+        "no_result",
+        "exact_basename",
+        "common_prefix_high_fanout",
+        "fts_substring_report",
+    ] {
+        let index = QUERY_MATRIX.iter().position(|q| q.class == class).unwrap();
+        let case = QUERY_MATRIX[index];
+        let expected = assert_search_results(
+            &conn,
+            case,
+            &expectations[index],
+            SEARCH_RESULT_LIMIT,
+            0,
+            entries,
+        );
+        let oracle = db
+            .search_global_entries_snapshot(case.query, SEARCH_RESULT_LIMIT, 0)
+            .unwrap();
+        assert_eq!(oracle.results, expected);
+        let facts =
+            load_global_search_source_health_candidate(&conn, SourceHealthCandidate::Original)
+                .unwrap();
+        assert_eq!(oracle.source_health, facts.source_health);
+        assert_eq!(oracle.source_revision, facts.source_revision);
+        assert_eq!(oracle.index_status, db.global_index_status().unwrap());
+        let call = |candidate| {
+            if candidate {
+                with_exact_count(|| {
+                    db.search_global_entries_snapshot(case.query, SEARCH_RESULT_LIMIT, 0)
+                })
+            } else {
+                db.search_global_entries_snapshot(case.query, SEARCH_RESULT_LIMIT, 0)
+            }
+        };
+        for _ in 0..PAIRED_WARMUPS {
+            for candidate in [false, true] {
+                assert_snapshot_results_equal(&oracle, &call(candidate).unwrap());
+            }
+        }
+        let mut samples: [std::collections::BTreeMap<&str, Vec<f64>>; 2] = Default::default();
+        let mut raw = Vec::new();
+        for round in 0..PAIRED_SAMPLES {
+            for variant in [round % 2, 1 - round % 2] {
+                let linux_before = linux_process_sample();
+                let ((snapshot, probe), total, resources) =
+                    measure_with_process_counters(|| capture(false, || call(variant == 1)));
+                let linux_after = linux_process_sample();
+                assert_snapshot_results_equal(&oracle, &snapshot.unwrap());
+                assert_eq!(probe.revision_facts_json, facts.revision_facts_json);
+                let mut stages = probe.stages;
+                let source = stages["source"];
+                stages.insert("null_correction", probe.null_correction_ms);
+                stages.insert("status_sql", probe.status_sql_ms + probe.null_correction_ms);
+                stages.insert(
+                    "status_mapping_cleanup",
+                    stages["status"] - probe.status_sql_ms - probe.null_correction_ms,
+                );
+                stages.insert("source_mapping", probe.mapping_ms);
+                stages.insert("source_json_hash", probe.hash_ms);
+                stages.insert(
+                    "source_sql_drain",
+                    source - probe.mapping_ms - probe.hash_ms,
+                );
+                let accounted: f64 = ["pool", "begin", "search", "source", "status", "commit"]
+                    .iter()
+                    .map(|key| stages[key])
+                    .sum();
+                stages.insert("remaining", total - accounted);
+                stages.insert("total", total);
+                for (&stage, &ms) in &stages {
+                    samples[variant].entry(stage).or_default().push(ms);
+                }
+                raw.push(json!({"round":round,"variant":variant,"ms":stages,
+                    "exact_count_parts":probe.exact_count_parts,
+                    "linux_process_cpu_ms": linux_before.zip(linux_after).map(|(before,after)|after.0-before.0),
+                    "linux_process_lifetime_peak_rss_bytes":linux_after.map(|sample|sample.1),
+                    "windows_process_cpu_ms":resources.map(|sample|sample.cpu_time_ms),
+                    "windows_boundary_working_set_bytes":resources.map(|sample|sample.working_set_bytes)}));
+            }
+        }
+        let summaries: Vec<_> = samples
+            .iter()
+            .map(|stages| {
+                stages
+                    .iter()
+                    .map(|(&stage, values)| (stage, summarize_samples(values)))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            })
+            .collect();
+        let mut work = Vec::new();
+        for variant in [0, 1] {
+            let (snapshot, probe) = capture(true, || call(variant == 1));
+            assert_snapshot_results_equal(&oracle, &snapshot.unwrap());
+            let statements: Vec<_> = probe
+                .statements
+                .into_iter()
+                .map(|mut statement| {
+                    let sql = statement["sql"].as_str().unwrap();
+                    let plans = explain_details(&conn, sql, &[]);
+                    statement["query_plan"] = json!(plans);
+                    statement
+                })
+                .collect();
+            work.push(json!({"variant":variant,"actual_same_call_statements":statements}));
+        }
+        let source_work = |variant: usize| {
+            work[variant]["actual_same_call_statements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|statement| statement["stage"] == "source")
+                .map(|statement| (statement["sql"].clone(), statement["vm_steps"].clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            source_work(0),
+            source_work(1),
+            "canonical source SQL and VM work are unchanged"
+        );
+        let candidate_status = work[1]["actual_same_call_statements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|statement| statement["stage"] == "status")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            candidate_status.len(),
+            2,
+            "NULL correction plus original status with bound count"
+        );
+        assert!(candidate_status.iter().any(|statement| statement["sql"]
+            .as_str()
+            .unwrap()
+            .contains("entry.id IS NULL")));
+        assert!(
+            !candidate_status.iter().any(|statement| {
+                let sql = statement["sql"].as_str().unwrap();
+                sql.contains("entry.is_stale = 0 AND volume.enabled = 1")
+                    && !sql.contains("entry.id IS NULL")
+            }),
+            "candidate does not execute the original entries recount"
+        );
+        emit_record(
+            &json!({"record_type":"snapshot_stage_paired","context":context,"query_class":class,
+            "query":case.query,"variants":["master","exact_count_null_correction"],"latency_ms":summaries,
+            "raw_paired_samples":raw,"executed_work":work,"all_snapshot_fields_and_independent_oracles_equal":true,
+            "plans_scope":"EXPLAIN after timed call; expanded SQL and VM/Sort/Fullscan from a separate traced actual Snapshot call per variant; not separately replayed SQL counters"}),
+        );
+    }
+    let correction_tx = conn.unchecked_transaction().unwrap();
+    emit_record(
+        &json!({"record_type":"snapshot_null_correction_research","context":context,
+        "evidence":crate::global_index::repository::snapshot_stage_probe::null_correction_evidence(&correction_tx)}),
+    );
+    correction_tx.commit().unwrap();
+    assert_eq!(signature, schema_index_signature(&conn));
+    emit_record(
+        &json!({"record_type":"snapshot_stage_complete","context":context,"schema_indexes_triggers_unchanged":true}),
+    );
+}
